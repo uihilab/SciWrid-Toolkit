@@ -1,0 +1,314 @@
+{
+  "source": "../examples/gfs.t06z.pgrb2.1p00.anl.grb2",
+  "fields_found": 30,
+  "fields_normalized": 7,
+  "fields": [
+    {
+      "name": "Pressure reduced to MSL",
+      "cat": 3,
+      "num": 1,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Precipitable water category",
+      "cat": 1,
+      "num": 22,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Hail",
+      "cat": 1,
+      "num": 23,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Graupel",
+      "cat": 1,
+      "num": 24,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Freezing rain",
+      "cat": 1,
+      "num": 25,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Percent frozen precipitation",
+      "cat": 1,
+      "num": 32,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Geopotential height",
+      "cat": 3,
+      "num": 5,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": true,
+      "refs": "geopotential_height.refs.json"
+    },
+    {
+      "name": "Temperature",
+      "cat": 0,
+      "num": 0,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": true,
+      "refs": "temperature.refs.json"
+    },
+    {
+      "name": "Relative humidity",
+      "cat": 1,
+      "num": 1,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": true,
+      "refs": "relative_humidity.refs.json"
+    },
+    {
+      "name": "Specific humidity",
+      "cat": 1,
+      "num": 0,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": true,
+      "refs": "specific_humidity.refs.json"
+    },
+    {
+      "name": "Vertical velocity",
+      "cat": 2,
+      "num": 8,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Wind (unknown)",
+      "cat": 2,
+      "num": 9,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "U-component of wind",
+      "cat": 2,
+      "num": 2,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": true,
+      "refs": "u_component_of_wind.refs.json"
+    },
+    {
+      "name": "V-component of wind",
+      "cat": 2,
+      "num": 3,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": true,
+      "refs": "v_component_of_wind.refs.json"
+    },
+    {
+      "name": "Wind (unknown)",
+      "cat": 2,
+      "num": 10,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Variable (cat=14, num=192)",
+      "cat": 14,
+      "num": 192,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Pressure/Height (unknown)",
+      "cat": 3,
+      "num": 192,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Pressure",
+      "cat": 3,
+      "num": 0,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": true,
+      "refs": "pressure.refs.json"
+    },
+    {
+      "name": "Precipitation rate",
+      "cat": 1,
+      "num": 7,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Temperature (unknown)",
+      "cat": 0,
+      "num": 4,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Moisture (unknown)",
+      "cat": 7,
+      "num": 192,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Evaporation",
+      "cat": 7,
+      "num": 6,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Precipitation rate",
+      "cat": 7,
+      "num": 7,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Precipitable water",
+      "cat": 1,
+      "num": 3,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Cloud ice mixing ratio",
+      "cat": 6,
+      "num": 6,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Variable (cat=14, num=0)",
+      "cat": 14,
+      "num": 0,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Pressure/Height (unknown)",
+      "cat": 3,
+      "num": 3,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Wind (unknown)",
+      "cat": 2,
+      "num": 192,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Moisture (unknown)",
+      "cat": 7,
+      "num": 193,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    },
+    {
+      "name": "Temperature anomaly",
+      "cat": 0,
+      "num": 2,
+      "grid_template": 0,
+      "data_template": 3,
+      "nx": 360,
+      "ny": 181,
+      "normalized": false
+    }
+  ]
+}

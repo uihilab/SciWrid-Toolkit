@@ -1,0 +1,184 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "Webparsers Normalized Refs v1",
+  "description": "Sprint 1 normalized refs schema for the webparsers C runtime query engine. One refs file = one variable = one source dataset. The C runtime loads this file once and runs many queries against it without loading the full source data.",
+  "type": "object",
+  "required": ["version", "source_path", "variable", "coordinates", "chunk_index"],
+  "additionalProperties": false,
+
+  "properties": {
+
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Must be 1 for this spec. Increment when the schema is not backward-compatible."
+    },
+
+    "source_path": {
+      "type": "string",
+      "description": "Path to the binary data file that chunk_index offsets point into. May be absolute or relative to the refs file. For GRIB2 sources: the offline normalizer decodes to a companion .bin file and sets this to that path. For NetCDF4 sources: may point directly to the .nc file if HDF5 chunk layout is preserved."
+    },
+
+    "format": {
+      "type": "string",
+      "enum": ["raw_f32le", "zlib_f32le"],
+      "description": "Encoding of raw chunk bytes in source_path. raw_f32le: IEEE 754 float32 little-endian, no compression. zlib_f32le: zlib-compressed IEEE 754 float32 little-endian. The C runtime uses this to select the chunk decoder.",
+      "default": "raw_f32le"
+    },
+
+    "variable": {
+      "type": "object",
+      "required": ["name", "dtype", "shape", "chunks", "compression", "dimensions"],
+      "additionalProperties": false,
+      "description": "Metadata for the one variable stored in this refs file.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variable name as it appears in the source dataset (e.g. '2t', 'temperature_2m', 'TMP')."
+        },
+        "long_name": {
+          "type": "string",
+          "description": "Human-readable description (e.g. '2 metre temperature')."
+        },
+        "dtype": {
+          "type": "string",
+          "enum": ["f32le", "f64le", "i16le", "i32le"],
+          "description": "Data type of decoded values. Sprint 1 runtime supports f32le only."
+        },
+        "shape": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Full dataset shape as [nt, nlat, nlon]. Must match the length of coordinate arrays."
+        },
+        "chunks": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Chunk shape as [ct, clat, clon]. Sprint 1: always [1, nlat, nlon] — one full spatial grid per time step. Sub-spatial chunks are deferred to later sprints."
+        },
+        "compression": {
+          "type": "string",
+          "enum": ["none", "zlib"],
+          "description": "Compression applied to each chunk in source_path. 'none' = raw float32 bytes. 'zlib' = zlib-deflate compressed float32 bytes. The C runtime links -lz when zlib is used."
+        },
+        "fill_value": {
+          "type": "number",
+          "description": "Sentinel value used to mark missing or masked data points. The query engine replaces fill_value with NaN before returning results."
+        },
+        "units": {
+          "type": "string",
+          "description": "Physical units of the variable (e.g. 'K', 'm s**-1', 'kg m**-2')."
+        },
+        "dimensions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 3,
+          "maxItems": 3,
+          "const": ["time", "lat", "lon"],
+          "description": "Ordered dimension names. Sprint 1 requires exactly ['time', 'lat', 'lon']."
+        }
+      }
+    },
+
+    "coordinates": {
+      "type": "object",
+      "required": ["time", "lat", "lon"],
+      "additionalProperties": false,
+      "description": "Coordinate arrays stored inline as base64-encoded little-endian binary. Kept small enough to decode entirely at session startup.",
+      "properties": {
+        "time": {
+          "$ref": "#/definitions/coordinate_array",
+          "description": "Time axis. dtype must be i64. Values are Unix timestamps in seconds (integer). Length must equal shape[0]."
+        },
+        "lat": {
+          "$ref": "#/definitions/coordinate_array",
+          "description": "Latitude axis in degrees north, monotonically increasing or decreasing. dtype must be f32. Length must equal shape[1]."
+        },
+        "lon": {
+          "$ref": "#/definitions/coordinate_array",
+          "description": "Longitude axis in degrees east, monotonically increasing. dtype must be f32. Values may span [0, 360) or [-180, 180). Length must equal shape[2]."
+        }
+      }
+    },
+
+    "chunk_index": {
+      "type": "object",
+      "description": "Map from chunk key to byte range in source_path. Keys use the format 'ti.lati.loni' where ti is the time-chunk index, lati the lat-chunk index, loni the lon-chunk index. In Sprint 1 (chunks=[1,nlat,nlon]), keys are '0.0.0', '1.0.0', ..., '{nt-1}.0.0'.",
+      "additionalProperties": {
+        "$ref": "#/definitions/chunk_entry"
+      }
+    }
+
+  },
+
+  "definitions": {
+
+    "coordinate_array": {
+      "type": "object",
+      "required": ["dtype", "values_inline_base64"],
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "type": "string",
+          "enum": ["f32", "f64", "i32", "i64"],
+          "description": "Little-endian element type of the coordinate array."
+        },
+        "values_inline_base64": {
+          "type": "string",
+          "description": "Base64-encoded raw little-endian bytes of the coordinate array. Decode length must equal the corresponding shape dimension * sizeof(dtype)."
+        }
+      }
+    },
+
+    "chunk_entry": {
+      "type": "object",
+      "required": ["offset", "length"],
+      "additionalProperties": false,
+      "properties": {
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Byte offset from the start of source_path to the beginning of this chunk."
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of bytes to read for this chunk starting at offset. For compression=none: length = clat * clon * sizeof(dtype). For compression=zlib: length is the compressed size."
+        }
+      }
+    }
+
+  },
+
+  "examples": [
+    {
+      "version": 1,
+      "source_path": "era5_2t.bin",
+      "format": "raw_f32le",
+      "variable": {
+        "name": "2t",
+        "long_name": "2 metre temperature",
+        "dtype": "f32le",
+        "shape": [24, 721, 1440],
+        "chunks": [1, 721, 1440],
+        "compression": "none",
+        "fill_value": 9.96920996838686905e+36,
+        "units": "K",
+        "dimensions": ["time", "lat", "lon"]
+      },
+      "coordinates": {
+        "time": { "dtype": "i64", "values_inline_base64": "<base64>" },
+        "lat":  { "dtype": "f32", "values_inline_base64": "<base64>" },
+        "lon":  { "dtype": "f32", "values_inline_base64": "<base64>" }
+      },
+      "chunk_index": {
+        "0.0.0": { "offset": 0,          "length": 4151520 },
+        "1.0.0": { "offset": 4151520,    "length": 4151520 },
+        "2.0.0": { "offset": 8303040,    "length": 4151520 }
+      }
+    }
+  ]
+}
