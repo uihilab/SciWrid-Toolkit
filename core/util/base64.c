@@ -28,3 +28,34 @@ void base64_encode(const uint8_t* src, size_t src_len, char* out) {
 
     out[j] = '\0';
 }
+
+size_t base64_decode_len(size_t src_len) {
+    return (src_len / 4) * 3 + 3;
+}
+
+static int b64_val(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+size_t base64_decode(const char* src, uint8_t* out) {
+    size_t len = 0;
+    while (*src) {
+        int a = b64_val(*src++); if (a < 0 || !*src) break;
+        int b = b64_val(*src++); if (b < 0) break;
+        out[len++] = (uint8_t)((a << 2) | (b >> 4));
+
+        if (!*src || *src == '=') break;
+        int c = b64_val(*src++); if (c < 0) break;
+        out[len++] = (uint8_t)(((b & 0xF) << 4) | (c >> 2));
+
+        if (!*src || *src == '=') break;
+        int d = b64_val(*src++); if (d < 0) break;
+        out[len++] = (uint8_t)(((c & 0x3) << 6) | d);
+    }
+    return len;
+}
