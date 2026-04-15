@@ -27,6 +27,7 @@ struct refs_dataset {
     float*   lons;          /* [nx] */
     int64_t* times;         /* [nt] */
     FILE*    bin_f;         /* open handle to .bin file */
+    int      is_timeseries; /* 0 = point/level data, 1 = real time series */
 };
 
 /* =========================================================================
@@ -141,40 +142,105 @@ refs_dataset_t* refs_open(const char* refs_json_path) {
     json[rd] = '\0';
     fclose(f);
 
-    /* Parse metadata */
+    /* =====================================================================
+     * Schema validation — check all required fields before using them
+     * =================================================================== */
+
+    /* 1. Required string fields */
     char* var_name    = json_get_string(json, "name");
     char* source_path = json_get_string(json, "source_path");
-    if (!var_name || !source_path) {
-        fprintf(stderr, "Error: cannot parse refs JSON metadata\n");
+    if (!var_name) {
+        fprintf(stderr, "Validation error: missing 'name' field\n");
         free(json); return NULL;
     }
+    if (!source_path) {
+        fprintf(stderr, "Validation error: missing 'source_path' field\n");
+        free(var_name); free(json); return NULL;
+    }
 
+    /* 2. Shape must be exactly 3 elements: [nt, ny, nx] */
     int shape_len = 0;
     uint32_t* shape = json_get_int_array(json, "shape", &shape_len);
-    if (!shape || shape_len != 3) {
-        fprintf(stderr, "Error: cannot parse shape\n");
-        free(json); return NULL;
+    if (!shape) {
+        fprintf(stderr, "Validation error: missing 'shape' field\n");
+        free(var_name); free(source_path); free(json); return NULL;
+    }
+    if (shape_len != 3) {
+        fprintf(stderr, "Validation error: 'shape' must have 3 elements [nt, ny, nx], got %d\n", shape_len);
+        free(shape); free(var_name); free(source_path); free(json); return NULL;
+    }
+    if (shape[0] == 0 || shape[1] == 0 || shape[2] == 0) {
+        fprintf(stderr, "Validation error: shape dimensions must be > 0, got [%u, %u, %u]\n",
+                shape[0], shape[1], shape[2]);
+        free(shape); free(var_name); free(source_path); free(json); return NULL;
     }
 
-    /* Decode coordinates */
+    /* 3. Decode and validate coordinate arrays */
     size_t tb = 0, lb = 0, lob = 0;
     uint8_t* time_raw = json_get_coord_b64(json, "time", &tb);
     uint8_t* lat_raw  = json_get_coord_b64(json, "lat",  &lb);
     uint8_t* lon_raw  = json_get_coord_b64(json, "lon",  &lob);
-    if (!time_raw || !lat_raw || !lon_raw) {
-        fprintf(stderr, "Error: cannot decode coordinate arrays\n");
-        free(json); return NULL;
+    if (!time_raw) {
+        fprintf(stderr, "Validation error: missing or invalid 'time' coordinate\n");
+        free(shape); free(var_name); free(source_path); free(json); return NULL;
+    }
+    if (!lat_raw) {
+        fprintf(stderr, "Validation error: missing or invalid 'lat' coordinate\n");
+        free(time_raw); free(shape); free(var_name); free(source_path); free(json); return NULL;
+    }
+    if (!lon_raw) {
+        fprintf(stderr, "Validation error: missing or invalid 'lon' coordinate\n");
+        free(lat_raw); free(time_raw); free(shape); free(var_name); free(source_path); free(json); return NULL;
     }
 
-    /* Open .bin file */
+    /* 4. Coordinate array sizes must match shape dimensions */
+    size_t expect_time_bytes = (size_t)shape[0] * sizeof(int64_t);
+    size_t expect_lat_bytes  = (size_t)shape[1] * sizeof(float);
+    size_t expect_lon_bytes  = (size_t)shape[2] * sizeof(float);
+    if (tb != expect_time_bytes) {
+        fprintf(stderr, "Validation error: time array size mismatch: got %zu bytes, expected %zu (nt=%u)\n",
+                tb, expect_time_bytes, shape[0]);
+        free(lon_raw); free(lat_raw); free(time_raw);
+        free(shape); free(var_name); free(source_path); free(json); return NULL;
+    }
+    if (lb != expect_lat_bytes) {
+        fprintf(stderr, "Validation error: lat array size mismatch: got %zu bytes, expected %zu (ny=%u)\n",
+                lb, expect_lat_bytes, shape[1]);
+        free(lon_raw); free(lat_raw); free(time_raw);
+        free(shape); free(var_name); free(source_path); free(json); return NULL;
+    }
+    if (lob != expect_lon_bytes) {
+        fprintf(stderr, "Validation error: lon array size mismatch: got %zu bytes, expected %zu (nx=%u)\n",
+                lob, expect_lon_bytes, shape[2]);
+        free(lon_raw); free(lat_raw); free(time_raw);
+        free(shape); free(var_name); free(source_path); free(json); return NULL;
+    }
+
+    /* 5. Open and validate .bin file */
     char* bin_path = resolve_bin(refs_json_path, source_path);
     FILE* bin_f = fopen(bin_path, "rb");
     if (!bin_f) {
-        fprintf(stderr, "Error: cannot open bin file '%s'\n", bin_path);
-        free(json); free(bin_path); return NULL;
+        fprintf(stderr, "Validation error: cannot open bin file '%s'\n", bin_path);
+        free(bin_path); free(lon_raw); free(lat_raw); free(time_raw);
+        free(shape); free(var_name); free(source_path); free(json); return NULL;
     }
 
-    /* Build dataset */
+    /* 6. Verify .bin file size matches expected data size */
+    fseek(bin_f, 0, SEEK_END);
+    long bin_sz = ftell(bin_f);
+    fseek(bin_f, 0, SEEK_SET);
+    uint64_t expect_bin = (uint64_t)shape[0] * shape[1] * shape[2] * sizeof(float);
+    if (bin_sz < 0 || (uint64_t)bin_sz != expect_bin) {
+        fprintf(stderr, "Validation error: bin file size mismatch: got %ld bytes, expected %llu "
+                "(shape %u x %u x %u x 4)\n",
+                bin_sz, (unsigned long long)expect_bin, shape[0], shape[1], shape[2]);
+        fclose(bin_f); free(bin_path); free(lon_raw); free(lat_raw); free(time_raw);
+        free(shape); free(var_name); free(source_path); free(json); return NULL;
+    }
+
+    /* =====================================================================
+     * All checks passed — build dataset
+     * =================================================================== */
     refs_dataset_t* ds = (refs_dataset_t*)calloc(1, sizeof(refs_dataset_t));
     ds->var_name    = var_name;
     ds->source_path = source_path;
@@ -186,6 +252,10 @@ refs_dataset_t* refs_open(const char* refs_json_path) {
     ds->lats        = (float*)lat_raw;
     ds->lons        = (float*)lon_raw;
     ds->bin_f       = bin_f;
+
+    /* Detect time series vs point/level data:
+     * if first and last timestamps are the same, it's point data (e.g. pressure levels) */
+    ds->is_timeseries = (ds->nt > 1 && ds->times[0] != ds->times[ds->nt - 1]) ? 1 : 0;
 
     free(shape);
     free(json);
@@ -211,6 +281,7 @@ uint32_t       refs_nt(const refs_dataset_t* ds) { return ds->nt; }
 const float*   refs_lats(const refs_dataset_t* ds) { return ds->lats; }
 const float*   refs_lons(const refs_dataset_t* ds) { return ds->lons; }
 const int64_t* refs_times(const refs_dataset_t* ds) { return ds->times; }
+int            refs_is_timeseries(const refs_dataset_t* ds) { return ds->is_timeseries; }
 
 /* =========================================================================
  * Timestamp formatting
@@ -340,33 +411,60 @@ int refs_query_to_json(refs_dataset_t* ds,
     float* chunk = (float*)malloc((size_t)ds->ny * ds->nx * sizeof(float));
     if (!chunk) { free(t_idx); return -1; }
 
+    int single_point = (lat_idx >= 0 && lon_idx >= 0);
+
     fprintf(out_f, "{\n");
     fprintf(out_f, "  \"variable\": \"%s\",\n", ds->var_name);
     fprintf(out_f, "  \"grid\": { \"nx\": %u, \"ny\": %u, \"nt\": %u },\n",
             ds->nx, ds->ny, ds->nt);
-    fprintf(out_f, "  \"results\": [\n");
 
-    int first = 1;
-    for (uint32_t ti = 0; ti < t_cnt; ti++) {
-        uint32_t t = t_idx[ti];
-        if (refs_read_timestep(ds, t, chunk) != 0) continue;
+    if (single_point) {
+        /* Time series at a single location */
+        fprintf(out_f, "  \"location\": { \"lat\": %.4f, \"lon\": %.4f },\n",
+                (double)ds->lats[lat_start], (double)ds->lons[lon_start]);
+        fprintf(out_f, "  \"timeseries\": [\n");
 
-        char ts[64];
-        refs_unix_to_iso8601(ds->times[t], ts, sizeof(ts));
+        int first = 1;
+        for (uint32_t ti = 0; ti < t_cnt; ti++) {
+            uint32_t t = t_idx[ti];
+            if (refs_read_timestep(ds, t, chunk) != 0) continue;
 
-        for (uint32_t j = lat_start; j < lat_end; j++) {
-            for (uint32_t i = lon_start; i < lon_end; i++) {
-                if (!first) fprintf(out_f, ",\n");
-                first = 0;
-                fprintf(out_f,
-                    "    {\"time\": \"%s\", \"lat\": %.4f, \"lon\": %.4f, \"value\": %.6g}",
-                    ts, (double)ds->lats[j], (double)ds->lons[i],
-                    (double)chunk[j * ds->nx + i]);
+            char ts[64];
+            refs_unix_to_iso8601(ds->times[t], ts, sizeof(ts));
+
+            if (!first) fprintf(out_f, ",\n");
+            first = 0;
+            fprintf(out_f, "    {\"time\": \"%s\", \"value\": %.6g}",
+                    ts, (double)chunk[lat_start * ds->nx + lon_start]);
+        }
+
+        fprintf(out_f, "\n  ]\n}\n");
+    } else {
+        /* Full grid or partial query — include lat/lon per result */
+        fprintf(out_f, "  \"results\": [\n");
+
+        int first = 1;
+        for (uint32_t ti = 0; ti < t_cnt; ti++) {
+            uint32_t t = t_idx[ti];
+            if (refs_read_timestep(ds, t, chunk) != 0) continue;
+
+            char ts[64];
+            refs_unix_to_iso8601(ds->times[t], ts, sizeof(ts));
+
+            for (uint32_t j = lat_start; j < lat_end; j++) {
+                for (uint32_t i = lon_start; i < lon_end; i++) {
+                    if (!first) fprintf(out_f, ",\n");
+                    first = 0;
+                    fprintf(out_f,
+                        "    {\"time\": \"%s\", \"lat\": %.4f, \"lon\": %.4f, \"value\": %.6g}",
+                        ts, (double)ds->lats[j], (double)ds->lons[i],
+                        (double)chunk[j * ds->nx + i]);
+                }
             }
         }
-    }
 
-    fprintf(out_f, "\n  ]\n}\n");
+        fprintf(out_f, "\n  ]\n}\n");
+    }
 
     free(chunk);
     free(t_idx);

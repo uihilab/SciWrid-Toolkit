@@ -1,0 +1,2 @@
+## To combine these file run this:
+cat gfs.t06z.pgrb2.1p00.f000 gfs.t06z.pgrb2.1p00.f006 gfs.t06z.pgrb2.1p00.f012 gfs.t06z.pgrb2.1p00.f018 gfs.t06z.pgrb2.1p00.f024 > gfs_timeseries.grb2

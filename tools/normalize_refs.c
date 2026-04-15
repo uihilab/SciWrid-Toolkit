@@ -560,21 +560,43 @@ int main(int argc, char** argv) {
             me->normalized = 0;
             me->refs_file[0] = '\0';
 
+            if (grid_tmpl != 0 && grid_tmpl != 40) { skipped++; continue; }
+
+            /* Use VAR_TABLE name if available, otherwise build from cat/num */
             const char* vname = NULL;
             for (int v = 0; v < VAR_TABLE_LEN; v++) {
                 if (VAR_TABLE[v].cat == cat && VAR_TABLE[v].num == num) {
                     vname = VAR_TABLE[v].name; break;
                 }
             }
-            if (!vname) { skipped++; continue; }
-            if (grid_tmpl != 0 && grid_tmpl != 40) { skipped++; continue; }
+
+            /* Build a safe filename */
+            char safe_name[256];
+            if (vname) {
+                snprintf(safe_name, sizeof(safe_name), "%s", vname);
+            } else {
+                /* Sanitize the metadata name for use as filename */
+                const char* meta_name = grib2_get_variable_name(cat, num);
+                size_t j = 0;
+                for (size_t k = 0; meta_name[k] && j < sizeof(safe_name) - 1; k++) {
+                    char ch = meta_name[k];
+                    if (ch == ' ' || ch == '/' || ch == '\\' || ch == '(' || ch == ')' || ch == ',')
+                        ch = '_';
+                    if (ch == '=' || ch == '"' || ch == '\'')
+                        continue;
+                    safe_name[j++] = (char)(ch >= 'A' && ch <= 'Z' ? ch + 32 : ch);
+                }
+                safe_name[j] = '\0';
+                /* Trim trailing underscores */
+                while (j > 0 && safe_name[j-1] == '_') safe_name[--j] = '\0';
+            }
 
             char refs_path[4096];
             snprintf(refs_path, sizeof(refs_path), "%s%s.refs.json",
-                     out_path, vname);
+                     out_path, safe_name);
 
             printf("[%s]  cat=%u num=%u  grid=%u data=%u  %ux%u\n",
-                   vname, cat, num, grid_tmpl, data_tmpl, nx, ny);
+                   safe_name, cat, num, grid_tmpl, data_tmpl, nx, ny);
 
             int rc = normalize_grib2(data, file_len, msgs, n_msgs,
                                      cat, num, refs_path);
@@ -583,7 +605,7 @@ int main(int argc, char** argv) {
                 skipped++;
             } else {
                 me->normalized = 1;
-                snprintf(me->refs_file, sizeof(me->refs_file), "%s.refs.json", vname);
+                snprintf(me->refs_file, sizeof(me->refs_file), "%s.refs.json", safe_name);
                 done++;
                 printf("\n");
             }

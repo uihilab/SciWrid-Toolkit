@@ -167,15 +167,22 @@ int main(void) {
         }
 
         printf("\n");
+        int is_ts = refs_is_timeseries(ds);
         printf("  Variable : %s\n", refs_variable_name(ds));
-        printf("  Grid     : %u x %u  (%u time steps)\n",
-               refs_nx(ds), refs_ny(ds), refs_nt(ds));
+        printf("  Mode     : %s\n", is_ts ? "Time Series" : "Point / Level Data");
+        printf("  Grid     : %u x %u  (%u %s)\n",
+               refs_nx(ds), refs_ny(ds), refs_nt(ds),
+               is_ts ? "time steps" : "levels");
 
         /* Show time range */
         char ts_first[64], ts_last[64];
         refs_unix_to_iso8601(refs_times(ds)[0], ts_first, sizeof(ts_first));
         refs_unix_to_iso8601(refs_times(ds)[refs_nt(ds)-1], ts_last, sizeof(ts_last));
-        printf("  Time     : %s  ..  %s\n", ts_first, ts_last);
+        if (is_ts) {
+            printf("  Time     : %s  ..  %s\n", ts_first, ts_last);
+        } else {
+            printf("  Time     : %s  (single analysis time)\n", ts_first);
+        }
 
         /* Show lat/lon range */
         const float* lats = refs_lats(ds);
@@ -186,44 +193,87 @@ int main(void) {
                (double)lons[0], (double)lons[refs_nx(ds)-1]);
         printf("\n");
 
-        /* ---- Ask for time step ---- */
-        printf("Time steps available:\n");
+        /* ---- Ask for time step / level ---- */
         uint32_t nt = refs_nt(ds);
         const int64_t* times = refs_times(ds);
-
-        /* Show up to 10 time steps, then "..." */
-        uint32_t show_max = nt < 10 ? nt : 10;
-        for (uint32_t t = 0; t < show_max; t++) {
-            char ts[64];
-            refs_unix_to_iso8601(times[t], ts, sizeof(ts));
-            printf("  [%u] %s  (unix: %lld)\n", t + 1, ts, (long long)times[t]);
-        }
-        if (nt > show_max)
-            printf("  ... and %u more\n", nt - show_max);
-        printf("  [a] All time steps\n\n");
 
         uint32_t  time_idx = 0;
         uint32_t* time_indices = NULL;
         uint32_t  time_count = 0;
         int       all_times = 0;
 
-        if (read_line("Select time step (number, 'a' for all): ", input, sizeof(input)) < 0) {
-            refs_close(ds); break;
-        }
+        if (is_ts) {
+            /* TIME SERIES MODE — let user pick t1 and t2 by index */
+            printf("Time steps available:\n");
+            for (uint32_t t = 0; t < nt; t++) {
+                char ts[64];
+                refs_unix_to_iso8601(times[t], ts, sizeof(ts));
+                printf("  [%u] %s\n", t + 1, ts);
+            }
+            printf("  [a] All time steps\n\n");
 
-        if (input[0] == 'a' || input[0] == 'A') {
-            all_times = 1;
-            time_count = nt;
-        } else {
-            int tn = atoi(input);
-            if (tn >= 1 && tn <= (int)nt) {
-                time_idx = (uint32_t)(tn - 1);
-                time_indices = &time_idx;
-                time_count = 1;
-            } else {
-                printf("  Invalid selection, using all time steps.\n");
+            if (read_line("Start time step t1 (number, 'a' for all): ", input, sizeof(input)) < 0) {
+                refs_close(ds); break;
+            }
+
+            if (input[0] == 'a' || input[0] == 'A') {
                 all_times = 1;
                 time_count = nt;
+            } else {
+                int t1 = atoi(input);
+                if (t1 < 1 || t1 > (int)nt) {
+                    printf("  Invalid selection, using all.\n");
+                    all_times = 1;
+                    time_count = nt;
+                } else {
+                    if (read_line("End time step t2   (number, Enter=same as t1): ", input, sizeof(input)) < 0) {
+                        refs_close(ds); break;
+                    }
+                    int t2 = (strlen(input) > 0) ? atoi(input) : t1;
+                    if (t2 < t1) t2 = t1;
+                    if (t2 > (int)nt) t2 = (int)nt;
+
+                    time_count = (uint32_t)(t2 - t1 + 1);
+                    uint32_t* t_buf = (uint32_t*)malloc(time_count * sizeof(uint32_t));
+                    for (uint32_t i = 0; i < time_count; i++)
+                        t_buf[i] = (uint32_t)(t1 - 1 + i);
+                    time_indices = t_buf;
+
+                    char ts1[64], ts2[64];
+                    refs_unix_to_iso8601(times[t1 - 1], ts1, sizeof(ts1));
+                    refs_unix_to_iso8601(times[t2 - 1], ts2, sizeof(ts2));
+                    printf("  Selected %u time steps: %s .. %s\n", time_count, ts1, ts2);
+                }
+            }
+        } else {
+            /* POINT / LEVEL MODE — let user pick a level */
+            printf("Pressure levels available:\n");
+            uint32_t show_max = nt < 20 ? nt : 20;
+            for (uint32_t t = 0; t < show_max; t++) {
+                printf("  [%u] Level %u\n", t + 1, t + 1);
+            }
+            if (nt > show_max)
+                printf("  ... and %u more\n", nt - show_max);
+            printf("  [a] All levels\n\n");
+
+            if (read_line("Select level (number, 'a' for all): ", input, sizeof(input)) < 0) {
+                refs_close(ds); break;
+            }
+
+            if (input[0] == 'a' || input[0] == 'A') {
+                all_times = 1;
+                time_count = nt;
+            } else {
+                int tn = atoi(input);
+                if (tn >= 1 && tn <= (int)nt) {
+                    time_idx = (uint32_t)(tn - 1);
+                    time_indices = &time_idx;
+                    time_count = 1;
+                } else {
+                    printf("  Invalid selection, using all levels.\n");
+                    all_times = 1;
+                    time_count = nt;
+                }
             }
         }
 
@@ -268,6 +318,10 @@ int main(void) {
 
         fclose(out_f);
         printf("  Output written to: %s\n", out_path);
+
+        /* Free time range buffer if allocated (time series mode) */
+        if (is_ts && !all_times && time_indices != NULL && time_indices != &time_idx)
+            free(time_indices);
 
         refs_close(ds);
         printf("\n--------------------------------------------\n\n");
