@@ -29,6 +29,7 @@ uint32_t       refs_nt(const refs_dataset_t* ds);
 const float*   refs_lats(const refs_dataset_t* ds);
 const float*   refs_lons(const refs_dataset_t* ds);
 const int64_t* refs_times(const refs_dataset_t* ds);
+int            refs_is_timeseries(const refs_dataset_t* ds);
 
 /* Format a Unix timestamp as ISO 8601 string */
 void refs_unix_to_iso8601(int64_t ts, char* buf, size_t buf_sz);

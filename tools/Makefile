@@ -24,7 +24,7 @@ QUERY_SRCS = main.c \
              ../core/util/base64.c
 QUERY_TARGET = query.exe
 
-EXAMPLE = ../examples/gfs.t06z.pgrb2.1p00.anl.grb2
+EXAMPLE = ../examples/timeseries/gfs_timeseries.grb2
 DATADIR = ../data/
 
 .PHONY: all clean data query
