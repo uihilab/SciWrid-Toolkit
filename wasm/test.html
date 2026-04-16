@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>webparsers - GRIB2 Query Tool</title>
+  <style>
+    body { font-family: monospace; margin: 2rem; background: #1a1a2e; color: #e0e0e0; }
+    h1 { color: #00d4ff; }
+    .section { margin: 1rem 0; padding: 1rem; background: #16213e; border-radius: 8px; }
+    .label { color: #00d4ff; font-weight: bold; }
+    button { padding: 8px 16px; margin: 4px; background: #0f3460; color: white;
+             border: 1px solid #00d4ff; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #00d4ff; color: #1a1a2e; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    pre { background: #0f0f23; padding: 1rem; border-radius: 4px; overflow-x: auto;
+          max-height: 400px; overflow-y: auto; }
+    input[type="number"], select { padding: 6px; margin: 4px; background: #0f3460; color: white;
+            border: 1px solid #444; border-radius: 4px; }
+    input[type="number"] { width: 120px; }
+    input[type="checkbox"] { accent-color: #00d4ff; transform: scale(1.2); margin-right: 6px; }
+    .error { color: #ff4444; }
+    .success { color: #44ff44; }
+    .warn { color: #ffaa00; }
+    #status { margin: 1rem 0; font-size: 14px; }
+    table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
+    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #333; }
+    th { color: #00d4ff; }
+    tr:hover { background: #0f3460; }
+    tr.unsupported { opacity: 0.4; }
+    .select-btns { margin: 0.5rem 0; }
+    .select-btns button { font-size: 12px; padding: 4px 10px; }
+  </style>
+</head>
+<body>
+  <h1>webparsers - GRIB2 Query Tool</h1>
+  <div id="status">Loading WASM module...</div>
+
+  <!-- Step 1: Load GRIB2 file -->
+  <div class="section">
+    <span class="label">Step 1: Load GRIB2 File</span><br><br>
+    <input type="file" id="grb-file" accept=".grb2,.grib2,.grb">
+    <button id="btn-scan">Scan File</button>
+    <span id="scan-status"></span>
+  </div>
+
+  <!-- Step 2: Variable list -->
+  <div class="section" id="vars-section" style="display:none">
+    <span class="label">Step 2: Select Variables</span>
+    <div class="select-btns">
+      <button onclick="selectAll(true)">Select All</button>
+      <button onclick="selectAll(false)">Deselect All</button>
+    </div>
+    <div id="vars-table"></div>
+  </div>
+
+  <!-- Step 3: Query parameters -->
+  <div class="section" id="query-section" style="display:none">
+    <span class="label">Step 3: Query Parameters</span><br><br>
+    <label>t1: <input type="number" id="q-t1" value="0" min="0"></label>
+    <label>t2: <input type="number" id="q-t2" value="0" min="0"></label>
+    <label>Lat: <input type="number" id="q-lat" step="0.1" placeholder="all"></label>
+    <label>Lon: <input type="number" id="q-lon" step="0.1" placeholder="all"></label>
+    <br><br>
+    <button id="btn-query">Decode & Query Selected</button>
+    <button id="btn-download" disabled>Download Result</button>
+    <div id="progress" style="margin-top: 8px;"></div>
+  </div>
+
+  <!-- Step 4: Results -->
+  <div class="section" id="result-section" style="display:none">
+    <span class="label">Result</span>
+    <pre id="result"></pre>
+  </div>
+
+  <script src="webparsers.js"></script>
+  <script>
+    let wasm = null;
+    let scanResult = null;
+    let varsData = [];
+    let lastResult = null;
+
+    // Initialize WASM
+    WebParsers().then(module => {
+      wasm = module;
+      document.getElementById('status').innerHTML =
+        '<span class="success">WASM module loaded. Select a .grb2 file to begin.</span>';
+    }).catch(err => {
+      document.getElementById('status').innerHTML =
+        '<span class="error">Failed to load WASM: ' + err.message + '</span>';
+    });
+
+    // Helpers
+    function wpMalloc(size) {
+      return wasm.ccall('wp_malloc', 'number', ['number'], [size]);
+    }
+    function wpFree(ptr) {
+      wasm.ccall('wp_free', null, ['number'], [ptr]);
+    }
+
+    function selectAll(checked) {
+      document.querySelectorAll('.var-check').forEach(cb => {
+        if (!cb.disabled) cb.checked = checked;
+      });
+    }
+
+    function getSelectedIndices() {
+      const indices = [];
+      document.querySelectorAll('.var-check:checked').forEach(cb => {
+        indices.push(parseInt(cb.dataset.index));
+      });
+      return indices;
+    }
+
+    // Step 1: Scan GRIB2 file
+    document.getElementById('btn-scan').addEventListener('click', async () => {
+      const fileInput = document.getElementById('grb-file');
+      if (!fileInput.files[0]) { alert('Select a .grb2 file first'); return; }
+
+      document.getElementById('scan-status').innerHTML = '<span class="warn">Scanning...</span>';
+
+      const buf = await fileInput.files[0].arrayBuffer();
+      const grb2Data = new Uint8Array(buf);
+
+      // Clean up previous scan
+      if (scanResult) {
+        wasm.ccall('wp_scan_free', null, ['number'], [scanResult]);
+        scanResult = null;
+      }
+
+      // Copy data into WASM memory
+      const ptr = wpMalloc(grb2Data.length);
+      const CHUNK = 65536;
+      for (let off = 0; off < grb2Data.length; off += CHUNK) {
+        const end = Math.min(off + CHUNK, grb2Data.length);
+        const slice = grb2Data.subarray(off, end);
+        wasm.ccall('wp_memcpy', null,
+          ['number', 'array', 'number'],
+          [ptr + off, slice, slice.length]);
+      }
+
+      // Scan
+      scanResult = wasm.ccall('wp_scan', 'number',
+        ['number', 'number'], [ptr, grb2Data.length]);
+
+      wpFree(ptr);
+
+      if (scanResult === 0) {
+        document.getElementById('scan-status').innerHTML =
+          '<span class="error">Failed to scan file. Not a valid GRIB2?</span>';
+        return;
+      }
+
+      // Get variables JSON
+      const varsJsonPtr = wasm.ccall('wp_scan_get_vars_json', 'number',
+        ['number'], [scanResult]);
+      const varsJson = wasm.UTF8ToString(varsJsonPtr);
+      wpFree(varsJsonPtr);
+
+      varsData = JSON.parse(varsJson);
+      const supported = varsData.filter(v => v.supported).length;
+      document.getElementById('scan-status').innerHTML =
+        '<span class="success">Found ' + varsData.length + ' variables (' + supported + ' supported)</span>';
+
+      // Build table with checkboxes
+      let html = '<table><tr><th></th><th>#</th><th>Variable</th><th>Cat</th><th>Num</th>' +
+                 '<th>Grid</th><th>Messages</th></tr>';
+      varsData.forEach((v, i) => {
+        const cls = v.supported ? '' : ' class="unsupported"';
+        const disabled = v.supported ? '' : ' disabled';
+        html += '<tr' + cls + '>' +
+          '<td><input type="checkbox" class="var-check" data-index="' + v.index + '"' + disabled + '></td>' +
+          '<td>' + (i+1) + '</td>' +
+          '<td>' + v.name + '</td>' +
+          '<td>' + v.cat + '</td>' +
+          '<td>' + v.num + '</td>' +
+          '<td>' + v.nx + 'x' + v.ny + '</td>' +
+          '<td>' + v.messages + '</td>' +
+          '</tr>';
+      });
+      html += '</table>';
+      document.getElementById('vars-table').innerHTML = html;
+      document.getElementById('vars-section').style.display = '';
+
+      // Show query section with t2 based on max messages
+      const maxMsgs = Math.max(...varsData.map(v => v.messages));
+      document.getElementById('q-t2').value = maxMsgs - 1;
+      document.getElementById('q-t2').max = maxMsgs - 1;
+      document.getElementById('q-t1').max = maxMsgs - 1;
+      document.getElementById('query-section').style.display = '';
+      document.getElementById('result-section').style.display = 'none';
+      document.getElementById('btn-download').disabled = true;
+    });
+
+    // Step 3: Decode & Query selected variables
+    document.getElementById('btn-query').addEventListener('click', async () => {
+      const indices = getSelectedIndices();
+      if (indices.length === 0) { alert('Select at least one variable'); return; }
+
+      const t1 = parseInt(document.getElementById('q-t1').value) || 0;
+      const t2 = parseInt(document.getElementById('q-t2').value) || 0;
+      const latStr = document.getElementById('q-lat').value;
+      const lonStr = document.getElementById('q-lon').value;
+
+      const progressEl = document.getElementById('progress');
+      const allResults = [];
+
+      for (let i = 0; i < indices.length; i++) {
+        const idx = indices[i];
+        const varName = varsData.find(v => v.index === idx).name;
+        progressEl.innerHTML = '<span class="warn">Decoding ' + (i+1) + '/' + indices.length + ': ' + varName + '...</span>';
+
+        // Give browser a tick to update UI
+        await new Promise(r => setTimeout(r, 20));
+
+        // Normalize
+        const ds = wasm.ccall('wp_normalize', 'number',
+          ['number', 'number'], [scanResult, idx]);
+
+        if (ds === 0) {
+          progressEl.innerHTML = '<span class="error">Failed to decode ' + varName + '</span>';
+          continue;
+        }
+
+        // Find nearest lat/lon if specified
+        let latIdx = -1, lonIdx = -1;
+        if (latStr !== '') {
+          latIdx = wasm.ccall('wp_find_nearest_lat', 'number',
+            ['number', 'number'], [ds, parseFloat(latStr)]);
+        }
+        if (lonStr !== '') {
+          lonIdx = wasm.ccall('wp_find_nearest_lon', 'number',
+            ['number', 'number'], [ds, parseFloat(lonStr)]);
+        }
+
+        // Clamp t2 to this variable's actual time step count
+        const nt = wasm.ccall('wp_nt', 'number', ['number'], [ds]);
+        const actualT2 = Math.min(t2, nt - 1);
+
+        // Query
+        const resultPtr = wasm.ccall('wp_query', 'number',
+          ['number', 'number', 'number', 'number', 'number'],
+          [ds, t1, actualT2, latIdx, lonIdx]);
+
+        if (resultPtr !== 0) {
+          const jsonStr = wasm.UTF8ToString(resultPtr);
+          wasm.ccall('wp_free', null, ['number'], [resultPtr]);
+          allResults.push(JSON.parse(jsonStr));
+        }
+
+        // Close this dataset
+        wasm.ccall('wp_close', null, ['number'], [ds]);
+      }
+
+      // Build combined result
+      let combined;
+      if (allResults.length === 1) {
+        combined = allResults[0];
+      } else {
+        combined = { variables: allResults };
+      }
+
+      lastResult = JSON.stringify(combined, null, 2);
+      document.getElementById('result').textContent = lastResult;
+      document.getElementById('result-section').style.display = '';
+      document.getElementById('btn-download').disabled = false;
+
+      progressEl.innerHTML =
+        '<span class="success">Done! Queried ' + allResults.length + ' variable(s).</span>';
+    });
+
+    // Download result
+    document.getElementById('btn-download').addEventListener('click', () => {
+      if (!lastResult) { alert('Run a query first'); return; }
+      const blob = new Blob([lastResult], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'query_result.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>

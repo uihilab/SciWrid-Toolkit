@@ -2,7 +2,7 @@
  * grib2converthelpers.c -- GRIB2 parsing & decoding helpers
  *
  * Implements section parsers and data decoders used by the offline
- * normalize_refs tool.  Never compiled to WASM.
+ * normalize_refs tool and the WASM browser pipeline.
  *
  * Data template support:
  *   Template 0  -- simple packing
@@ -10,9 +10,11 @@
  *
  * Grid template support:
  *   Template 0 / 40  -- regular lat/lon (equidistant cylindrical)
+ *   Template 30      -- Lambert conformal conic
  */
 
 #include "grib2converthelpers.h"
+#include <math.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -153,6 +155,139 @@ int parse_sec3_latlon(const uint8_t* sec, uint32_t sec_len,
                 "  Error: implausible grid size %ux%u\n", g->nx, g->ny);
         return -1;
     }
+    return 0;
+}
+
+/* =========================================================================
+ * Section 3, Template 30 – Lambert Conformal Conic
+ * ======================================================================= */
+
+int parse_sec3_lambert(const uint8_t* sec, uint32_t sec_len,
+                       grid_lambert_t* g) {
+    if (sec_len < 81) {
+        fprintf(stderr,
+                "  Error: Section 3 too short for Lambert (%u bytes, need 81)\n",
+                sec_len);
+        return -1;
+    }
+
+    uint16_t tmpl = be16(sec + 12);
+    if (tmpl != 30) {
+        fprintf(stderr,
+                "  Error: grid template %u is not Lambert conformal (30)\n",
+                tmpl);
+        return -1;
+    }
+
+    g->nx            = be32(sec + 30);
+    g->ny            = be32(sec + 34);
+    g->lat1          = grib2_i32(sec + 38) / 1e6;
+    g->lon1          = grib2_i32(sec + 42) / 1e6;
+    /* octet 47 = resolution flags */
+    g->lad           = grib2_i32(sec + 47) / 1e6;
+    g->lov           = grib2_i32(sec + 51) / 1e6;
+    g->dx            = (double)be32(sec + 55) / 1e3;  /* mm to meters */
+    g->dy            = (double)be32(sec + 59) / 1e3;
+    g->proj_flag     = sec[63];
+    g->scanning_mode = sec[64];
+    g->latin1        = grib2_i32(sec + 65) / 1e6;
+    g->latin2        = grib2_i32(sec + 69) / 1e6;
+
+    if (g->nx == 0 || g->ny == 0 || g->nx > 100000 || g->ny > 100000) {
+        fprintf(stderr,
+                "  Error: implausible Lambert grid size %ux%u\n", g->nx, g->ny);
+        return -1;
+    }
+    return 0;
+}
+
+/* =========================================================================
+ * Lambert Conformal Conic projection: (i,j) grid index → (lat,lon)
+ *
+ * Uses the standard WMO/GRIB2 formulas for Lambert conformal conic.
+ * Reference: WMO Manual on Codes, Part B, Section 3.30
+ *            NCEP wgrib2 source (gctpc library)
+ *
+ * lats and lons must be pre-allocated to nx*ny floats.
+ * Output order: lats[j*nx+i], lons[j*nx+i] for row j, col i.
+ * ======================================================================= */
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+int lambert_compute_latlon(const grid_lambert_t* g,
+                           float* lats, float* lons) {
+    const double DEG2RAD = M_PI / 180.0;
+    const double RAD2DEG = 180.0 / M_PI;
+    const double R_EARTH = 6371229.0;  /* WMO standard Earth radius (meters) */
+
+    double latin1_r = g->latin1 * DEG2RAD;
+    double latin2_r = g->latin2 * DEG2RAD;
+    double lov_r    = g->lov * DEG2RAD;
+
+    /* Compute cone constant n */
+    double n;
+    if (fabs(g->latin1 - g->latin2) < 1e-6) {
+        n = sin(latin1_r);
+    } else {
+        n = log(cos(latin1_r) / cos(latin2_r)) /
+            log(tan(M_PI / 4.0 + latin2_r / 2.0) /
+                tan(M_PI / 4.0 + latin1_r / 2.0));
+    }
+
+    /* Compute F */
+    double F = cos(latin1_r) * pow(tan(M_PI / 4.0 + latin1_r / 2.0), n) / n;
+
+    /* Compute rho0 (at reference point lat1, lon1) */
+    double lat1_r = g->lat1 * DEG2RAD;
+    double lon1_r = g->lon1 * DEG2RAD;
+    double rho0   = R_EARTH * F / pow(tan(M_PI / 4.0 + lat1_r / 2.0), n);
+
+    /* Compute (x0, y0) for the first grid point */
+    double theta0 = n * (lon1_r - lov_r);
+    double x0 = rho0 * sin(theta0);
+    double y0 = rho0 * cos(theta0);
+
+    /* Grid spacing — adjust sign based on scanning mode */
+    double dx = g->dx;
+    double dy = g->dy;
+
+    /* Scanning mode bit 7 (0x80): i direction
+     * Scanning mode bit 6 (0x40): j direction
+     * Default (0x00): i increases, j decreases */
+    if (g->scanning_mode & 0x80) dx = -dx;
+    /* bit 6 set = j increases (south to north) */
+    if (!(g->scanning_mode & 0x40)) dy = -dy;
+
+    /* For each grid point, compute projected coords then invert to lat/lon */
+    for (uint32_t j = 0; j < g->ny; j++) {
+        for (uint32_t i = 0; i < g->nx; i++) {
+            double x = x0 + (double)i * dx;
+            double y = y0 - (double)j * dy;
+
+            double rho = (n > 0) ? sqrt(x * x + y * y) : -sqrt(x * x + y * y);
+            double theta = atan2(x, y);
+
+            double lat, lon;
+            if (fabs(rho) < 1e-10) {
+                lat = (n > 0) ? 90.0 : -90.0;
+                lon = g->lov;
+            } else {
+                lat = (2.0 * atan(pow(R_EARTH * F / rho, 1.0 / n))
+                       - M_PI / 2.0) * RAD2DEG;
+                lon = (lov_r + theta / n) * RAD2DEG;
+            }
+
+            /* Normalize longitude to [-180, 360) */
+            while (lon > 360.0) lon -= 360.0;
+            while (lon < -180.0) lon += 360.0;
+
+            lats[j * g->nx + i] = (float)lat;
+            lons[j * g->nx + i] = (float)lon;
+        }
+    }
+
     return 0;
 }
 

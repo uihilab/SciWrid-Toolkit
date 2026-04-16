@@ -26,7 +26,10 @@ struct refs_dataset {
     float*   lats;          /* [ny] */
     float*   lons;          /* [nx] */
     int64_t* times;         /* [nt] */
-    FILE*    bin_f;         /* open handle to .bin file */
+    FILE*    bin_f;         /* open handle to .bin file (NULL if buffer mode) */
+    const uint8_t* bin_buf; /* pointer to bin data in memory (NULL if file mode) */
+    uint32_t bin_buf_len;   /* length of bin_buf */
+    int      owns_bin_buf;  /* 1 if we should free bin_buf on close */
     int      is_timeseries; /* 0 = point/level data, 1 = real time series */
 };
 
@@ -265,6 +268,7 @@ refs_dataset_t* refs_open(const char* refs_json_path) {
 void refs_close(refs_dataset_t* ds) {
     if (!ds) return;
     if (ds->bin_f) fclose(ds->bin_f);
+    if (ds->owns_bin_buf && ds->bin_buf) free((void*)ds->bin_buf);
     free(ds->var_name);
     free(ds->source_path);
     free(ds->bin_path);
@@ -361,9 +365,17 @@ int refs_read_timestep(refs_dataset_t* ds, uint32_t time_idx, float* out) {
     if (time_idx >= ds->nt) return -1;
     uint64_t chunk_bytes = (uint64_t)ds->ny * ds->nx * sizeof(float);
     uint64_t offset = (uint64_t)time_idx * chunk_bytes;
-    fseek(ds->bin_f, (long)offset, SEEK_SET);
-    size_t n = ds->ny * ds->nx;
-    if (fread(out, sizeof(float), n, ds->bin_f) != n) return -1;
+    size_t n = (size_t)ds->ny * ds->nx;
+
+    if (ds->bin_buf) {
+        /* Buffer mode (WASM) */
+        if (offset + chunk_bytes > ds->bin_buf_len) return -1;
+        memcpy(out, ds->bin_buf + offset, n * sizeof(float));
+    } else {
+        /* File mode (CLI) */
+        fseek(ds->bin_f, (long)offset, SEEK_SET);
+        if (fread(out, sizeof(float), n, ds->bin_f) != n) return -1;
+    }
     return 0;
 }
 
@@ -375,8 +387,16 @@ int refs_read_value(refs_dataset_t* ds,
     uint64_t chunk_bytes = (uint64_t)ds->ny * ds->nx * sizeof(float);
     uint64_t offset = (uint64_t)time_idx * chunk_bytes
                     + ((uint64_t)lat_idx * ds->nx + lon_idx) * sizeof(float);
-    fseek(ds->bin_f, (long)offset, SEEK_SET);
-    if (fread(out_value, sizeof(float), 1, ds->bin_f) != 1) return -1;
+
+    if (ds->bin_buf) {
+        /* Buffer mode (WASM) */
+        if (offset + sizeof(float) > ds->bin_buf_len) return -1;
+        memcpy(out_value, ds->bin_buf + offset, sizeof(float));
+    } else {
+        /* File mode (CLI) */
+        fseek(ds->bin_f, (long)offset, SEEK_SET);
+        if (fread(out_value, sizeof(float), 1, ds->bin_f) != 1) return -1;
+    }
     return 0;
 }
 
@@ -469,4 +489,210 @@ int refs_query_to_json(refs_dataset_t* ds,
     free(chunk);
     free(t_idx);
     return 0;
+}
+
+/* =========================================================================
+ * Buffer-based API (for WASM — no file I/O)
+ * ======================================================================= */
+
+refs_dataset_t* refs_open_buffer(const char* json_str, uint32_t json_len,
+                                 const uint8_t* bin_data, uint32_t bin_len) {
+    /* Make a null-terminated copy of the JSON */
+    char* json = (char*)malloc(json_len + 1);
+    if (!json) return NULL;
+    memcpy(json, json_str, json_len);
+    json[json_len] = '\0';
+
+    /* 1. Required string fields */
+    char* var_name = json_get_string(json, "name");
+    if (!var_name) {
+        fprintf(stderr, "Validation error: missing 'name' field\n");
+        free(json); return NULL;
+    }
+
+    /* 2. Shape */
+    int shape_len = 0;
+    uint32_t* shape = json_get_int_array(json, "shape", &shape_len);
+    if (!shape || shape_len != 3 || shape[0] == 0 || shape[1] == 0 || shape[2] == 0) {
+        fprintf(stderr, "Validation error: invalid shape\n");
+        free(var_name); free(json); return NULL;
+    }
+
+    /* 3. Decode coordinates */
+    size_t tb = 0, lb = 0, lob = 0;
+    uint8_t* time_raw = json_get_coord_b64(json, "time", &tb);
+    uint8_t* lat_raw  = json_get_coord_b64(json, "lat",  &lb);
+    uint8_t* lon_raw  = json_get_coord_b64(json, "lon",  &lob);
+    if (!time_raw || !lat_raw || !lon_raw) {
+        fprintf(stderr, "Validation error: missing coordinate arrays\n");
+        free(lon_raw); free(lat_raw); free(time_raw);
+        free(shape); free(var_name); free(json); return NULL;
+    }
+
+    /* 4. Validate coordinate sizes */
+    if (tb != (size_t)shape[0] * sizeof(int64_t) ||
+        lb != (size_t)shape[1] * sizeof(float) ||
+        lob != (size_t)shape[2] * sizeof(float)) {
+        fprintf(stderr, "Validation error: coordinate array size mismatch\n");
+        free(lon_raw); free(lat_raw); free(time_raw);
+        free(shape); free(var_name); free(json); return NULL;
+    }
+
+    /* 5. Validate bin buffer size */
+    uint64_t expect_bin = (uint64_t)shape[0] * shape[1] * shape[2] * sizeof(float);
+    if ((uint64_t)bin_len != expect_bin) {
+        fprintf(stderr, "Validation error: bin size mismatch: got %u, expected %llu\n",
+                bin_len, (unsigned long long)expect_bin);
+        free(lon_raw); free(lat_raw); free(time_raw);
+        free(shape); free(var_name); free(json); return NULL;
+    }
+
+    /* Build dataset */
+    refs_dataset_t* ds = (refs_dataset_t*)calloc(1, sizeof(refs_dataset_t));
+    ds->var_name    = var_name;
+    ds->source_path = NULL;
+    ds->bin_path    = NULL;
+    ds->nt          = shape[0];
+    ds->ny          = shape[1];
+    ds->nx          = shape[2];
+    ds->times       = (int64_t*)time_raw;
+    ds->lats        = (float*)lat_raw;
+    ds->lons        = (float*)lon_raw;
+    ds->bin_f       = NULL;
+    ds->bin_buf     = bin_data;
+    ds->bin_buf_len = bin_len;
+    ds->is_timeseries = (ds->nt > 1 && ds->times[0] != ds->times[ds->nt - 1]) ? 1 : 0;
+
+    free(shape);
+    free(json);
+    return ds;
+}
+
+/* Create dataset directly from decoded arrays (for WASM normalize pipeline).
+ * Takes ownership of lats, lons, times, and data — caller must not free them. */
+refs_dataset_t* refs_open_from_arrays(const char* var_name,
+                                      uint32_t nx, uint32_t ny, uint32_t nt,
+                                      float* lats, float* lons,
+                                      int64_t* times, float* data) {
+    refs_dataset_t* ds = (refs_dataset_t*)calloc(1, sizeof(refs_dataset_t));
+    if (!ds) return NULL;
+
+    ds->var_name    = (char*)malloc(strlen(var_name) + 1);
+    strcpy(ds->var_name, var_name);
+    ds->source_path = NULL;
+    ds->bin_path    = NULL;
+    ds->nx          = nx;
+    ds->ny          = ny;
+    ds->nt          = nt;
+    ds->lats        = lats;
+    ds->lons        = lons;
+    ds->times       = times;
+    ds->bin_f       = NULL;
+    ds->bin_buf     = (const uint8_t*)data;
+    ds->bin_buf_len = nt * ny * nx * sizeof(float);
+    ds->owns_bin_buf = 1;  /* we own this buffer, free on close */
+    ds->is_timeseries = (nt > 1 && times[0] != times[nt - 1]) ? 1 : 0;
+
+    return ds;
+}
+
+/* Query to a dynamically allocated string (for WASM — no FILE*) */
+char* refs_query_to_string(refs_dataset_t* ds,
+                           const uint32_t* time_indices, uint32_t time_count,
+                           int32_t lat_idx, int32_t lon_idx) {
+    /* Write to a temporary memory buffer using open_memstream or manual growth */
+    size_t buf_cap = 4096;
+    size_t buf_len = 0;
+    char* buf = (char*)malloc(buf_cap);
+    if (!buf) return NULL;
+
+    #define APPENDF(...) do { \
+        int _n; \
+        while (1) { \
+            _n = snprintf(buf + buf_len, buf_cap - buf_len, __VA_ARGS__); \
+            if (_n < 0) { free(buf); return NULL; } \
+            if ((size_t)_n < buf_cap - buf_len) { buf_len += (size_t)_n; break; } \
+            buf_cap *= 2; \
+            char* _tmp = (char*)realloc(buf, buf_cap); \
+            if (!_tmp) { free(buf); return NULL; } \
+            buf = _tmp; \
+        } \
+    } while (0)
+
+    uint32_t lat_start, lat_end, lon_start, lon_end;
+    if (lat_idx >= 0) { lat_start = (uint32_t)lat_idx; lat_end = lat_start + 1; }
+    else              { lat_start = 0; lat_end = ds->ny; }
+    if (lon_idx >= 0) { lon_start = (uint32_t)lon_idx; lon_end = lon_start + 1; }
+    else              { lon_start = 0; lon_end = ds->nx; }
+
+    uint32_t* t_idx = NULL;
+    uint32_t  t_cnt = time_count;
+    if (!time_indices || time_count == 0) {
+        t_cnt = ds->nt;
+        t_idx = (uint32_t*)malloc(t_cnt * sizeof(uint32_t));
+        for (uint32_t i = 0; i < t_cnt; i++) t_idx[i] = i;
+    } else {
+        t_idx = (uint32_t*)malloc(t_cnt * sizeof(uint32_t));
+        memcpy(t_idx, time_indices, t_cnt * sizeof(uint32_t));
+    }
+
+    float* chunk = (float*)malloc((size_t)ds->ny * ds->nx * sizeof(float));
+    if (!chunk) { free(t_idx); free(buf); return NULL; }
+
+    int single_point = (lat_idx >= 0 && lon_idx >= 0);
+
+    APPENDF("{\n");
+    APPENDF("  \"variable\": \"%s\",\n", ds->var_name);
+    APPENDF("  \"grid\": { \"nx\": %u, \"ny\": %u, \"nt\": %u },\n",
+            ds->nx, ds->ny, ds->nt);
+
+    if (single_point) {
+        APPENDF("  \"location\": { \"lat\": %.4f, \"lon\": %.4f },\n",
+                (double)ds->lats[lat_start], (double)ds->lons[lon_start]);
+        APPENDF("  \"timeseries\": [\n");
+
+        int first = 1;
+        for (uint32_t ti = 0; ti < t_cnt; ti++) {
+            uint32_t t = t_idx[ti];
+            if (refs_read_timestep(ds, t, chunk) != 0) continue;
+            char ts[64];
+            refs_unix_to_iso8601(ds->times[t], ts, sizeof(ts));
+            if (!first) APPENDF(",\n");
+            first = 0;
+            APPENDF("    {\"time\": \"%s\", \"value\": %.6g}",
+                    ts, (double)chunk[lat_start * ds->nx + lon_start]);
+        }
+        APPENDF("\n  ]\n}\n");
+    } else {
+        APPENDF("  \"results\": [\n");
+
+        int first = 1;
+        for (uint32_t ti = 0; ti < t_cnt; ti++) {
+            uint32_t t = t_idx[ti];
+            if (refs_read_timestep(ds, t, chunk) != 0) continue;
+            char ts[64];
+            refs_unix_to_iso8601(ds->times[t], ts, sizeof(ts));
+            for (uint32_t j = lat_start; j < lat_end; j++) {
+                for (uint32_t i = lon_start; i < lon_end; i++) {
+                    if (!first) APPENDF(",\n");
+                    first = 0;
+                    APPENDF("    {\"time\": \"%s\", \"lat\": %.4f, \"lon\": %.4f, \"value\": %.6g}",
+                            ts, (double)ds->lats[j], (double)ds->lons[i],
+                            (double)chunk[j * ds->nx + i]);
+                }
+            }
+        }
+        APPENDF("\n  ]\n}\n");
+    }
+
+    #undef APPENDF
+
+    free(chunk);
+    free(t_idx);
+    return buf;
+}
+
+/* Free a string returned by refs_query_to_string */
+void refs_free_string(char* str) {
+    free(str);
 }
