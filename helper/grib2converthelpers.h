@@ -87,6 +87,20 @@ typedef struct {
 } grid_latlon_t;
 
 /*
+ * Lambert conformal grid parameters (Section 3, template 30).
+ */
+typedef struct {
+    uint32_t nx, ny;
+    double   lat1, lon1;     /* lat/lon of first grid point (degrees) */
+    double   lad;            /* latitude where Dx/Dy are specified */
+    double   lov;            /* orientation longitude (parallel to y-axis) */
+    double   dx, dy;         /* grid spacing in meters */
+    double   latin1, latin2; /* secant cone latitudes */
+    uint8_t  proj_flag;      /* projection center flag */
+    uint8_t  scanning_mode;
+} grid_lambert_t;
+
+/*
  * Packing parameters (Section 5, templates 0 and 3).
  */
 typedef struct {
@@ -128,9 +142,16 @@ int     index_messages(const uint8_t* data, uint64_t file_len,
                        grib2_msg_t** msgs_out);
 int     parse_sec3_latlon(const uint8_t* sec, uint32_t sec_len,
                           grid_latlon_t* g);
+int     parse_sec3_lambert(const uint8_t* sec, uint32_t sec_len,
+                           grid_lambert_t* g);
 int64_t parse_sec1_reftime(const uint8_t* sec, uint32_t sec_len);
 int64_t parse_sec4_forecast_offset(const uint8_t* sec, uint32_t sec_len);
 int     parse_sec5(const uint8_t* sec, uint32_t sec_len, packing_t* pk);
+
+/* Lambert conformal projection: compute lat/lon arrays for all grid points.
+ * Caller must allocate lats[ny*nx] and lons[ny*nx]. */
+int lambert_compute_latlon(const grid_lambert_t* g,
+                           float* lats, float* lons);
 
 /* Data decoders */
 int decode_simple (const uint8_t* payload, uint32_t payload_len,

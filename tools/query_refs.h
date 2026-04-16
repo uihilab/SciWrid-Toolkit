@@ -58,4 +58,29 @@ int refs_query_to_json(refs_dataset_t* ds,
                        int32_t lat_idx, int32_t lon_idx,
                        FILE* out_f);
 
+/* ---- Buffer-based API (for WASM — no file I/O) ---- */
+
+/* Load from in-memory buffers instead of files.
+ * json_str: raw JSON text of the .refs.json
+ * bin_data: raw bytes of the .bin file (must stay alive while ds is open)
+ * Returns NULL on failure. */
+refs_dataset_t* refs_open_buffer(const char* json_str, uint32_t json_len,
+                                 const uint8_t* bin_data, uint32_t bin_len);
+
+/* Query to a malloc'd JSON string (caller must free via refs_free_string).
+ * Returns NULL on failure. */
+char* refs_query_to_string(refs_dataset_t* ds,
+                           const uint32_t* time_indices, uint32_t time_count,
+                           int32_t lat_idx, int32_t lon_idx);
+
+/* Free a string returned by refs_query_to_string */
+void refs_free_string(char* str);
+
+/* Create dataset directly from decoded arrays (for WASM).
+ * Takes ownership of lats, lons, times, and data. */
+refs_dataset_t* refs_open_from_arrays(const char* var_name,
+                                      uint32_t nx, uint32_t ny, uint32_t nt,
+                                      float* lats, float* lons,
+                                      int64_t* times, float* data);
+
 #endif /* QUERY_REFS_H */
