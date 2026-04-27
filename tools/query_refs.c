@@ -338,6 +338,18 @@ uint32_t refs_find_nearest_lat(const refs_dataset_t* ds, double lat) {
 }
 
 uint32_t refs_find_nearest_lon(const refs_dataset_t* ds, double lon) {
+    /* Normalise the query longitude to match the file's convention.
+     * If the grid uses 0–360 (first lon >= 0 and last lon > 180) convert
+     * a negative query lon by adding 360.  The reverse handles the rare
+     * case where the grid is –180…180 but the user passes e.g. 286. */
+    double grid_lon0 = (double)ds->lons[0];
+    double grid_lonN = (double)ds->lons[ds->nx - 1];
+
+    if (grid_lon0 >= 0.0 && grid_lonN > 180.0 && lon < 0.0)
+        lon += 360.0;                      /* –74  →  286  (0‑360 grid) */
+    else if (grid_lonN <= 180.0 && lon > 180.0)
+        lon -= 360.0;                      /* 286  →  –74  (–180…180 grid) */
+
     uint32_t best = 0;
     double best_d = fabs((double)ds->lons[0] - lon);
     for (uint32_t i = 1; i < ds->nx; i++) {
@@ -659,8 +671,11 @@ char* refs_query_to_string(refs_dataset_t* ds,
             refs_unix_to_iso8601(ds->times[t], ts, sizeof(ts));
             if (!first) APPENDF(",\n");
             first = 0;
-            APPENDF("    {\"time\": \"%s\", \"value\": %.6g}",
-                    ts, (double)chunk[lat_start * ds->nx + lon_start]);
+            double val = (double)chunk[lat_start * ds->nx + lon_start];
+            if (val != val || val > 1e37 || val < -1e37)  /* NaN or fill */
+                APPENDF("    {\"time\": \"%s\", \"value\": null}", ts);
+            else
+                APPENDF("    {\"time\": \"%s\", \"value\": %.6g}", ts, val);
         }
         APPENDF("\n  ]\n}\n");
     } else {
@@ -676,9 +691,13 @@ char* refs_query_to_string(refs_dataset_t* ds,
                 for (uint32_t i = lon_start; i < lon_end; i++) {
                     if (!first) APPENDF(",\n");
                     first = 0;
-                    APPENDF("    {\"time\": \"%s\", \"lat\": %.4f, \"lon\": %.4f, \"value\": %.6g}",
-                            ts, (double)ds->lats[j], (double)ds->lons[i],
-                            (double)chunk[j * ds->nx + i]);
+                    double val = (double)chunk[j * ds->nx + i];
+                    if (val != val || val > 1e37 || val < -1e37)  /* NaN or fill */
+                        APPENDF("    {\"time\": \"%s\", \"lat\": %.4f, \"lon\": %.4f, \"value\": null}",
+                                ts, (double)ds->lats[j], (double)ds->lons[i]);
+                    else
+                        APPENDF("    {\"time\": \"%s\", \"lat\": %.4f, \"lon\": %.4f, \"value\": %.6g}",
+                                ts, (double)ds->lats[j], (double)ds->lons[i], val);
                 }
             }
         }
