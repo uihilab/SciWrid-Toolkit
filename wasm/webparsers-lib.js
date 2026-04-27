@@ -1,0 +1,748 @@
+/**
+ * webparsers-lib.js  --  JavaScript library for meteorological data parsing
+ *
+ * Supported formats: GRIB2 (grid templates 0, 30, 40), NetCDF3 Classic, NetCDF4/HDF5
+ * Planned:           GeoTIFF, Zarr, Parquet
+ *
+ * Usage (browser, ES module):
+ *   <script src="webparsers.js"></script>   <!-- the WASM loader -->
+ *   <script type="module">
+ *     import { webparsers } from './webparsers-lib.js';
+ *     const lib = new webparsers();
+ *     await lib.read(file);
+ *     const data = await lib.extract({ variable: 'TMP', lat: 40.7, lon: -74.0 });
+ *   </script>
+ *
+ * Usage (Node / bundler):
+ *   import { webparsers } from 'webparsers';
+ */
+
+/* =========================================================================
+ * Internal: get the WASM factory function, regardless of environment
+ * ======================================================================= */
+function getWasmFactory(instance) {
+  /* 1. Explicitly passed via constructor config (most reliable) */
+  if (instance && instance._wasmFactory) return instance._wasmFactory;
+  /* 2. Emscripten MODULARIZE sets a global var */
+  if (typeof WebParsers === 'function') return WebParsers;            // script-tag global
+  if (typeof globalThis !== 'undefined' && typeof globalThis.WebParsers === 'function')
+    return globalThis.WebParsers;
+  if (typeof window !== 'undefined' && typeof window.WebParsers === 'function')
+    return window.WebParsers;
+  throw new Error(
+    'WASM module not loaded. Either include <script src="webparsers.js"></script> ' +
+    'before this library, or pass { wasmFactory: WebParsers } to the constructor.'
+  );
+}
+
+/* =========================================================================
+ * webparsers — main library class
+ * ======================================================================= */
+export class webparsers {
+  /**
+   * @param {Object} [config]
+   * @param {[number,number,number,number]} [config.studyArea] - [minLon, minLat, maxLon, maxLat]
+   */
+  constructor(config = {}) {
+    this.config          = config;
+    this._wasmFactory    = config.wasmFactory || null;
+    this.wasm            = null;
+    this.scanPtr         = 0;
+    this.vars            = [];
+    this._format         = null;
+    this._nc4            = null;   // { f, fname, FS } for open NetCDF4 file
+    this._h5wasmModule   = null;   // cached h5wasm module
+  }
+
+  /* -----------------------------------------------------------------------
+   * init — load the WASM module (called automatically by read())
+   * --------------------------------------------------------------------- */
+  async init() {
+    if (this.wasm) return;
+    const factory = getWasmFactory(this);
+    this.wasm = await factory();
+  }
+
+  /* -----------------------------------------------------------------------
+   * read — load a file from many possible sources
+   *
+   *   await lib.read(fileObject)          // browser File
+   *   await lib.read('https://...grb2')   // URL (auto-fetch)
+   *   await lib.read(arrayBuffer)         // raw ArrayBuffer
+   *   await lib.read(uint8Array)          // raw bytes
+   * --------------------------------------------------------------------- */
+  async read(source) {
+    await this.init();
+    this._freeScan();
+
+    const data   = await this._toUint8Array(source);
+    const format = this._detectFormat(source, data);
+
+    if (format === 'grib2') {
+      this._format = 'grib2';
+      this._scanGrib2(data);
+    } else if (format === 'netcdf3') {
+      this._format = 'netcdf3';
+      this._scanNetCDF3(data);
+    } else if (format === 'netcdf4') {
+      this._format = 'netcdf4';
+      await this._scanNetCDF4(data);
+    } else {
+      throw new Error(`Format '${format}' not yet supported. Supported: grib2, netcdf3, netcdf4`);
+    }
+  }
+
+  /* -----------------------------------------------------------------------
+   * metadata — summary info about the loaded file
+   * --------------------------------------------------------------------- */
+  metadata() {
+    this._requireScan();
+    const supported = this.vars.filter(v => v.supported);
+    const base = {
+      format:              this._format,
+      total_variables:     this.vars.length,
+      supported_variables: supported.length,
+      variable_names:      this.vars.map(v => v.name),
+    };
+
+    if (this._format === 'grib2') {
+      base.grid_templates = [...new Set(this.vars.map(v => v.grid_template))];
+      base.data_templates = [...new Set(this.vars.map(v => v.data_template))];
+    }
+
+    if (this._format === 'netcdf3' || this._format === 'netcdf4') {
+      /* Collect unique dimension shapes across all variables */
+      const shapes = [...new Set(this.vars.map(v => v.shape))];
+      base.shapes = shapes;
+      /* Collect unique units */
+      const units = [...new Set(this.vars.map(v => v.units).filter(Boolean))];
+      base.units = units;
+    }
+
+    return base;
+  }
+
+  /* -----------------------------------------------------------------------
+   * getvariables — array of variable descriptors
+   * --------------------------------------------------------------------- */
+  getvariables() {
+    this._requireScan();
+    return this.vars;
+  }
+
+  /* -----------------------------------------------------------------------
+   * variables — same data, packaged as a GeoJSON FeatureCollection
+   * --------------------------------------------------------------------- */
+  variables() {
+    this._requireScan();
+    return {
+      type: 'FeatureCollection',
+      features: this.vars.map(v => {
+        let props;
+        if (this._format === 'netcdf3' || this._format === 'netcdf4') {
+          props = {
+            index:     v.index,
+            name:      v.name,
+            long_name: v.long_name || null,
+            units:     v.units     || null,
+            shape:     v.shape     || null,
+            ndims:     v.ndims,
+            supported: v.supported,
+          };
+        } else {
+          props = {
+            index:         v.index,
+            name:          v.name,
+            category:      v.cat,
+            number:        v.num,
+            grid_template: v.grid_template,
+            data_template: v.data_template,
+            grid_size:     `${v.nx}x${v.ny}`,
+            messages:      v.messages,
+            supported:     v.supported,
+          };
+        }
+        return { type: 'Feature', geometry: null, properties: props };
+      }),
+    };
+  }
+
+  /* -----------------------------------------------------------------------
+   * extract — decode and query the loaded file
+   *
+   *   lib.extract({ variable: 'TMP', lat: 40.7, lon: -74.0 })
+   *   lib.extract({ variable: ['TMP','UGRD'], lat: 40.7, lon: -74.0, type: 'csv' })
+   *   lib.extract({ lat: 40.7, lon: -74.0, t1: 0, t2: 5 })
+   * --------------------------------------------------------------------- */
+  async extract(options) {
+    this._requireScan();
+    const wasm = this.wasm;
+
+    const { variable, lat, lon, t1 = 0, t2, type = 'json' } = options || {};
+
+    // Resolve target variables
+    let targets;
+    if (!variable) {
+      targets = this.vars.filter(v => v.supported);
+    } else {
+      const names = Array.isArray(variable) ? variable : [variable];
+      targets = this.vars.filter(v => names.includes(v.name) && v.supported);
+      const missing = names.filter(n => !this.vars.find(v => v.name === n));
+      if (missing.length > 0)
+        throw new Error(`Variable(s) not found: ${missing.join(', ')}`);
+      if (targets.length === 0)
+        throw new Error('None of the requested variables are supported');
+    }
+
+    const results = [];
+
+    for (const v of targets) {
+      let ds;
+      if (this._format === 'netcdf4') {
+        ds = await this._normalizeNetCDF4(v);
+      } else {
+        const normFn = this._format === 'netcdf3' ? 'wp_nc3_normalize' : 'wp_normalize';
+        ds = wasm.ccall(normFn, 'number',
+          ['number', 'number'], [this.scanPtr, v.index]);
+      }
+
+      if (!ds || ds === 0) {
+        console.warn(`[webparsers] Failed to decode variable: ${v.name}`);
+        continue;
+      }
+
+      try {
+        const nt       = wasm.ccall('wp_nt', 'number', ['number'], [ds]);
+        const actualT1 = Math.min(t1, nt - 1);
+        const actualT2 = Math.min(t2 ?? nt - 1, nt - 1);
+
+        let latIdx = -1, lonIdx = -1;
+        if (lat !== undefined) {
+          latIdx = wasm.ccall('wp_find_nearest_lat', 'number',
+            ['number', 'number'], [ds, lat]);
+        }
+        if (lon !== undefined) {
+          lonIdx = wasm.ccall('wp_find_nearest_lon', 'number',
+            ['number', 'number'], [ds, lon]);
+        }
+
+        const resultPtr = wasm.ccall('wp_query', 'number',
+          ['number', 'number', 'number', 'number', 'number'],
+          [ds, actualT1, actualT2, latIdx, lonIdx]);
+
+        if (resultPtr !== 0) {
+          const json = wasm.UTF8ToString(resultPtr);
+          wasm.ccall('wp_free', null, ['number'], [resultPtr]);
+          try {
+            results.push(JSON.parse(json));
+          } catch (parseErr) {
+            // Log the raw C output to help diagnose malformed JSON
+            console.error('[webparsers] JSON.parse failed for variable:', v.name);
+            console.error('[webparsers] Raw JSON (first 500 chars):', json.slice(0, 500));
+            console.error('[webparsers] Raw JSON (last 200 chars):', json.slice(-200));
+            throw parseErr;
+          }
+        }
+      } finally {
+        wasm.ccall('wp_close', null, ['number'], [ds]);
+      }
+    }
+
+    if (results.length === 0) throw new Error('No data extracted');
+    const combined = results.length === 1 ? results[0] : { variables: results };
+
+    if (type === 'csv')     return this._toCSV(combined);
+    if (type === 'geojson') return this._toGeoJSON(combined);
+    return combined;
+  }
+
+  /* -----------------------------------------------------------------------
+   * download — save data to a file
+   *
+   *   lib.download(data)
+   *   lib.download(data, { filename: 'result.csv' })
+   *   lib.download(data, { type: 'csv', filename: 'result.csv' })
+   *
+   * In the browser: triggers a file download via a hidden anchor.
+   * In Node.js:     writes to disk using fs.writeFileSync.
+   *
+   * If data is a string (e.g. CSV), it is saved as-is.
+   * If data is an object/array, it is serialized to JSON.
+   * --------------------------------------------------------------------- */
+  download(data, options = {}) {
+    if (data === undefined || data === null)
+      throw new Error('No data to download. Pass the result of extract() as the first argument.');
+
+    // Determine type from data or options
+    const isString  = typeof data === 'string';
+    const inferType = isString
+      ? (data.startsWith('{') || data.startsWith('[') ? 'json' : 'csv')
+      : 'json';
+    const type      = options.type ?? inferType;
+    const ext       = type === 'csv' ? 'csv' : (type === 'geojson' ? 'geojson' : 'json');
+    const filename  = options.filename ?? `webparsers_extract.${ext}`;
+    const mime      = type === 'csv' ? 'text/csv' : 'application/json';
+    const content   = isString ? data : JSON.stringify(data, null, 2);
+
+    // Browser environment
+    if (typeof document !== 'undefined') {
+      const blob = new Blob([content], { type: mime });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      console.log(`[webparsers] Downloaded: ${filename}`);
+      return;
+    }
+
+    // Node.js environment
+    if (typeof process !== 'undefined' && process.versions?.node) {
+      try {
+        // eslint-disable-next-line no-undef
+        const fs = require('fs');
+        fs.writeFileSync(filename, content, 'utf8');
+        console.log(`[webparsers] Saved: ${filename}`);
+        return;
+      } catch (e) {
+        throw new Error('Node.js fs module not available: ' + e.message);
+      }
+    }
+
+    throw new Error('download() is only supported in browser or Node.js environments.');
+  }
+
+  /* -----------------------------------------------------------------------
+   * close — free WASM resources
+   * --------------------------------------------------------------------- */
+  close() {
+    this._freeScan();
+    this.wasm = null;
+  }
+
+  /* =========================================================================
+   * Private helpers
+   * ======================================================================= */
+
+  async _toUint8Array(source) {
+    if (source instanceof Uint8Array)  return source;
+    if (source instanceof ArrayBuffer) return new Uint8Array(source);
+    if (typeof File !== 'undefined' && source instanceof File)
+      return new Uint8Array(await source.arrayBuffer());
+
+    const url = source instanceof URL ? source.href : source;
+    if (typeof url !== 'string')
+      throw new Error('Unsupported source type. Use File, URL, ArrayBuffer, or Uint8Array.');
+
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.statusText}`);
+    return new Uint8Array(await resp.arrayBuffer());
+  }
+
+  _detectFormat(source, data) {
+    // GRIB2 magic: 'GRIB' = 0x47 0x52 0x49 0x42
+    if (data.length >= 4 &&
+        data[0] === 0x47 && data[1] === 0x52 &&
+        data[2] === 0x49 && data[3] === 0x42) return 'grib2';
+
+    // NetCDF3 magic: 'CDF\x01' or 'CDF\x02'
+    if (data.length >= 4 &&
+        data[0] === 0x43 && data[1] === 0x44 && data[2] === 0x46 &&
+        (data[3] === 0x01 || data[3] === 0x02)) return 'netcdf3';
+
+    // HDF5 / NetCDF4 magic: \x89HDF\r\n\x1a\n
+    if (data.length >= 8 &&
+        data[0] === 0x89 && data[1] === 0x48 && data[2] === 0x44 && data[3] === 0x46 &&
+        data[4] === 0x0D && data[5] === 0x0A && data[6] === 0x1A && data[7] === 0x0A)
+      return 'netcdf4';
+
+    // Fallback: file extension
+    const name = (source && source.name)      ? source.name
+              : (typeof source === 'string')  ? source
+              : (source instanceof URL)       ? source.pathname
+              : '';
+    if (/\.(grb2?|grib2?)$/i.test(name))        return 'grib2';
+    if (/\.nc3$/i.test(name))                     return 'netcdf3';
+    if (/\.(nc|nc4|netcdf)$/i.test(name))         return 'netcdf4'; // default .nc to nc4 (more common)
+    throw new Error('Cannot detect file format. Supported: GRIB2 (.grb2), NetCDF3 (.nc3), NetCDF4 (.nc)');
+  }
+
+  _scanGrib2(data) {
+    const wasm = this.wasm;
+
+    const ptr = wasm.ccall('wp_malloc', 'number', ['number'], [data.length]);
+    if (ptr === 0) throw new Error('WASM out of memory');
+
+    const CHUNK = 65536;
+    for (let off = 0; off < data.length; off += CHUNK) {
+      const slice = data.subarray(off, Math.min(off + CHUNK, data.length));
+      wasm.ccall('wp_memcpy', null,
+        ['number', 'array', 'number'],
+        [ptr + off, slice, slice.length]);
+    }
+
+    this.scanPtr = wasm.ccall('wp_scan', 'number',
+      ['number', 'number'], [ptr, data.length]);
+    wasm.ccall('wp_free', null, ['number'], [ptr]);
+
+    if (this.scanPtr === 0) throw new Error('Failed to parse GRIB2 file');
+
+    const varsJsonPtr = wasm.ccall('wp_scan_get_vars_json', 'number',
+      ['number'], [this.scanPtr]);
+    const varsJson = wasm.UTF8ToString(varsJsonPtr);
+    wasm.ccall('wp_free', null, ['number'], [varsJsonPtr]);
+    this.vars = JSON.parse(varsJson);
+  }
+
+  _scanNetCDF3(data) {
+    const wasm = this.wasm;
+    const ptr = wasm.ccall('wp_malloc', 'number', ['number'], [data.length]);
+    if (ptr === 0) throw new Error('WASM out of memory');
+
+    const CHUNK = 65536;
+    for (let off = 0; off < data.length; off += CHUNK) {
+      const slice = data.subarray(off, Math.min(off + CHUNK, data.length));
+      wasm.ccall('wp_memcpy', null, ['number', 'array', 'number'], [ptr + off, slice, slice.length]);
+    }
+
+    this.scanPtr = wasm.ccall('wp_nc3_scan', 'number', ['number', 'number'], [ptr, data.length]);
+    wasm.ccall('wp_free', null, ['number'], [ptr]);
+
+    if (this.scanPtr === 0) throw new Error('Failed to parse NetCDF3 file');
+
+    const varsJsonPtr = wasm.ccall('wp_nc3_scan_get_vars_json', 'number', ['number'], [this.scanPtr]);
+    const varsJson = wasm.UTF8ToString(varsJsonPtr);
+    wasm.ccall('wp_free', null, ['number'], [varsJsonPtr]);
+    this.vars = JSON.parse(varsJson);
+  }
+
+  _freeScan() {
+    if (this._format === 'netcdf4') {
+      if (this._nc4) {
+        try { this._nc4.f.close(); }          catch (_) {}
+        try { this._nc4.FS.unlink(this._nc4.fname); } catch (_) {}
+        this._nc4 = null;
+      }
+    } else if (this.scanPtr && this.wasm) {
+      const freeFn = this._format === 'netcdf3' ? 'wp_nc3_scan_free' : 'wp_scan_free';
+      this.wasm.ccall(freeFn, null, ['number'], [this.scanPtr]);
+      this.scanPtr = 0;
+    }
+    this.vars    = [];
+    this._format = null;
+  }
+
+  _requireScan() {
+    if (this._format === 'netcdf4') {
+      if (!this._nc4) throw new Error('No file loaded. Call read() first.');
+    } else {
+      if (!this.scanPtr) throw new Error('No file loaded. Call read() first.');
+    }
+  }
+
+  /* =========================================================================
+   * NetCDF4 private helpers
+   * ======================================================================= */
+
+  /* Lazy-load h5wasm from CDN (only when a NetCDF4 file is first opened).
+   * Returns { h5, FS } where h5 is the module and FS is the Emscripten FS. */
+  async _getH5wasm() {
+    if (this._h5wasmModule) return this._h5wasmModule;
+    try {
+      const mod = await import('https://cdn.jsdelivr.net/npm/h5wasm@0.7.7/dist/esm/hdf5_hl.js');
+      const h5  = mod.default ?? mod;
+      // h5.ready resolves with { FS } — that's where the virtual filesystem lives
+      const { FS } = await h5.ready;
+      this._h5wasmModule = { h5, FS };
+      return this._h5wasmModule;
+    } catch (e) {
+      throw new Error(
+        'Failed to load h5wasm (NetCDF4 needs internet access for the first load): ' + e.message
+      );
+    }
+  }
+
+  /* Read an h5wasm attribute value defensively (handles both {value} and raw forms) */
+  _nc4Attr(attrs, name) {
+    const a = attrs[name];
+    if (a == null) return undefined;
+    if (typeof a === 'object' && 'value' in a) return a.value;
+    return a;
+  }
+
+  /* Convert a CF time value to Unix seconds.
+   * units example: "hours since 1900-01-01 00:00:00.0" */
+  _nc4TimeToS(val, units) {
+    if (!units) return val;
+    const m = units.match(
+      /^(seconds?|minutes?|hours?|days?)\s+since\s+(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2})?)/i
+    );
+    if (!m) return 0;
+    const unit  = m[1].toLowerCase();
+    const epoch = Date.parse(m[2].replace(' ', 'T') + 'Z') / 1000; // seconds
+    const mult  = unit.startsWith('s') ? 1
+                : unit.startsWith('mi') ? 60
+                : unit.startsWith('h') ? 3600
+                : /* days */             86400;
+    return epoch + val * mult;
+  }
+
+  /* Copy any typed array into WASM heap via chunked wp_memcpy.
+   * Returns pointer; caller must wp_free it after use. */
+  _copyBytesToWasm(typedArray) {
+    const wasm  = this.wasm;
+    const bytes = new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength);
+    const ptr   = wasm.ccall('wp_malloc', 'number', ['number'], [bytes.length]);
+    if (ptr === 0) throw new Error('WASM out of memory');
+    const CHUNK = 65536;
+    for (let off = 0; off < bytes.length; off += CHUNK) {
+      const slice = bytes.subarray(off, Math.min(off + CHUNK, bytes.length));
+      wasm.ccall('wp_memcpy', null, ['number', 'array', 'number'], [ptr + off, slice, slice.length]);
+    }
+    return ptr;
+  }
+
+  /* Copy a Float32Array into WASM heap; returns pointer (caller must wp_free it) */
+  _copyF32ToWasm(arr) { return this._copyBytesToWasm(arr); }
+
+  /* Copy a Float64Array into WASM heap; returns pointer (caller must wp_free it) */
+  _copyF64ToWasm(arr) { return this._copyBytesToWasm(arr); }
+
+  /* Scan a NetCDF4/HDF5 file using h5wasm and populate this.vars */
+  async _scanNetCDF4(data) {
+    const { h5, FS } = await this._getH5wasm();
+
+    // Write to h5wasm virtual FS
+    const fname = `_wp_${Date.now()}.nc`;
+    FS.writeFile(fname, data);
+
+    const f = new h5.File(fname, 'r');
+    this._nc4 = { f, fname, FS };
+
+    const keys = f.keys();
+
+    // ---- Identify coordinate variables (1-D datasets matching CF names) ----
+    // coordByType: first match of each type; coordByName: all matches
+    const coordByType = {};
+    const coordByName = {};
+
+    for (const name of keys) {
+      const item = f.get(name);
+      if (!item || item.constructor.name !== 'Dataset') continue;
+      if (item.shape.length !== 1) continue;
+
+      const a    = item.attrs;
+      const lname = name.toLowerCase();
+      const axis  = String(this._nc4Attr(a, 'axis') ?? '').toUpperCase();
+      const sname = String(this._nc4Attr(a, 'standard_name') ?? '').toLowerCase();
+      const units = String(this._nc4Attr(a, 'units') ?? '').toLowerCase();
+
+      let type = null;
+      if (lname === 'lat' || lname === 'latitude' || lname === 'y' || lname === 'rlat' ||
+          axis === 'Y' || sname === 'latitude' || units.includes('degrees_north'))
+        type = 'lat';
+      else if (lname === 'lon' || lname === 'longitude' || lname === 'x' || lname === 'rlon' ||
+               axis === 'X' || sname === 'longitude' || units.includes('degrees_east'))
+        type = 'lon';
+      else if (lname === 'time' || lname === 't' ||
+               axis === 'T' || sname === 'time' || units.includes('since'))
+        type = 'time';
+
+      if (type) {
+        const entry = { name, type, length: item.shape[0], units };
+        if (!coordByType[type]) coordByType[type] = entry;
+        coordByName[name] = entry;
+      }
+    }
+
+    // ---- Build variable list (multi-dim datasets that are not pure coords) ----
+    this.vars = [];
+    let index = 0;
+
+    for (const name of keys) {
+      const item = f.get(name);
+      if (!item || item.constructor.name !== 'Dataset') continue;
+      if (item.shape.length < 2) continue;                         // skip 1-D coord vars
+      if (coordByName[name]) continue;                             // skip if identified as coord
+
+      const a        = item.attrs;
+      const long_name = String(this._nc4Attr(a, 'long_name') ?? this._nc4Attr(a, 'description') ?? '');
+      const units_val = String(this._nc4Attr(a, 'units') ?? '');
+      const shape     = item.shape;
+
+      // Match shape dimensions to known coordinates by length
+      let latC = null, lonC = null, timC = null;
+      for (let d = 0; d < shape.length; d++) {
+        const len = shape[d];
+        if (!latC && coordByType.lat  && coordByType.lat.length  === len) { latC = { dim: d, ...coordByType.lat  }; continue; }
+        if (!lonC && coordByType.lon  && coordByType.lon.length  === len) { lonC = { dim: d, ...coordByType.lon  }; continue; }
+        if (!timC && coordByType.time && coordByType.time.length === len) { timC = { dim: d, ...coordByType.time }; continue; }
+      }
+
+      const supported = !!(latC && lonC);
+
+      this.vars.push({
+        index:      index++,
+        name,
+        long_name,
+        units:      units_val,
+        shape:      shape.join('x'),
+        ndims:      shape.length,
+        supported,
+        _shape:     shape,
+        _latCoord:  latC,
+        _lonCoord:  lonC,
+        _timCoord:  timC,
+      });
+    }
+  }
+
+  /* Decode one variable from the open NC4 file → refs_dataset_t* in WASM */
+  async _normalizeNetCDF4(varInfo) {
+    const wasm = this.wasm;
+    const f    = this._nc4.f;
+
+    const item  = f.get(varInfo.name);
+    const a     = item.attrs;
+
+    // CF scale / offset / fill
+    const scale   = Number(this._nc4Attr(a, 'scale_factor')  ?? 1);
+    const offset  = Number(this._nc4Attr(a, 'add_offset')    ?? 0);
+    const fillRaw = this._nc4Attr(a, '_FillValue');
+    const missRaw = this._nc4Attr(a, 'missing_value');
+    const fill    = fillRaw != null ? Number(fillRaw) : 9.969209968386869e36;
+    const miss    = missRaw != null ? Number(missRaw) : fill;
+
+    const shape   = varInfo._shape;
+    const latC    = varInfo._latCoord;
+    const lonC    = varInfo._lonCoord;
+    const timC    = varInfo._timCoord;
+
+    const ny = latC.length;
+    const nx = lonC.length;
+    const nt = timC ? timC.length : 1;
+
+    // ---- Read lat / lon coordinate arrays ----
+    const latRaw = f.get(latC.name).value;
+    const lonRaw = f.get(lonC.name).value;
+    const latsF32 = new Float32Array(ny);
+    const lonsF32 = new Float32Array(nx);
+    for (let i = 0; i < ny; i++) latsF32[i] = Number(latRaw[i]);
+    for (let i = 0; i < nx; i++) lonsF32[i] = Number(lonRaw[i]);
+
+    // ---- Read time array ----
+    const timesF64 = new Float64Array(nt);
+    if (timC) {
+      const timDS    = f.get(timC.name);
+      const timUnits = String(this._nc4Attr(timDS.attrs, 'units') ?? 'days since 1970-01-01');
+      const timRaw   = timDS.value;
+      for (let i = 0; i < nt; i++)
+        timesF64[i] = this._nc4TimeToS(Number(timRaw[i]), timUnits);
+    } else {
+      for (let i = 0; i < nt; i++) timesF64[i] = i * 86400;
+    }
+
+    // ---- Read data, reorder to [nt, ny, nx], apply CF transforms ----
+    const rawData  = item.value;            // TypedArray from h5wasm
+    const dataF32  = new Float32Array(nt * ny * nx);
+
+    // Compute C-order strides for the raw HDF5 shape
+    const strides = new Array(shape.length);
+    strides[shape.length - 1] = 1;
+    for (let d = shape.length - 2; d >= 0; d--)
+      strides[d] = strides[d + 1] * shape[d + 1];
+
+    const timDim = timC ? timC.dim : -1;
+    const latDim = latC.dim;
+    const lonDim = lonC.dim;
+
+    for (let t = 0; t < nt; t++) {
+      for (let y = 0; y < ny; y++) {
+        for (let x = 0; x < nx; x++) {
+          // Build source index: time/lat/lon at their dim positions; extra dims = 0
+          let src = 0;
+          if (timDim >= 0) src += t * strides[timDim];
+          src += y * strides[latDim];
+          src += x * strides[lonDim];
+
+          const dst = t * ny * nx + y * nx + x;
+          const v   = Number(rawData[src]);
+          dataF32[dst] = (v === fill || v === miss || !isFinite(v)) ? NaN
+                                                                     : v * scale + offset;
+        }
+      }
+    }
+
+    // ---- Copy arrays into WASM heap ----
+    const latsPtr  = this._copyF32ToWasm(latsF32);
+    const lonsPtr  = this._copyF32ToWasm(lonsF32);
+    const timesPtr = this._copyF64ToWasm(timesF64);
+    const dataPtr  = this._copyF32ToWasm(dataF32);
+
+    // Create refs_dataset_t in C (it copies the arrays internally)
+    const ds = wasm.ccall(
+      'wp_open_from_float_arrays', 'number',
+      ['string', 'number', 'number', 'number', 'number', 'number', 'number', 'number'],
+      [varInfo.name, nx, ny, nt, latsPtr, lonsPtr, timesPtr, dataPtr]
+    );
+
+    // Free our temporary WASM buffers
+    wasm.ccall('wp_free', null, ['number'], [latsPtr]);
+    wasm.ccall('wp_free', null, ['number'], [lonsPtr]);
+    wasm.ccall('wp_free', null, ['number'], [timesPtr]);
+    wasm.ccall('wp_free', null, ['number'], [dataPtr]);
+
+    return ds;
+  }
+
+  _toCSV(data) {
+    const items = data.variables ?? [data];
+    const rows  = ['variable,time,value,lat,lon'];
+
+    for (const item of items) {
+      const varName = item.variable ?? 'value';
+      const lat     = item.location?.lat ?? '';
+      const lon     = item.location?.lon ?? '';
+
+      if (item.timeseries) {
+        for (const pt of item.timeseries)
+          rows.push(`${varName},${pt.time},${pt.value},${lat},${lon}`);
+      } else if (item.value !== undefined) {
+        rows.push(`${varName},${item.time ?? ''},${item.value},${lat},${lon}`);
+      }
+    }
+    return rows.join('\n');
+  }
+
+  _toGeoJSON(data) {
+    const items    = data.variables ?? [data];
+    const features = [];
+
+    for (const item of items) {
+      const lat = item.location?.lat;
+      const lon = item.location?.lon;
+      features.push({
+        type: 'Feature',
+        geometry: (lat !== undefined && lon !== undefined)
+          ? { type: 'Point', coordinates: [lon, lat] }
+          : null,
+        properties: {
+          variable:   item.variable   ?? null,
+          timeseries: item.timeseries ?? null,
+          value:      item.value      ?? null,
+          time:       item.time       ?? null,
+        },
+      });
+    }
+    return { type: 'FeatureCollection', features };
+  }
+}
+
+/* Default export so users can do either:
+ *   import { webparsers } from 'webparsers';
+ *   import webparsers from 'webparsers';
+ */
+export default webparsers;
