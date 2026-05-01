@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>webparsers - GRIB2 Query Tool</title>
+  <title>webparsers - Query Tool</title>
   <style>
     body { font-family: monospace; margin: 2rem; background: #1a1a2e; color: #e0e0e0; }
     h1 { color: #00d4ff; }
@@ -32,15 +32,18 @@
   </style>
 </head>
 <body>
-  <h1>webparsers - GRIB2 Query Tool</h1>
+  <h1>webparsers - Query Tool</h1>
   <div id="status">Loading WASM module...</div>
 
-  <!-- Step 1: Load GRIB2 file -->
+  <!-- Step 1: Load file -->
   <div class="section">
-    <span class="label">Step 1: Load GRIB2 File</span><br><br>
-    <input type="file" id="grb-file" accept=".grb2,.grib2,.grb">
+    <span class="label">Step 1: Load File</span><br><br>
+    <input type="file" id="grb-file" accept=".grb2,.grib2,.grb,.zip">
     <button id="btn-scan">Scan File</button>
     <span id="scan-status"></span>
+    <br><small style="color:#888; margin-top:4px; display:block;">
+      Supported: GRIB2 (.grb2/.grib2/.grb), Zarr v2 (.zip — ZIP-of-zarr archive)
+    </small>
   </div>
 
   <!-- Step 2: Variable list -->
@@ -73,9 +76,11 @@
   </div>
 
   <script src="webparsers.js"></script>
+  <script src="zarr-helper.js"></script>
   <script>
     let wasm = null;
-    let scanResult = null;
+    let scanResult = null;     // GRIB2: WASM pointer; Zarr: { entries, arrays }
+    let currentFormat = null;  // 'grib2' | 'zarr'
     let varsData = [];
     let lastResult = null;
 
@@ -111,58 +116,39 @@
       return indices;
     }
 
-    // Step 1: Scan GRIB2 file
-    document.getElementById('btn-scan').addEventListener('click', async () => {
-      const fileInput = document.getElementById('grb-file');
-      if (!fileInput.files[0]) { alert('Select a .grb2 file first'); return; }
+    // Detect format from filename / magic bytes — keeps us format-agnostic.
+    function detectFormat(filename, bytes) {
+      const lower = (filename || '').toLowerCase();
+      if (lower.endsWith('.zip')) return 'zarr';
+      if (lower.endsWith('.grb2') || lower.endsWith('.grib2') || lower.endsWith('.grb'))
+        return 'grib2';
+      // Magic-byte fallback
+      if (bytes && bytes.length >= 4) {
+        if (bytes[0] === 0x47 && bytes[1] === 0x52 &&
+            bytes[2] === 0x49 && bytes[3] === 0x42) return 'grib2'; // 'GRIB'
+        if (bytes[0] === 0x50 && bytes[1] === 0x4B) return 'zarr';   // 'PK' (ZIP)
+      }
+      return null;
+    }
 
-      document.getElementById('scan-status').innerHTML = '<span class="warn">Scanning...</span>';
-
-      const buf = await fileInput.files[0].arrayBuffer();
-      const grb2Data = new Uint8Array(buf);
-
-      // Clean up previous scan
-      if (scanResult) {
+    // Free whatever scanResult holds — format-aware.
+    function freeScanResult() {
+      if (!scanResult) return;
+      if (currentFormat === 'grib2') {
         wasm.ccall('wp_scan_free', null, ['number'], [scanResult]);
-        scanResult = null;
+      } else if (currentFormat === 'zarr') {
+        WebParsersZarr.scanFree(scanResult);
       }
+      scanResult = null;
+      currentFormat = null;
+    }
 
-      // Copy data into WASM memory
-      const ptr = wpMalloc(grb2Data.length);
-      const CHUNK = 65536;
-      for (let off = 0; off < grb2Data.length; off += CHUNK) {
-        const end = Math.min(off + CHUNK, grb2Data.length);
-        const slice = grb2Data.subarray(off, end);
-        wasm.ccall('wp_memcpy', null,
-          ['number', 'array', 'number'],
-          [ptr + off, slice, slice.length]);
-      }
-
-      // Scan
-      scanResult = wasm.ccall('wp_scan', 'number',
-        ['number', 'number'], [ptr, grb2Data.length]);
-
-      wpFree(ptr);
-
-      if (scanResult === 0) {
-        document.getElementById('scan-status').innerHTML =
-          '<span class="error">Failed to scan file. Not a valid GRIB2?</span>';
-        return;
-      }
-
-      // Get variables JSON
-      const varsJsonPtr = wasm.ccall('wp_scan_get_vars_json', 'number',
-        ['number'], [scanResult]);
-      const varsJson = wasm.UTF8ToString(varsJsonPtr);
-      wpFree(varsJsonPtr);
-
-      varsData = JSON.parse(varsJson);
+    // Render the variables table — works for any format that emits the
+    // same JSON shape as wp_scan_get_vars_json.
+    function renderVarsTable() {
       const supported = varsData.filter(v => v.supported).length;
-      document.getElementById('scan-status').innerHTML =
-        '<span class="success">Found ' + varsData.length + ' variables (' + supported + ' supported)</span>';
 
-      // Build table with checkboxes
-      let html = '<table><tr><th></th><th>#</th><th>Variable</th><th>Cat</th><th>Num</th>' +
+      let html = '<table><tr><th></th><th>#</th><th>Variable</th>' +
                  '<th>Grid</th><th>Messages</th></tr>';
       varsData.forEach((v, i) => {
         const cls = v.supported ? '' : ' class="unsupported"';
@@ -171,8 +157,6 @@
           '<td><input type="checkbox" class="var-check" data-index="' + v.index + '"' + disabled + '></td>' +
           '<td>' + (i+1) + '</td>' +
           '<td>' + v.name + '</td>' +
-          '<td>' + v.cat + '</td>' +
-          '<td>' + v.num + '</td>' +
           '<td>' + v.nx + 'x' + v.ny + '</td>' +
           '<td>' + v.messages + '</td>' +
           '</tr>';
@@ -181,7 +165,6 @@
       document.getElementById('vars-table').innerHTML = html;
       document.getElementById('vars-section').style.display = '';
 
-      // Show query section with t2 based on max messages
       const maxMsgs = Math.max(...varsData.map(v => v.messages));
       document.getElementById('q-t2').value = maxMsgs - 1;
       document.getElementById('q-t2').max = maxMsgs - 1;
@@ -189,6 +172,72 @@
       document.getElementById('query-section').style.display = '';
       document.getElementById('result-section').style.display = 'none';
       document.getElementById('btn-download').disabled = true;
+
+      return supported;
+    }
+
+    // Step 1: Scan file (GRIB2 or Zarr)
+    document.getElementById('btn-scan').addEventListener('click', async () => {
+      const fileInput = document.getElementById('grb-file');
+      if (!fileInput.files[0]) { alert('Select a file first'); return; }
+
+      const statusEl = document.getElementById('scan-status');
+      statusEl.innerHTML = '<span class="warn">Scanning...</span>';
+
+      const buf   = await fileInput.files[0].arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      const fmt   = detectFormat(fileInput.files[0].name, bytes);
+
+      if (!fmt) {
+        statusEl.innerHTML = '<span class="error">Unrecognized format. Supported: .grb2/.grib2/.grb (GRIB2) or .zip (Zarr v2).</span>';
+        return;
+      }
+
+      // Clean up previous scan (whatever format it was)
+      freeScanResult();
+
+      try {
+        if (fmt === 'grib2') {
+          // Copy data into WASM memory
+          const ptr = wpMalloc(bytes.length);
+          const CHUNK = 65536;
+          for (let off = 0; off < bytes.length; off += CHUNK) {
+            const end = Math.min(off + CHUNK, bytes.length);
+            const slice = bytes.subarray(off, end);
+            wasm.ccall('wp_memcpy', null,
+              ['number', 'array', 'number'],
+              [ptr + off, slice, slice.length]);
+          }
+          scanResult = wasm.ccall('wp_scan', 'number',
+            ['number', 'number'], [ptr, bytes.length]);
+          wpFree(ptr);
+
+          if (scanResult === 0) {
+            statusEl.innerHTML = '<span class="error">Failed to scan file. Not a valid GRIB2?</span>';
+            return;
+          }
+          currentFormat = 'grib2';
+
+          const varsJsonPtr = wasm.ccall('wp_scan_get_vars_json', 'number',
+            ['number'], [scanResult]);
+          varsData = JSON.parse(wasm.UTF8ToString(varsJsonPtr));
+          wpFree(varsJsonPtr);
+        }
+        else if (fmt === 'zarr') {
+          scanResult    = await WebParsersZarr.scan(bytes);
+          currentFormat = 'zarr';
+          varsData      = JSON.parse(WebParsersZarr.scanGetVarsJson(scanResult));
+        }
+      } catch (err) {
+        statusEl.innerHTML = '<span class="error">Scan failed: ' + err.message + '</span>';
+        console.error(err);
+        return;
+      }
+
+      const supported = renderVarsTable();
+      statusEl.innerHTML =
+        '<span class="success">[' + fmt + '] Found ' + varsData.length +
+        ' variables (' + supported + ' supported)</span>';
     });
 
     // Step 3: Decode & Query selected variables
@@ -212,11 +261,23 @@
         // Give browser a tick to update UI
         await new Promise(r => setTimeout(r, 20));
 
-        // Normalize
-        const ds = wasm.ccall('wp_normalize', 'number',
-          ['number', 'number'], [scanResult, idx]);
+        // Normalize — branch by format
+        let ds;
+        try {
+          if (currentFormat === 'grib2') {
+            ds = wasm.ccall('wp_normalize', 'number',
+              ['number', 'number'], [scanResult, idx]);
+          } else if (currentFormat === 'zarr') {
+            ds = await WebParsersZarr.normalize(scanResult, idx, wasm);
+          }
+        } catch (err) {
+          progressEl.innerHTML = '<span class="error">Failed to decode ' +
+            varName + ': ' + err.message + '</span>';
+          console.error(err);
+          continue;
+        }
 
-        if (ds === 0) {
+        if (!ds || ds === 0) {
           progressEl.innerHTML = '<span class="error">Failed to decode ' + varName + '</span>';
           continue;
         }
@@ -235,6 +296,28 @@
         // Clamp t2 to this variable's actual time step count
         const nt = wasm.ccall('wp_nt', 'number', ['number'], [ds]);
         const actualT2 = Math.min(t2, nt - 1);
+
+        // Safety cap: if the user didn't restrict by lat/lon and the grid
+        // is huge (e.g. ICON Global = 2.9M unstructured cells), the JSON
+        // output would be hundreds of MB and freeze the browser.  Default
+        // to a single cell so they get *something* — they can refine by
+        // entering a Lat/Lon (or, for unstructured grids, a cell index in
+        // the Lon field) to query other points.
+        const nx = wasm.ccall('wp_nx', 'number', ['number'], [ds]);
+        const ny = wasm.ccall('wp_ny', 'number', ['number'], [ds]);
+        const totalCells = nx * ny;
+        const MAX_FULL_DUMP = 10000;  // ~1 MB JSON, still snappy
+        let truncated = false;
+        if (latIdx === -1 && lonIdx === -1 && totalCells > MAX_FULL_DUMP) {
+          latIdx = 0;
+          lonIdx = 0;
+          truncated = true;
+          progressEl.innerHTML =
+            '<span class="warn">Grid has ' + totalCells.toLocaleString() +
+            ' cells — defaulting to cell [0,0] to avoid freezing the browser. ' +
+            'Enter a Lat/Lon (or cell index in Lon field for unstructured) to query specific points.</span>';
+          await new Promise(r => setTimeout(r, 50));
+        }
 
         // Query
         const resultPtr = wasm.ccall('wp_query', 'number',
