@@ -83,13 +83,22 @@ wp_scan_result_t* wp_scan(const uint8_t* data, uint32_t data_len) {
             vars[found].count++;
         } else if (n_vars < 256) {
             uint32_t nx = 0, ny = 0;
-            if (msgs[i].sec3_len >= 38) {
+            uint16_t gtmpl = be16(grb_copy + msgs[i].sec3_off + 12);
+            if (gtmpl == 101) {
+                /* Unstructured grid: store cell count in nx, ny=1 */
+                if (msgs[i].sec3_len >= 34)
+                    nx = be32(grb_copy + msgs[i].sec3_off + 30);
+                /* Fall back to octets 7-10 (numberOfDataPoints in sec3 header) */
+                if (nx == 0 && msgs[i].sec3_len >= 10)
+                    nx = be32(grb_copy + msgs[i].sec3_off + 6);
+                ny = 1;
+            } else if (msgs[i].sec3_len >= 38) {
                 nx = be32(grb_copy + msgs[i].sec3_off + 30);
                 ny = be32(grb_copy + msgs[i].sec3_off + 34);
             }
             vars[n_vars].cat = cat;
             vars[n_vars].num = num;
-            vars[n_vars].grid_tmpl = be16(grb_copy + msgs[i].sec3_off + 12);
+            vars[n_vars].grid_tmpl = gtmpl;
             vars[n_vars].data_tmpl = be16(grb_copy + msgs[i].sec5_off + 9);
             vars[n_vars].nx = nx;
             vars[n_vars].ny = ny;
@@ -148,7 +157,7 @@ char* wp_scan_get_vars_json(const wp_scan_result_t* s) {
                i, name, v->cat, v->num,
                v->grid_tmpl, v->data_tmpl,
                v->nx, v->ny, v->count,
-               (v->grid_tmpl == 0 || v->grid_tmpl == 40 || v->grid_tmpl == 30) ? "true" : "false",
+               (v->grid_tmpl == 0 || v->grid_tmpl == 40 || v->grid_tmpl == 30 || v->grid_tmpl == 101) ? "true" : "false",
                (i + 1 < s->n_vars) ? "," : "");
     }
     APPEND("]\n");
@@ -174,8 +183,10 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
     grib2_msg_t*   msgs = s->msgs;
     int            n_msgs = s->n_msgs;
 
-    /* Support grid templates 0, 40 (regular lat/lon) and 30 (Lambert) */
-    if (vi->grid_tmpl != 0 && vi->grid_tmpl != 40 && vi->grid_tmpl != 30)
+    /* Support grid templates 0, 40 (regular lat/lon), 30 (Lambert),
+     * and 101 (general unstructured — ICON / DWD) */
+    if (vi->grid_tmpl != 0 && vi->grid_tmpl != 40 &&
+        vi->grid_tmpl != 30 && vi->grid_tmpl != 101)
         return NULL;
 
     /* Find first matching message */
@@ -190,12 +201,22 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
 
     /* Parse reference grid — branch on template */
     uint32_t nx, ny;
-    int is_lambert = (vi->grid_tmpl == 30);
+    int is_lambert      = (vi->grid_tmpl == 30);
+    int is_unstructured = (vi->grid_tmpl == 101);
 
-    grid_latlon_t  grid_ll;
-    grid_lambert_t grid_lc;
+    grid_latlon_t       grid_ll;
+    grid_lambert_t      grid_lc;
+    grid_unstructured_t grid_un;
 
-    if (is_lambert) {
+    if (is_unstructured) {
+        if (parse_sec3_unstructured(data + msgs[first_idx].sec3_off,
+                                    (uint32_t)msgs[first_idx].sec3_len,
+                                    &grid_un) != 0)
+            return NULL;
+        /* Flatten the unstructured cell list into (nx=num_points, ny=1) */
+        nx = grid_un.num_points;
+        ny = 1;
+    } else if (is_lambert) {
         if (parse_sec3_lambert(data + msgs[first_idx].sec3_off,
                                (uint32_t)msgs[first_idx].sec3_len, &grid_lc) != 0)
             return NULL;
@@ -242,7 +263,15 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
         return NULL;
     }
 
-    if (is_lambert) {
+    if (is_unstructured) {
+        /* Unstructured grid: GRIB2 file does NOT carry per-cell lat/lon
+         * (those live in an external ICON grid file referenced by UUID).
+         * Expose the 1D cell array as ny=1, with lons[i] = i (cell index)
+         * so the existing query/nearest-lookup API stays usable. */
+        lats[0] = 0.0f;
+        for (uint32_t i = 0; i < nx; i++)
+            lons[i] = (float)i;
+    } else if (is_lambert) {
         /* Lambert: compute full 2D lat/lon grid, then extract 1D axes.
          * lat axis = first column (all rows, col 0)
          * lon axis = first row (row 0, all cols) */
