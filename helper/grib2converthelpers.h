@@ -101,6 +101,21 @@ typedef struct {
 } grid_lambert_t;
 
 /*
+ * Unstructured (general) grid parameters (Section 3, template 101).
+ * Used by ICON (DWD) and other unstructured-mesh models.  The cell
+ * coordinates are NOT stored in the GRIB2 message — they live in an
+ * external grid file identified by uuid[16].
+ */
+typedef struct {
+    uint32_t num_points;            /* total number of cells/points */
+    uint8_t  grid_point_position;   /* codetable 3.13: 0=cell center */
+    uint8_t  numbering_order;       /* codetable 3.16 */
+    uint32_t number_of_grid_used;
+    uint32_t number_of_grid_in_ref;
+    uint8_t  uuid[16];              /* identifies the external grid file */
+} grid_unstructured_t;
+
+/*
  * Packing parameters (Section 5, templates 0 and 3).
  */
 typedef struct {
@@ -144,6 +159,8 @@ int     parse_sec3_latlon(const uint8_t* sec, uint32_t sec_len,
                           grid_latlon_t* g);
 int     parse_sec3_lambert(const uint8_t* sec, uint32_t sec_len,
                            grid_lambert_t* g);
+int     parse_sec3_unstructured(const uint8_t* sec, uint32_t sec_len,
+                                grid_unstructured_t* g);
 int64_t parse_sec1_reftime(const uint8_t* sec, uint32_t sec_len);
 int64_t parse_sec4_forecast_offset(const uint8_t* sec, uint32_t sec_len);
 int     parse_sec5(const uint8_t* sec, uint32_t sec_len, packing_t* pk);

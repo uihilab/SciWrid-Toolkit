@@ -11,6 +11,7 @@
  * Grid template support:
  *   Template 0 / 40  -- regular lat/lon (equidistant cylindrical)
  *   Template 30      -- Lambert conformal conic
+ *   Template 101     -- general unstructured grid (ICON / DWD)
  */
 
 #include "grib2converthelpers.h"
@@ -202,6 +203,74 @@ int parse_sec3_lambert(const uint8_t* sec, uint32_t sec_len,
 }
 
 /* =========================================================================
+ * Section 3, Template 101 – General Unstructured Grid (ICON / DWD)
+ *
+ * Length-driven parse: the Section 3 *length* field is the single source of
+ * truth.  Real-world encoders (DWD's 35-byte form, ECMWF's 63-byte form, ...)
+ * each ship a different subset of the optional template-body fields, so we
+ * read each field only if it actually fits in the section, otherwise leave
+ * it at a default of 0 / missing.
+ *
+ * `numberOfDataPoints` lives in the universal Section 3 header (octets 7-10),
+ * present in EVERY grid template — that's our authoritative source for the
+ * cell count, with the template-body duplicate at offset 30 as a fallback.
+ *
+ * Cell lat/lon coordinates are NOT in the GRIB2 message — they live in an
+ * external ICON grid file identified by the UUID, which decoders can resolve
+ * separately if needed.
+ * ======================================================================= */
+
+static inline uint8_t sec_u8 (const uint8_t* sec, uint32_t sec_len,
+                              uint32_t off, uint8_t  def) {
+    return (off + 1 <= sec_len) ? sec[off] : def;
+}
+static inline uint32_t sec_u32(const uint8_t* sec, uint32_t sec_len,
+                               uint32_t off, uint32_t def) {
+    return (off + 4 <= sec_len) ? be32(sec + off) : def;
+}
+
+int parse_sec3_unstructured(const uint8_t* sec, uint32_t sec_len,
+                            grid_unstructured_t* g) {
+    /* Only the universal Section 3 header is required (14 bytes through
+     * the template number).  Everything beyond is optional. */
+    if (sec_len < 14) {
+        fprintf(stderr,
+                "  Error: Section 3 truncated (%u bytes, need >=14)\n", sec_len);
+        return -1;
+    }
+
+    uint16_t tmpl = be16(sec + 12);
+    if (tmpl != 101) {
+        fprintf(stderr,
+                "  Error: grid template %u is not unstructured (101)\n", tmpl);
+        return -1;
+    }
+
+    memset(g, 0, sizeof(*g));
+
+    /* Prefer the canonical numberOfDataPoints in Section 3 header (octets 7-10).
+     * Fall back to the duplicate at template-body offset 30 if missing/zero. */
+    g->num_points = sec_u32(sec, sec_len, 6, 0);
+    if (g->num_points == 0 || g->num_points == 0xFFFFFFFFu)
+        g->num_points = sec_u32(sec, sec_len, 30, 0);
+
+    /* Optional template-body fields — fetched defensively */
+    g->grid_point_position   = sec_u8 (sec, sec_len, 37, 0);
+    g->numbering_order       = sec_u8 (sec, sec_len, 38, 0);
+    g->number_of_grid_used   = sec_u32(sec, sec_len, 39, 0);
+    g->number_of_grid_in_ref = sec_u32(sec, sec_len, 43, 0);
+    if (sec_len >= 63) memcpy(g->uuid, sec + 47, 16);
+
+    if (g->num_points == 0 || g->num_points == 0xFFFFFFFFu ||
+        g->num_points > 1000000000u) {
+        fprintf(stderr,
+                "  Error: implausible unstructured grid size %u\n", g->num_points);
+        return -1;
+    }
+    return 0;
+}
+
+/* =========================================================================
  * Lambert Conformal Conic projection: (i,j) grid index → (lat,lon)
  *
  * Uses the standard WMO/GRIB2 formulas for Lambert conformal conic.
@@ -320,7 +389,10 @@ int parse_sec5(const uint8_t* sec, uint32_t sec_len, packing_t* pk) {
     pk->bits_per_value = sec[19];
 
     if (pk->tmpl == 0) {
-        if (pk->bits_per_value == 0 || pk->bits_per_value > 32) {
+        /* bits_per_value == 0 is valid: it means a constant field where
+         * every cell takes the reference value (after scaling).  Reject
+         * only out-of-range widths. */
+        if (pk->bits_per_value > 32) {
             fprintf(stderr, "  Error: bits_per_value=%u out of range\n",
                     pk->bits_per_value);
             return -1;
@@ -491,8 +563,16 @@ int decode_simple(const uint8_t* payload, uint32_t payload_len,
         return -1;
     }
 
-    double   s2  = pow(2.0,  (double)pk->binary_scale);
-    double   s10 = pow(10.0, (double)pk->decimal_scale);
+    double s10 = pow(10.0, (double)pk->decimal_scale);
+
+    /* bits_per_value == 0: constant field, every cell = ref_val / 10^D */
+    if (pk->bits_per_value == 0) {
+        float v = (float)((double)pk->ref_val / s10);
+        for (uint32_t i = 0; i < pk->num_pts; i++) out[i] = v;
+        return 0;
+    }
+
+    double   s2 = pow(2.0, (double)pk->binary_scale);
     uint64_t bit_off = 0;
 
     for (uint32_t i = 0; i < pk->num_pts; i++) {
