@@ -76,7 +76,9 @@
   </div>
 
   <script src="webparsers.js"></script>
-  <script src="zarr-helper.js"></script>
+  <!-- zarr-helper is now an ES module; importing it re-attaches `WebParsersZarr`
+       to globalThis so the inline (classic) script below can keep using it. -->
+  <script type="module">import './zarr-helper.js';</script>
   <script>
     let wasm = null;
     let scanResult = null;     // GRIB2: WASM pointer; Zarr: { entries, arrays }

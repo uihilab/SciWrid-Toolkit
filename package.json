@@ -10,11 +10,18 @@
       "import": "./wasm/webparsers-lib.js",
       "default": "./wasm/webparsers-lib.js"
     },
+    "./api": {
+      "types": "./wasm/webparsers-api.d.ts",
+      "import": "./wasm/webparsers-api.js",
+      "default": "./wasm/webparsers-api.js"
+    },
     "./wasm": "./wasm/webparsers.js",
     "./wasm-binary": "./wasm/webparsers.wasm"
   },
   "files": [
     "wasm/webparsers-lib.js",
+    "wasm/webparsers-api.js",
+    "wasm/webparsers-api.d.ts",
     "wasm/webparsers.js",
     "wasm/webparsers.wasm",
     "README.md"
@@ -30,6 +37,14 @@
     "gfs"
   ],
   "license": "MIT",
+  "scripts": {
+    "demo:grib2":   "node examples/testfile/demoGrib2File.js",
+    "demo:netcdf3": "node examples/testfile/demoNetcdf3File.js",
+    "demo:netcdf4": "node examples/testfile/demoNetcdf4File.js",
+    "demo:zarr":    "node examples/testfile/demoZarrFile.js",
+    "demo:web":     "node scripts/serve.js",
+    "test:api":     "node scripts/test-api.js"
+  },
   "engines": {
     "node": ">=18"
   }
