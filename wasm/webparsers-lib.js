@@ -17,6 +17,8 @@
  *   import { webparsers } from 'webparsers';
  */
 
+import * as Zarr from './zarr-helper.js';
+
 /* =========================================================================
  * Internal: get the WASM factory function, regardless of environment
  * ======================================================================= */
@@ -52,6 +54,7 @@ export class webparsers {
     this._format         = null;
     this._nc4            = null;   // { f, fname, FS } for open NetCDF4 file
     this._h5wasmModule   = null;   // cached h5wasm module
+    this._zarrScan       = null;   // result of Zarr.scan() for open Zarr file
   }
 
   /* -----------------------------------------------------------------------
@@ -87,8 +90,11 @@ export class webparsers {
     } else if (format === 'netcdf4') {
       this._format = 'netcdf4';
       await this._scanNetCDF4(data);
+    } else if (format === 'zarr') {
+      this._format = 'zarr';
+      await this._scanZarr(data);
     } else {
-      throw new Error(`Format '${format}' not yet supported. Supported: grib2, netcdf3, netcdf4`);
+      throw new Error(`Format '${format}' not yet supported. Supported: grib2, netcdf3, netcdf4, zarr`);
     }
   }
 
@@ -117,6 +123,12 @@ export class webparsers {
       /* Collect unique units */
       const units = [...new Set(this.vars.map(v => v.units).filter(Boolean))];
       base.units = units;
+    }
+
+    if (this._format === 'zarr') {
+      base.shapes      = [...new Set(this.vars.map(v => (v.shape || []).join('x')))];
+      base.dtypes      = [...new Set(this.vars.map(v => v.dtype).filter(Boolean))];
+      base.compressors = [...new Set(this.vars.map(v => v.compressor).filter(Boolean))];
     }
 
     return base;
@@ -148,6 +160,17 @@ export class webparsers {
             shape:     v.shape     || null,
             ndims:     v.ndims,
             supported: v.supported,
+          };
+        } else if (this._format === 'zarr') {
+          props = {
+            index:      v.index,
+            name:       v.name,
+            shape:      v.shape      || null,
+            chunks:     v.chunks     || null,
+            dtype:      v.dtype      || null,
+            compressor: v.compressor || null,
+            attrs:      v.attrs      || null,
+            supported:  v.supported,
           };
         } else {
           props = {
@@ -200,6 +223,8 @@ export class webparsers {
       let ds;
       if (this._format === 'netcdf4') {
         ds = await this._normalizeNetCDF4(v);
+      } else if (this._format === 'zarr') {
+        ds = await Zarr.normalize(this._zarrScan, v.index, wasm);
       } else {
         const normFn = this._format === 'netcdf3' ? 'wp_nc3_normalize' : 'wp_normalize';
         ds = wasm.ccall(normFn, 'number',
@@ -359,15 +384,22 @@ export class webparsers {
         data[4] === 0x0D && data[5] === 0x0A && data[6] === 0x1A && data[7] === 0x0A)
       return 'netcdf4';
 
+    // ZIP / Zarr-zip magic: 'PK\x03\x04' (we treat ZIP as candidate Zarr;
+    // _scanZarr() will throw a clear error if there's no .zarray inside).
+    if (data.length >= 4 &&
+        data[0] === 0x50 && data[1] === 0x4B &&
+        data[2] === 0x03 && data[3] === 0x04) return 'zarr';
+
     // Fallback: file extension
     const name = (source && source.name)      ? source.name
               : (typeof source === 'string')  ? source
               : (source instanceof URL)       ? source.pathname
               : '';
-    if (/\.(grb2?|grib2?)$/i.test(name))        return 'grib2';
-    if (/\.nc3$/i.test(name))                     return 'netcdf3';
-    if (/\.(nc|nc4|netcdf)$/i.test(name))         return 'netcdf4'; // default .nc to nc4 (more common)
-    throw new Error('Cannot detect file format. Supported: GRIB2 (.grb2), NetCDF3 (.nc3), NetCDF4 (.nc)');
+    if (/\.(grb2?|grib2?)$/i.test(name))         return 'grib2';
+    if (/\.nc3$/i.test(name))                    return 'netcdf3';
+    if (/\.(nc|nc4|netcdf)$/i.test(name))        return 'netcdf4'; // default .nc to nc4 (more common)
+    if (/\.(zarr|zarr\.zip|zip)$/i.test(name))   return 'zarr';
+    throw new Error('Cannot detect file format. Supported: GRIB2 (.grb2), NetCDF3 (.nc3), NetCDF4 (.nc), Zarr v2 (.zarr/.zip)');
   }
 
   _scanGrib2(data) {
@@ -426,6 +458,11 @@ export class webparsers {
         try { this._nc4.FS.unlink(this._nc4.fname); } catch (_) {}
         this._nc4 = null;
       }
+    } else if (this._format === 'zarr') {
+      if (this._zarrScan) {
+        try { Zarr.scanFree(this._zarrScan); } catch (_) {}
+        this._zarrScan = null;
+      }
     } else if (this.scanPtr && this.wasm) {
       const freeFn = this._format === 'netcdf3' ? 'wp_nc3_scan_free' : 'wp_scan_free';
       this.wasm.ccall(freeFn, null, ['number'], [this.scanPtr]);
@@ -438,9 +475,19 @@ export class webparsers {
   _requireScan() {
     if (this._format === 'netcdf4') {
       if (!this._nc4) throw new Error('No file loaded. Call read() first.');
+    } else if (this._format === 'zarr') {
+      if (!this._zarrScan) throw new Error('No file loaded. Call read() first.');
     } else {
       if (!this.scanPtr) throw new Error('No file loaded. Call read() first.');
     }
+  }
+
+  /* Scan a Zarr-zip file via the JS helper, populate this.vars in the same
+   * shape as the other formats so getvariables()/extract() work uniformly. */
+  async _scanZarr(data) {
+    const scanResult = await Zarr.scan(data);
+    this._zarrScan = scanResult;
+    this.vars = JSON.parse(Zarr.scanGetVarsJson(scanResult));
   }
 
   /* =========================================================================

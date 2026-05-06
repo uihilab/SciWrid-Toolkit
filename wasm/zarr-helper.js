@@ -36,8 +36,12 @@
  *   - big-endian dtypes
  */
 
-(function (global) {
-  'use strict';
+/* ES module — import { scan, scanGetVarsJson, normalize, scanFree, detectFormat }
+ *             from './zarr-helper.js';
+ *
+ * Backward-compatible global `WebParsersZarr` is re-attached at the bottom for
+ * `<script type="module">` consumers (test.html) that still reference it.
+ */
 
   /* ====================================================================== */
   /* Tiny ZIP reader — central-directory walker, stored + deflate entries.   */
@@ -494,15 +498,28 @@
   /* Exports                                                                 */
   /* ====================================================================== */
 
-  global.WebParsersZarr = {
-    detectFormat,
-    scan,
-    scanGetVarsJson,
-    normalize,
-    scanFree,
-    /* Lower-level helpers, exposed for advanced use / tests */
-    _readZip:        readZip,
-    _parseDtype:     parseDtype,
-    _readArrayAsFloat32: readArrayAsFloat32,
+export {
+  detectFormat,
+  scan,
+  scanGetVarsJson,
+  normalize,
+  scanFree,
+  /* Lower-level helpers, exposed for advanced use / tests */
+  readZip            as _readZip,
+  parseDtype         as _parseDtype,
+  readArrayAsFloat32 as _readArrayAsFloat32,
+};
+
+export default {
+  detectFormat, scan, scanGetVarsJson, normalize, scanFree,
+  _readZip: readZip, _parseDtype: parseDtype, _readArrayAsFloat32: readArrayAsFloat32,
+};
+
+/* Re-attach as a global for legacy `<script type="module">` consumers
+ * (e.g. test.html still references WebParsersZarr by name). Harmless in Node. */
+if (typeof globalThis !== 'undefined') {
+  globalThis.WebParsersZarr = {
+    detectFormat, scan, scanGetVarsJson, normalize, scanFree,
+    _readZip: readZip, _parseDtype: parseDtype, _readArrayAsFloat32: readArrayAsFloat32,
   };
-})(typeof window !== 'undefined' ? window : globalThis);
+}
