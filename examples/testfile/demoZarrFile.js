@@ -20,22 +20,6 @@ import { scan, extract } from '../../wasm/webparsers-api.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root      = resolve(__dirname, '../..');
 
-/* ---- Bootstrap the WASM factory the same way demoGrib2File.js does ---- */
-function loadWasmFactory() {
-  const code = readFileSync(resolve(root, 'wasm/webparsers.js'), 'utf8');
-  const fakeModule = { exports: {} };
-  // eslint-disable-next-line no-new-func
-  new Function('module', 'exports', code)(fakeModule, fakeModule.exports);
-  const factory = fakeModule.exports?.default ?? fakeModule.exports;
-  if (typeof factory !== 'function') {
-    throw new Error('Could not extract WebParsers factory from webparsers.js');
-  }
-  return factory;
-}
-
-const rawFactory = loadWasmFactory();
-const wasmBinary = readFileSync(resolve(root, 'wasm/webparsers.wasm'));
-const wf = { wasmFactory: () => rawFactory({ wasmBinary }) };
 
 /* ---- Pick the fixture --------------------------------------------------
  * Drop your zlib-compressed Zarr-zip into examples/zarr/ and set the
@@ -46,7 +30,7 @@ const FIXTURE_PATH = 'examples/zarr/'; // TODO: set to your <fixture>.zip
 const file = new Uint8Array(readFileSync(resolve(root, FIXTURE_PATH)));
 
 console.log('--- SCAN ---');
-const meta = await scan(file, wf);
+const meta = await scan(file);
 console.log(JSON.stringify(meta, null, 2));
 
 /* ---- Extract first 21 values of the first supported variable ---------
@@ -61,7 +45,6 @@ if (!v) {
 } else {
   console.log(`\n--- EXTRACT '${v.name}' values [0..20] @ (j=0, i=0) ---`);
   const result = await extract(file, {
-    ...wf,
     variable: v.name,
     lat: 0, lon: 0,
     t1: 0, t2: 20,

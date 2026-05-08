@@ -18,23 +18,15 @@
  */
 
 import * as Zarr from './zarr-helper.js';
+import WebParsers from './webparsers.js';
 
 /* =========================================================================
  * Internal: get the WASM factory function, regardless of environment
  * ======================================================================= */
 function getWasmFactory(instance) {
-  /* 1. Explicitly passed via constructor config (most reliable) */
+  /* Explicitly passed via constructor config overrides the default */
   if (instance && instance._wasmFactory) return instance._wasmFactory;
-  /* 2. Emscripten MODULARIZE sets a global var */
-  if (typeof WebParsers === 'function') return WebParsers;            // script-tag global
-  if (typeof globalThis !== 'undefined' && typeof globalThis.WebParsers === 'function')
-    return globalThis.WebParsers;
-  if (typeof window !== 'undefined' && typeof window.WebParsers === 'function')
-    return window.WebParsers;
-  throw new Error(
-    'WASM module not loaded. Either include <script src="webparsers.js"></script> ' +
-    'before this library, or pass { wasmFactory: WebParsers } to the constructor.'
-  );
+  return WebParsers;
 }
 
 /* =========================================================================
@@ -499,7 +491,7 @@ export class webparsers {
   async _getH5wasm() {
     if (this._h5wasmModule) return this._h5wasmModule;
     try {
-      const mod = await import('https://cdn.jsdelivr.net/npm/h5wasm@0.7.7/dist/esm/hdf5_hl.js');
+      const mod = await import('h5wasm');
       const h5  = mod.default ?? mod;
       // h5.ready resolves with { FS } — that's where the virtual filesystem lives
       const { FS } = await h5.ready;

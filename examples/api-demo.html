@@ -66,8 +66,14 @@
     <pre id="ex-out">(no extract yet)</pre>
   </div>
 
-  <!-- WASM loader (sets global WebParsers, picked up by webparsers-lib.js) -->
-  <script src="../wasm/webparsers.js"></script>
+  <!-- Import map: tells the browser where to find bare package names -->
+  <script type="importmap">
+  {
+    "imports": {
+      "h5wasm": "/node_modules/h5wasm/dist/esm/hdf5_hl.js"
+    }
+  }
+  </script>
 
   <script type="module">
     import {

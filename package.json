@@ -22,6 +22,7 @@
     "wasm/webparsers-lib.js",
     "wasm/webparsers-api.js",
     "wasm/webparsers-api.d.ts",
+    "wasm/zarr-helper.js",
     "wasm/webparsers.js",
     "wasm/webparsers.wasm",
     "README.md"
@@ -37,6 +38,9 @@
     "gfs"
   ],
   "license": "MIT",
+  "dependencies": {
+    "h5wasm": "^0.7.7"
+  },
   "scripts": {
     "demo:grib2":   "node examples/testfile/demoGrib2File.js",
     "demo:netcdf3": "node examples/testfile/demoNetcdf3File.js",
