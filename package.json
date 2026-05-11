@@ -3,22 +3,21 @@
   "version": "0.1.0",
   "description": "Pure-C WASM library for parsing meteorological data formats (GRIB2, NetCDF, etc.) in the browser",
   "type": "module",
-  "main": "./wasm/webparsers-lib.js",
-  "module": "./wasm/webparsers-lib.js",
+  "main": "./index.js",
+  "module": "./index.js",
+  "types": "./index.d.ts",
   "exports": {
     ".": {
-      "import": "./wasm/webparsers-lib.js",
-      "default": "./wasm/webparsers-lib.js"
-    },
-    "./api": {
-      "types": "./wasm/webparsers-api.d.ts",
-      "import": "./wasm/webparsers-api.js",
-      "default": "./wasm/webparsers-api.js"
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
     },
     "./wasm": "./wasm/webparsers.js",
     "./wasm-binary": "./wasm/webparsers.wasm"
   },
   "files": [
+    "index.js",
+    "index.d.ts",
     "wasm/webparsers-lib.js",
     "wasm/webparsers-api.js",
     "wasm/webparsers-api.d.ts",
