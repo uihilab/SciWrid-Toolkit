@@ -21,28 +21,16 @@ import {
   UnsupportedFormatError,
 } from '../wasm/webparsers-api.js';
 
+/* The Emscripten module is built with MODULARIZE=1 + EXPORT_ES6=1, so it's a
+ * real ES module that uses import.meta.url to resolve the .wasm. Import it
+ * directly — no CJS-eval shim needed. */
+import WebParsers from '../wasm/webparsers.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root      = resolve(__dirname, '..');
 
-/* ---- Load the WASM factory --------------------------------------------
- * webparsers.js is a UMD bundle that targets CJS via `module.exports`.
- * Inside an ESM package it's loaded as ESM, so the CJS branch never runs.
- * We work around that by reading the file as text and evaluating it in a
- * synthetic CJS sandbox. */
-function loadWasmFactory() {
-  const code = readFileSync(resolve(root, 'wasm/webparsers.js'), 'utf8');
-  const fakeModule = { exports: {} };
-  // eslint-disable-next-line no-new-func
-  new Function('module', 'exports', code)(fakeModule, fakeModule.exports);
-  const fac = fakeModule.exports?.default ?? fakeModule.exports;
-  if (typeof fac !== 'function')
-    throw new Error('Could not extract WebParsers factory from webparsers.js');
-  return fac;
-}
-const rawFactory  = loadWasmFactory();
 const wasmBinary  = readFileSync(resolve(root, 'wasm/webparsers.wasm'));
-/* Wrap the factory so every call gets the binary preloaded. */
-const wasmFactory = () => rawFactory({ wasmBinary });
+const wasmFactory = () => WebParsers({ wasmBinary });
 const wf = { wasmFactory };
 
 /* ---- Tiny test runner ------------------------------------------------- */

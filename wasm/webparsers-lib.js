@@ -312,6 +312,15 @@ export class webparsers {
       time = 0, workers = 5, signal, onProgress,
     } = options || {};
 
+    const checkAbort = () => {
+      if (signal && signal.aborted) {
+        const reason = signal.reason instanceof Error ? signal.reason : new Error('AbortError');
+        if (!reason.name || reason.name === 'Error') reason.name = 'AbortError';
+        throw reason;
+      }
+    };
+    checkAbort();
+
     /* ---- Validate inputs ---- */
     if (!variable || typeof variable !== 'string')
       throw new Error('extractGrid: `variable` is required and must be a string');
@@ -330,7 +339,9 @@ export class webparsers {
     if (!v.supported) throw new Error(`Variable not supported: ${variable}`);
 
     /* ---- Extract typed arrays + time slice ---- */
+    checkAbort();
     const arrays = await this._extractArrays(v, time);
+    checkAbort();
     const { lats, lons, sliceData, ny, nx, units } = arrays;
 
     /* ---- Detect monotonicity ---- */
@@ -356,10 +367,12 @@ export class webparsers {
     }
 
     /* ---- Worker pool path ---- */
+    checkAbort();
     const { WorkerPool, createWorker } = await import('../worker/loader.js');
     const pool = new WorkerPool({ size: workers, factory: createWorker, signal });
 
     try {
+      checkAbort();
       /* Build per-worker init message. Transferable buffers detach the source,
        * so we slice() before each transfer to keep the originals in this scope. */
       await pool.initAll((i) => {

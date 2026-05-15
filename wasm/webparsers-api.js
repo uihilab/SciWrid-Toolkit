@@ -178,10 +178,13 @@ export async function extractGrid(source, options = {}) {
     try {
       return await lib.extractGrid(options);
     } catch (e) {
-      if (e instanceof WebparsersError) throw e;
+      if (e && (e.name === 'AbortError' || e instanceof WebparsersError)) throw e;
       if (/not found/i.test(e.message))      throw new VariableNotFoundError(e.message);
       if (/not supported/i.test(e.message))  throw new VariableNotFoundError(e.message);
-      throw new ExtractError(e.message);
+      const wrapped = new ExtractError(e.message);
+      wrapped.cause = e;
+      wrapped.stack = e.stack;
+      throw wrapped;
     }
   });
 }
