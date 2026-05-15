@@ -78,7 +78,13 @@ export class WorkerPool {
     this._disposeReason = null;
 
     if (signal) {
-      signal.addEventListener('abort', () => this.dispose(new Error('AbortError')));
+      const onAbort = () => {
+        const reason = signal.reason instanceof Error ? signal.reason : new Error('AbortError');
+        if (!reason.name || reason.name === 'Error') reason.name = 'AbortError';
+        this.dispose(reason);
+      };
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort);
     }
   }
 

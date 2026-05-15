@@ -27,23 +27,14 @@ import {
   VariableNotFoundError,
 } from '../wasm/webparsers-api.js';
 
+/* Emscripten module is ES-module style (EXPORT_ES6=1) — import directly. */
+import WebParsers from '../wasm/webparsers.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root      = resolve(__dirname, '..');
 
-/* ---- Load the WASM factory (same shim as test-api.js) ---- */
-function loadWasmFactory() {
-  const code = readFileSync(resolve(root, 'wasm/webparsers.js'), 'utf8');
-  const fakeModule = { exports: {} };
-  // eslint-disable-next-line no-new-func
-  new Function('module', 'exports', code)(fakeModule, fakeModule.exports);
-  const fac = fakeModule.exports?.default ?? fakeModule.exports;
-  if (typeof fac !== 'function')
-    throw new Error('Could not extract WebParsers factory from webparsers.js');
-  return fac;
-}
-const rawFactory  = loadWasmFactory();
 const wasmBinary  = readFileSync(resolve(root, 'wasm/webparsers.wasm'));
-const wasmFactory = () => rawFactory({ wasmBinary });
+const wasmFactory = () => WebParsers({ wasmBinary });
 const wf = { wasmFactory };
 
 /* ---- Tiny test runner ---- */
@@ -61,9 +52,13 @@ async function test(name, fn) {
   }
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
-function assertClose(a, b, eps, msg) {
+/* Relative tolerance — Float32 has ~7 sig digits, JSON roundtrip can lose precision,
+ * so we accept 1e-4 relative error or 1e-3 absolute, whichever is larger. */
+function assertClose(a, b, relEps, msg) {
   if (Number.isNaN(a) && Number.isNaN(b)) return;
-  if (Math.abs(a - b) > eps) throw new Error(`${msg || 'not close'}: got ${a}, want ${b} (eps=${eps})`);
+  const denom = Math.max(Math.abs(a), Math.abs(b), 1);
+  const relErr = Math.abs(a - b) / denom;
+  if (relErr > relEps) throw new Error(`${msg || 'not close'}: got ${a}, want ${b} (relErr=${relErr.toExponential(2)})`);
 }
 function buffersEqual(a, b) {
   if (a.length !== b.length) return false;
@@ -146,7 +141,7 @@ await test('extractGrid result matches 16 per-point extract() calls', async () =
         /* the reference might be a non-scalar — accept any non-NaN in grid */
         assert(true, '');
       } else {
-        assertClose(gridVal, pointVal, 1e-3,
+        assertClose(gridVal, pointVal, 1e-4,
           `mismatch at (${x},${y}) lat=${lat.toFixed(3)} lon=${lon.toFixed(3)}`);
       }
     }
