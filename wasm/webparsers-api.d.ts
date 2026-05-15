@@ -136,12 +136,36 @@ export function extractOutput(
 ): Promise<string>;
 export function extractGrid(source: Source, options: ExtractGridOptions): Promise<ExtractGridResult>;
 
+/** Output format for `extractGridOutput()`. */
+export type GridOutputFormat = 'json' | 'geotiff' | 'tif' | 'tiff';
+
+/** Run `extractGrid()` and serialize the result. */
+export function extractGridOutput(
+  source: Source,
+  options: ExtractGridOptions & { pretty?: boolean },
+  format?: 'json'
+): Promise<string>;
+export function extractGridOutput(
+  source: Source,
+  options: ExtractGridOptions,
+  format: 'geotiff' | 'tif' | 'tiff'
+): Promise<Uint8Array>;
+
+/** Serialize an already-extracted grid to a JSON string. */
+export function gridToJSON(grid: ExtractGridResult, opts?: { pretty?: boolean }): string;
+
+/** Serialize an already-extracted grid to a single-band Float32 GeoTIFF (WGS84). */
+export function gridToGeoTIFF(grid: ExtractGridResult): Uint8Array;
+
 declare const _default: {
   detectFormat: typeof detectFormat;
   scan: typeof scan;
   extract: typeof extract;
   extractOutput: typeof extractOutput;
   extractGrid: typeof extractGrid;
+  extractGridOutput: typeof extractGridOutput;
+  gridToJSON: typeof gridToJSON;
+  gridToGeoTIFF: typeof gridToGeoTIFF;
   WebparsersError: typeof WebparsersError;
   UnsupportedFormatError: typeof UnsupportedFormatError;
   VariableNotFoundError: typeof VariableNotFoundError;

@@ -86,6 +86,8 @@
     </div>
     <button id="btn-grid">extractGrid()</button>
     <button id="btn-grid-abort" disabled>Abort</button>
+    <button id="btn-grid-json" disabled>Save JSON</button>
+    <button id="btn-grid-tiff" disabled>Save GeoTIFF</button>
     <span id="g-progress" class="muted"></span>
     <div style="margin-top:.75rem; display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
       <canvas id="g-canvas" width="256" height="256" style="background:#0f0f23; border:1px solid #444; image-rendering: pixelated;"></canvas>
@@ -105,8 +107,22 @@
   <script type="module">
     import {
       detectFormat, scan, extract, extractOutput, extractGrid,
+      gridToJSON, gridToGeoTIFF,
       WebparsersError,
     } from '../wasm/webparsers-api.js';
+
+    /* Small browser download helper — Blob + anchor click. */
+    function saveBlob(content, mime, filename) {
+      const blob = new Blob([content], { type: mime });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
 
     const $ = (id) => document.getElementById(id);
     const fileInput = $('file');
@@ -283,18 +299,25 @@
       return { min, max };
     }
 
-    let gridAbort = null;
+    let gridAbort  = null;
+    let lastGrid   = null;     /* last extractGrid result — feeds Save buttons */
+
     $('btn-grid').addEventListener('click', async () => {
       const out      = $('g-out');
       const progress = $('g-progress');
       const canvas   = $('g-canvas');
       const btn      = $('btn-grid');
       const abortBtn = $('btn-grid-abort');
+      const jsonBtn  = $('btn-grid-json');
+      const tiffBtn  = $('btn-grid-tiff');
 
       out.textContent = 'Building grid…';
       progress.textContent = '';
       btn.disabled = true;
       abortBtn.disabled = false;
+      jsonBtn.disabled = true;
+      tiffBtn.disabled = true;
+      lastGrid = null;
 
       gridAbort = new AbortController();
       const t0 = performance.now();
@@ -320,6 +343,9 @@
           `workers:   ${opts.workers}\n` +
           `time idx:  ${result.time}`;
         progress.textContent = ` done in ${ms}ms`;
+        lastGrid = result;
+        jsonBtn.disabled = false;
+        tiffBtn.disabled = false;
       } catch (e) {
         if (e?.name === 'AbortError' || /abort|dispose/i.test(e?.message || '')) {
           show(out, 'Aborted.', 'warn');
@@ -338,8 +364,35 @@
       if (gridAbort) gridAbort.abort();
     });
 
+    $('btn-grid-json').addEventListener('click', () => {
+      if (!lastGrid) return;
+      try {
+        const json = gridToJSON(lastGrid, { pretty: true });
+        const stem = (lastGrid.variable || 'grid').replace(/\W+/g, '_');
+        saveBlob(json, 'application/json', `${stem}.json`);
+        log('Saved JSON', `${stem}.json (${json.length} bytes)`);
+      } catch (e) {
+        show($('g-out'), 'JSON save error: ' + e.message, 'error');
+        console.error(e);
+      }
+    });
+
+    $('btn-grid-tiff').addEventListener('click', () => {
+      if (!lastGrid) return;
+      try {
+        const buf  = gridToGeoTIFF(lastGrid);
+        const stem = (lastGrid.variable || 'grid').replace(/\W+/g, '_');
+        saveBlob(buf, 'image/tiff', `${stem}.tif`);
+        log('Saved GeoTIFF', `${stem}.tif (${buf.byteLength} bytes)`);
+      } catch (e) {
+        show($('g-out'), 'GeoTIFF save error: ' + e.message, 'error');
+        console.error(e);
+      }
+    });
+
     /* Expose for console hacking */
-    window.api = { detectFormat, scan, extract, extractOutput, extractGrid };
+    window.api = { detectFormat, scan, extract, extractOutput, extractGrid,
+                   gridToJSON, gridToGeoTIFF };
     console.log('[api-demo] Ready. Try `api.scan(yourFile)` from this console.');
   </script>
 </body>

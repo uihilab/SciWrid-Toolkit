@@ -17,6 +17,7 @@ export type {
   ExtractGridOptions,
   ExtractGridResult,
   ExtractGridProgress,
+  GridOutputFormat,
 } from './wasm/webparsers-api.js';
 
 export {
@@ -24,6 +25,9 @@ export {
   extract,
   extractOutput,
   extractGrid,
+  extractGridOutput,
+  gridToJSON,
+  gridToGeoTIFF,
   detectFormat,
   WebparsersError,
   UnsupportedFormatError,

@@ -23,6 +23,7 @@
     "wasm/webparsers-api.js",
     "wasm/webparsers-api.d.ts",
     "wasm/zarr-helper.js",
+    "wasm/grid-output.js",
     "wasm/webparsers.js",
     "wasm/webparsers.wasm",
     "worker/worker.js",
