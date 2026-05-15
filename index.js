@@ -48,6 +48,9 @@ export {
   extract,
   extractOutput,
   extractGrid,
+  extractGridOutput,
+  gridToJSON,
+  gridToGeoTIFF,
   detectFormat,
 } from './wasm/webparsers-api.js';
 

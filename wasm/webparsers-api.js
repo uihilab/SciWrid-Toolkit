@@ -17,6 +17,8 @@
  */
 
 import { webparsers } from './webparsers-lib.js';
+import { gridToJSON, gridToGeoTIFF } from './grid-output.js';
+export { gridToJSON, gridToGeoTIFF } from './grid-output.js';
 
 /* =========================================================================
  * Typed errors
@@ -190,9 +192,30 @@ export async function extractGrid(source, options = {}) {
 }
 
 /* =========================================================================
+ * extractGridOutput — same as extractGrid, but serialised
+ *
+ *   const json = await extractGridOutput(src, opts, 'json');     // string
+ *   const tiff = await extractGridOutput(src, opts, 'geotiff');  // Uint8Array
+ *
+ * Other projects can save the result anywhere (fs, fetch, Blob, etc).
+ * For just the in-memory grid use extractGrid() — this wrapper exists for
+ * one-shot "give me a file-ready blob" callers.
+ * ======================================================================= */
+export async function extractGridOutput(source, options = {}, format = 'json') {
+  const fmt = String(format).toLowerCase();
+  if (fmt !== 'json' && fmt !== 'geotiff' && fmt !== 'tif' && fmt !== 'tiff')
+    throw new WebparsersError(`Unsupported grid output format '${format}'. Use 'json' or 'geotiff'.`);
+
+  const grid = await extractGrid(source, options);
+  if (fmt === 'json')      return gridToJSON(grid, { pretty: options.pretty });
+  /* geotiff / tif / tiff */            return gridToGeoTIFF(grid);
+}
+
+/* =========================================================================
  * Default export — bundle everything for `import api from 'webparsers/api'`
  * ======================================================================= */
 export default {
-  detectFormat, scan, extract, extractOutput, extractGrid,
+  detectFormat, scan, extract, extractOutput, extractGrid, extractGridOutput,
+  gridToJSON, gridToGeoTIFF,
   WebparsersError, UnsupportedFormatError, VariableNotFoundError, SourceError, ExtractError,
 };

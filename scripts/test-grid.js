@@ -24,6 +24,9 @@ import {
   scan,
   extract,
   extractGrid,
+  extractGridOutput,
+  gridToJSON,
+  gridToGeoTIFF,
   VariableNotFoundError,
 } from '../wasm/webparsers-api.js';
 
@@ -193,7 +196,57 @@ await test('AbortSignal rejects mid-flight', async () => {
   assert(rejected, 'expected AbortSignal to cause rejection');
 });
 
-/* ---- Test 5: VariableNotFoundError ---- */
+/* ---- Test 5: gridToJSON round-trip ---- */
+await test('gridToJSON serialises and round-trips', async () => {
+  const grid = await extractGrid(bytes, { ...wf, variable, bbox, width: 4, height: 4, workers: 0 });
+  const json = gridToJSON(grid);
+  const parsed = JSON.parse(json);
+  assert(parsed.variable === variable, `variable mismatch: ${parsed.variable}`);
+  assert(parsed.width === 4 && parsed.height === 4, 'dimensions mismatch');
+  assert(Array.isArray(parsed.bbox) && parsed.bbox.length === 4, 'bbox not an array');
+  assert(Array.isArray(parsed.data) && parsed.data.length === 16, 'data length wrong');
+  /* NaN encoded as null */
+  for (let i = 0; i < parsed.data.length; i++) {
+    const v = parsed.data[i];
+    assert(v === null || typeof v === 'number', `data[${i}] not number/null: ${v}`);
+  }
+});
+
+/* ---- Test 6: gridToGeoTIFF produces a valid TIFF header ---- */
+await test('gridToGeoTIFF emits valid TIFF magic + correct strip size', async () => {
+  const grid = await extractGrid(bytes, { ...wf, variable, bbox, width: 8, height: 8, workers: 0 });
+  const buf  = gridToGeoTIFF(grid);
+  assert(buf instanceof Uint8Array, 'output is not Uint8Array');
+  /* "II" + 42 at offset 0..3 */
+  assert(buf[0] === 0x49 && buf[1] === 0x49, `byte order: ${buf[0]},${buf[1]}`);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  assert(dv.getUint16(2, true) === 42, `tiff magic: ${dv.getUint16(2, true)}`);
+  /* Last 8*8*4 = 256 bytes should equal the Float32 data, byte-for-byte */
+  const stripBytes = 8 * 8 * 4;
+  const stripStart = buf.byteLength - stripBytes;
+  const stripFloat = new Float32Array(buf.buffer.slice(stripStart, stripStart + stripBytes));
+  for (let i = 0; i < stripFloat.length; i++) {
+    const a = stripFloat[i], b = grid.data[i];
+    const ok = (Number.isNaN(a) && Number.isNaN(b)) || a === b;
+    assert(ok, `strip mismatch at ${i}: ${a} vs ${b}`);
+  }
+});
+
+/* ---- Test 7: extractGridOutput('json') and ('geotiff') ---- */
+await test('extractGridOutput("json") returns a JSON string', async () => {
+  const s = await extractGridOutput(bytes, { ...wf, variable, bbox, width: 4, height: 4, workers: 0 }, 'json');
+  assert(typeof s === 'string', 'not a string');
+  assert(s.startsWith('{') && s.endsWith('}'), 'not JSON-shaped');
+  JSON.parse(s);   /* throws if invalid */
+});
+
+await test('extractGridOutput("geotiff") returns a Uint8Array with TIFF magic', async () => {
+  const buf = await extractGridOutput(bytes, { ...wf, variable, bbox, width: 4, height: 4, workers: 0 }, 'geotiff');
+  assert(buf instanceof Uint8Array, 'not a Uint8Array');
+  assert(buf[0] === 0x49 && buf[1] === 0x49, 'bad TIFF byte order');
+});
+
+/* ---- Test 8: VariableNotFoundError ---- */
 await test('extractGrid throws VariableNotFoundError for bogus variable', async () => {
   let threw = false;
   try {

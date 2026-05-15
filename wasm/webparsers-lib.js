@@ -566,18 +566,32 @@ export class webparsers {
    * --------------------------------------------------------------------- */
   download(data, options = {}) {
     if (data === undefined || data === null)
-      throw new Error('No data to download. Pass the result of extract() as the first argument.');
+      throw new Error('No data to download. Pass the result of extract() or a serialised string/Uint8Array.');
 
-    // Determine type from data or options
-    const isString  = typeof data === 'string';
-    const inferType = isString
-      ? (data.startsWith('{') || data.startsWith('[') ? 'json' : 'csv')
-      : 'json';
-    const type      = options.type ?? inferType;
-    const ext       = type === 'csv' ? 'csv' : (type === 'geojson' ? 'geojson' : 'json');
-    const filename  = options.filename ?? `webparsers_extract.${ext}`;
-    const mime      = type === 'csv' ? 'text/csv' : 'application/json';
-    const content   = isString ? data : JSON.stringify(data, null, 2);
+    /* Detect shape: binary buffer, string, or plain object (JSON.stringify). */
+    const isBinary = data instanceof Uint8Array;
+    const isString = typeof data === 'string';
+
+    const inferType = isBinary
+      ? 'bin'
+      : (isString
+          ? ((data.startsWith('{') || data.startsWith('[')) ? 'json' : 'csv')
+          : 'json');
+    const type     = (options.type ?? inferType).toLowerCase();
+
+    const EXT  = { csv: 'csv', json: 'json', geojson: 'geojson',
+                   geotiff: 'tif', tif: 'tif', tiff: 'tif', bin: 'bin' };
+    const MIME = { csv: 'text/csv', json: 'application/json',
+                   geojson: 'application/geo+json',
+                   geotiff: 'image/tiff', tif: 'image/tiff', tiff: 'image/tiff',
+                   bin: 'application/octet-stream' };
+    const ext      = EXT[type]  ?? 'bin';
+    const mime     = MIME[type] ?? 'application/octet-stream';
+    const filename = options.filename ?? `webparsers_extract.${ext}`;
+
+    const content  = isBinary ? data
+                   : isString ? data
+                   : JSON.stringify(data, null, 2);
 
     // Browser environment
     if (typeof document !== 'undefined') {
@@ -599,7 +613,8 @@ export class webparsers {
       try {
         // eslint-disable-next-line no-undef
         const fs = require('fs');
-        fs.writeFileSync(filename, content, 'utf8');
+        if (isBinary) fs.writeFileSync(filename, content);
+        else          fs.writeFileSync(filename, content, 'utf8');
         console.log(`[webparsers] Saved: ${filename}`);
         return;
       } catch (e) {
