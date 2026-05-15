@@ -158,9 +158,38 @@ export async function extractOutput(source, options = {}, format = 'json') {
 }
 
 /* =========================================================================
+ * extractGrid — parallel bbox grid export
+ *
+ *   const result = await extractGrid(source, {
+ *     variable: 'TMP',
+ *     bbox:    [minLon, minLat, maxLon, maxLat],
+ *     width:   256, height: 256,
+ *     time:    0,           // optional, default 0
+ *     workers: 5,           // optional, default 5; 0 forces inline
+ *     signal:  abortCtrl.signal,    // optional
+ *     onProgress: ({done,total}) => {},
+ *   });
+ *
+ * Returns { data: Float32Array(W*H), width, height, bbox, variable, units, time }
+ * where row 0 is at maxLat (north-up) and cells are row-major.
+ * ======================================================================= */
+export async function extractGrid(source, options = {}) {
+  return withInstance(source, options, async (lib) => {
+    try {
+      return await lib.extractGrid(options);
+    } catch (e) {
+      if (e instanceof WebparsersError) throw e;
+      if (/not found/i.test(e.message))      throw new VariableNotFoundError(e.message);
+      if (/not supported/i.test(e.message))  throw new VariableNotFoundError(e.message);
+      throw new ExtractError(e.message);
+    }
+  });
+}
+
+/* =========================================================================
  * Default export — bundle everything for `import api from 'webparsers/api'`
  * ======================================================================= */
 export default {
-  detectFormat, scan, extract, extractOutput,
+  detectFormat, scan, extract, extractOutput, extractGrid,
   WebparsersError, UnsupportedFormatError, VariableNotFoundError, SourceError, ExtractError,
 };

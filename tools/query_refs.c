@@ -285,6 +285,15 @@ uint32_t       refs_nt(const refs_dataset_t* ds) { return ds->nt; }
 const float*   refs_lats(const refs_dataset_t* ds) { return ds->lats; }
 const float*   refs_lons(const refs_dataset_t* ds) { return ds->lons; }
 const int64_t* refs_times(const refs_dataset_t* ds) { return ds->times; }
+/* bin_buf is a contiguous nt*ny*nx Float32 in row-major [t,y,x] layout when the
+ * dataset was built by refs_open_from_arrays (the only path used by the WASM
+ * pipeline). File-backed datasets return NULL so callers know to use
+ * refs_read_timestep() instead. */
+const float*   refs_data(const refs_dataset_t* ds) {
+    if (!ds || !ds->bin_buf) return NULL;
+    if (ds->bin_buf_len < (size_t)ds->nt * ds->ny * ds->nx * sizeof(float)) return NULL;
+    return (const float*)ds->bin_buf;
+}
 int            refs_is_timeseries(const refs_dataset_t* ds) { return ds->is_timeseries; }
 
 /* =========================================================================

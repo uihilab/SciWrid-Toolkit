@@ -78,6 +78,46 @@ export interface ExtractResult {
 
 export type OutputFormat = 'json' | 'csv';
 
+export type BBox = [minLon: number, minLat: number, maxLon: number, maxLat: number];
+
+export interface ExtractGridProgress {
+  done: number;
+  total: number;
+  chunk?: number;
+  totalChunks?: number;
+}
+
+export interface ExtractGridOptions extends CommonOptions {
+  /** Variable name to extract. Required. */
+  variable: string;
+  /** Geographic bbox as [minLon, minLat, maxLon, maxLat]. Required. */
+  bbox: BBox;
+  /** Output grid columns. Required. */
+  width: number;
+  /** Output grid rows. Required. */
+  height: number;
+  /** Time index; defaults to 0. */
+  time?: number;
+  /** Worker pool size; defaults to 5. Pass 0 to force inline (single-threaded) extraction. */
+  workers?: number;
+  /** Optional abort signal. Aborting mid-flight rejects with AbortError. */
+  signal?: AbortSignal;
+  /** Optional progress callback fired after each chunk. */
+  onProgress?: (p: ExtractGridProgress) => void;
+}
+
+export interface ExtractGridResult {
+  /** Row-major Float32 grid of length width*height. Row 0 = maxLat (north-up). */
+  data: Float32Array;
+  width: number;
+  height: number;
+  bbox: BBox;
+  variable: string;
+  units?: string;
+  /** Time index used. */
+  time?: number;
+}
+
 /* ---- Error classes ---- */
 export class WebparsersError extends Error {}
 export class UnsupportedFormatError extends WebparsersError {}
@@ -94,12 +134,14 @@ export function extractOutput(
   options?: ExtractOptions,
   format?: OutputFormat,
 ): Promise<string>;
+export function extractGrid(source: Source, options: ExtractGridOptions): Promise<ExtractGridResult>;
 
 declare const _default: {
   detectFormat: typeof detectFormat;
   scan: typeof scan;
   extract: typeof extract;
   extractOutput: typeof extractOutput;
+  extractGrid: typeof extractGrid;
   WebparsersError: typeof WebparsersError;
   UnsupportedFormatError: typeof UnsupportedFormatError;
   VariableNotFoundError: typeof VariableNotFoundError;
