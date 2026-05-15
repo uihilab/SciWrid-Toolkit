@@ -47,6 +47,7 @@ export {
   scan,
   extract,
   extractOutput,
+  extractGrid,
   detectFormat,
 } from './wasm/webparsers-api.js';
 

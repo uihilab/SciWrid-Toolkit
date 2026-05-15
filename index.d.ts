@@ -13,12 +13,17 @@ export type {
   ExtractResult,
   TimeseriesPoint,
   OutputFormat,
+  BBox,
+  ExtractGridOptions,
+  ExtractGridResult,
+  ExtractGridProgress,
 } from './wasm/webparsers-api.js';
 
 export {
   scan,
   extract,
   extractOutput,
+  extractGrid,
   detectFormat,
   WebparsersError,
   UnsupportedFormatError,

@@ -13,7 +13,8 @@
       "default": "./index.js"
     },
     "./wasm": "./wasm/webparsers.js",
-    "./wasm-binary": "./wasm/webparsers.wasm"
+    "./wasm-binary": "./wasm/webparsers.wasm",
+    "./worker": "./worker/loader.js"
   },
   "files": [
     "index.js",
@@ -24,6 +25,8 @@
     "wasm/zarr-helper.js",
     "wasm/webparsers.js",
     "wasm/webparsers.wasm",
+    "worker/worker.js",
+    "worker/loader.js",
     "README.md"
   ],
   "keywords": [
@@ -46,7 +49,9 @@
     "demo:netcdf4": "node examples/testfile/demoNetcdf4File.js",
     "demo:zarr":    "node examples/testfile/demoZarrFile.js",
     "demo:web":     "node scripts/serve.js",
-    "test:api":     "node scripts/test-api.js"
+    "build:wasm":   "python wasm/build.py",
+    "test:api":     "node scripts/test-api.js",
+    "test:grid":    "node scripts/test-grid.js"
   },
   "engines": {
     "node": ">=18"

@@ -21,6 +21,20 @@ import * as Zarr from './zarr-helper.js';
 import WebParsers from './webparsers.js';
 
 /* =========================================================================
+ * Internal: monotonicity check for coordinate arrays (used by extractGrid)
+ * ======================================================================= */
+function isMonotonic(arr) {
+  const n = arr.length;
+  if (n < 2) return true;
+  const asc = arr[0] < arr[n - 1];
+  for (let i = 1; i < n; i++) {
+    if (asc && !(arr[i] >= arr[i - 1])) return false;
+    if (!asc && !(arr[i] <= arr[i - 1])) return false;
+  }
+  return true;
+}
+
+/* =========================================================================
  * Internal: get the WASM factory function, regardless of environment
  * ======================================================================= */
 function getWasmFactory(instance) {
@@ -271,6 +285,257 @@ export class webparsers {
     if (type === 'csv')     return this._toCSV(combined);
     if (type === 'geojson') return this._toGeoJSON(combined);
     return combined;
+  }
+
+  /* -----------------------------------------------------------------------
+   * extractGrid — parallel bbox grid export
+   *
+   *   await lib.extractGrid({
+   *     variable: 'TMP',
+   *     bbox:    [minLon, minLat, maxLon, maxLat],
+   *     width:   256, height: 256,
+   *     time:    0,           // optional, default 0
+   *     workers: 5,           // optional, default 5; 0 forces inline
+   *     signal:  abortCtrl.signal,    // optional
+   *     onProgress: ({done,total}) => {},
+   *   })
+   *
+   * Returns { data: Float32Array(W*H), width, height, bbox, variable,
+   *           units, time }. Row 0 = maxLat (north-up). Cell (x,y) center:
+   *   lon = minLon + (x + 0.5) * (maxLon - minLon) / width
+   *   lat = maxLat - (y + 0.5) * (maxLat - minLat) / height
+   * --------------------------------------------------------------------- */
+  async extractGrid(options) {
+    this._requireScan();
+    const {
+      variable, bbox, width, height,
+      time = 0, workers = 5, signal, onProgress,
+    } = options || {};
+
+    /* ---- Validate inputs ---- */
+    if (!variable || typeof variable !== 'string')
+      throw new Error('extractGrid: `variable` is required and must be a string');
+    if (!Array.isArray(bbox) || bbox.length !== 4)
+      throw new Error('extractGrid: `bbox` must be [minLon, minLat, maxLon, maxLat]');
+    if (!Number.isInteger(width) || width <= 0 ||
+        !Number.isInteger(height) || height <= 0)
+      throw new Error('extractGrid: `width` and `height` must be positive integers');
+    const [minLon, minLat, maxLon, maxLat] = bbox;
+    if (!(maxLon > minLon) || !(maxLat > minLat))
+      throw new Error('extractGrid: bbox max must be greater than min');
+
+    /* ---- Find target variable ---- */
+    const v = this.vars.find(x => x.name === variable);
+    if (!v) throw new Error(`Variable not found: ${variable}`);
+    if (!v.supported) throw new Error(`Variable not supported: ${variable}`);
+
+    /* ---- Extract typed arrays + time slice ---- */
+    const arrays = await this._extractArrays(v, time);
+    const { lats, lons, sliceData, ny, nx, units } = arrays;
+
+    /* ---- Detect monotonicity ---- */
+    const latsAscending = lats[0] < lats[ny - 1];
+    const lonsAscending = lons[0] < lons[nx - 1];
+    if (!isMonotonic(lats)) throw new Error('lats array is not monotonic; extractGrid v1 requires sorted coordinates');
+    if (!isMonotonic(lons)) throw new Error('lons array is not monotonic; extractGrid v1 requires sorted coordinates');
+
+    const lonRange = lonsAscending ? [lons[0], lons[nx - 1]] : [lons[nx - 1], lons[0]];
+
+    /* ---- Decide inline vs pool ---- */
+    const total = width * height;
+    const useWorkers = workers > 0 && (typeof Worker !== 'undefined' || typeof process !== 'undefined');
+
+    if (!useWorkers) {
+      /* Inline path */
+      const { inlineExtract } = await import('../worker/loader.js');
+      const data = inlineExtract(
+        { lats, lons, data: sliceData, nx, latsAscending, lonsAscending,
+          lonRange, bbox, width, height },
+        onProgress);
+      return { data, width, height, bbox, variable, units, time };
+    }
+
+    /* ---- Worker pool path ---- */
+    const { WorkerPool, createWorker } = await import('../worker/loader.js');
+    const pool = new WorkerPool({ size: workers, factory: createWorker, signal });
+
+    try {
+      /* Build per-worker init message. Transferable buffers detach the source,
+       * so we slice() before each transfer to keep the originals in this scope. */
+      await pool.initAll((i) => {
+        const latsCopy = lats.slice();
+        const lonsCopy = lons.slice();
+        const dataCopy = sliceData.slice();
+        return {
+          msg: {
+            type: 'init',
+            lats: latsCopy.buffer,
+            lons: lonsCopy.buffer,
+            data: dataCopy.buffer,
+            ny, nx, latsAscending, lonsAscending, lonRange,
+            bbox, width, height,
+          },
+          transfer: [latsCopy.buffer, lonsCopy.buffer, dataCopy.buffer],
+        };
+      });
+
+      /* Build chunk queue. Row-band chunks for load balancing. */
+      const rowsPerChunk = Math.max(1, Math.ceil(height / (workers * 4)));
+      const chunks = [];
+      for (let y0 = 0, id = 0; y0 < height; y0 += rowsPerChunk, id++) {
+        chunks.push({ type: 'chunk', id, y0, y1: Math.min(y0 + rowsPerChunk, height) });
+      }
+
+      const output = new Float32Array(width * height);
+      let done = 0;
+      const totalChunks = chunks.length;
+
+      /* Enqueue all; pool dispatches as workers become available. */
+      const promises = chunks.map((chunkMsg) =>
+        pool.enqueue(chunkMsg).then((res) => {
+          const values = new Float32Array(res.values);
+          output.set(values, res.y0 * width);
+          done += values.length;
+          if (onProgress) onProgress({ done, total, chunk: res.id, totalChunks });
+        }),
+      );
+
+      await Promise.all(promises);
+      return { data: output, width, height, bbox, variable, units, time };
+    } finally {
+      pool.dispose();
+    }
+  }
+
+  /* -----------------------------------------------------------------------
+   * _extractArrays — get typed arrays for a variable + time slice
+   *
+   * Returns { lats: Float32Array(ny), lons: Float32Array(nx),
+   *           sliceData: Float32Array(ny*nx),    // the single time slice
+   *           ny, nx, nt, units, timeValue? }
+   *
+   * Uses the new wp_ds_*_ptr WASM exports for GRIB2/NetCDF3, the locally-
+   * built typed arrays for NetCDF4 (h5wasm path), or throws for Zarr (TODO).
+   * --------------------------------------------------------------------- */
+  async _extractArrays(v, t = 0) {
+    if (this._format === 'netcdf4') {
+      const a = await this._normalizeNetCDF4ToArrays(v);
+      const tt = Math.min(t, a.nt - 1);
+      const sliceData = a.dataF32.slice(tt * a.ny * a.nx, (tt + 1) * a.ny * a.nx);
+      return {
+        lats: a.latsF32,
+        lons: a.lonsF32,
+        sliceData,
+        ny: a.ny, nx: a.nx, nt: a.nt,
+        units: v.units || '',
+        timeValue: a.timesF64[tt],
+      };
+    }
+
+    if (this._format === 'zarr')
+      throw new Error('extractGrid: Zarr support not yet implemented (v1 supports grib2, netcdf3, netcdf4)');
+
+    /* GRIB2 / NetCDF3: go through WASM, extract via wp_ds_*_ptr */
+    const wasm = this.wasm;
+    if (typeof wasm._wp_ds_lats_ptr !== 'function')
+      throw new Error('extractGrid requires the wp_ds_*_ptr WASM exports. Rebuild: python wasm/build.py');
+
+    const normFn = this._format === 'netcdf3' ? 'wp_nc3_normalize' : 'wp_normalize';
+    const ds = wasm.ccall(normFn, 'number', ['number', 'number'], [this.scanPtr, v.index]);
+    if (!ds || ds === 0) throw new Error(`Failed to decode variable: ${v.name}`);
+
+    try {
+      const ny = wasm.ccall('wp_ny', 'number', ['number'], [ds]);
+      const nx = wasm.ccall('wp_nx', 'number', ['number'], [ds]);
+      const nt = wasm.ccall('wp_nt', 'number', ['number'], [ds]);
+      const tt = Math.min(t, nt - 1);
+
+      const latsPtr = wasm.ccall('wp_ds_lats_ptr', 'number', ['number'], [ds]);
+      const lonsPtr = wasm.ccall('wp_ds_lons_ptr', 'number', ['number'], [ds]);
+      const dataPtr = wasm.ccall('wp_ds_data_ptr', 'number', ['number'], [ds]);
+
+      if (!latsPtr || !lonsPtr || !dataPtr)
+        throw new Error('wp_ds_*_ptr exports missing — rebuild WASM (python wasm/build.py)');
+
+      /* .slice() copies out of WASM heap to a JS-owned ArrayBuffer that survives wp_close. */
+      const lats = new Float32Array(wasm.HEAPF32.buffer, latsPtr, ny).slice();
+      const lons = new Float32Array(wasm.HEAPF32.buffer, lonsPtr, nx).slice();
+      const sliceOffset = dataPtr + tt * ny * nx * 4;
+      const sliceData   = new Float32Array(wasm.HEAPF32.buffer, sliceOffset, ny * nx).slice();
+
+      return { lats, lons, sliceData, ny, nx, nt, units: '' };
+    } finally {
+      wasm.ccall('wp_close', null, ['number'], [ds]);
+    }
+  }
+
+  /* Helper that returns the same typed arrays _normalizeNetCDF4 builds, but
+   * WITHOUT copying them into WASM. extractGrid uses this for the JS-only
+   * pure-JS worker path. */
+  async _normalizeNetCDF4ToArrays(varInfo) {
+    const f = this._nc4.f;
+    const item = f.get(varInfo.name);
+    const a    = item.attrs;
+
+    const scale   = Number(this._nc4Attr(a, 'scale_factor')  ?? 1);
+    const offset  = Number(this._nc4Attr(a, 'add_offset')    ?? 0);
+    const fillRaw = this._nc4Attr(a, '_FillValue');
+    const missRaw = this._nc4Attr(a, 'missing_value');
+    const fill    = fillRaw != null ? Number(fillRaw) : 9.969209968386869e36;
+    const miss    = missRaw != null ? Number(missRaw) : fill;
+
+    const shape = varInfo._shape;
+    const latC  = varInfo._latCoord;
+    const lonC  = varInfo._lonCoord;
+    const timC  = varInfo._timCoord;
+    const ny = latC.length;
+    const nx = lonC.length;
+    const nt = timC ? timC.length : 1;
+
+    const latRaw  = f.get(latC.name).value;
+    const lonRaw  = f.get(lonC.name).value;
+    const latsF32 = new Float32Array(ny);
+    const lonsF32 = new Float32Array(nx);
+    for (let i = 0; i < ny; i++) latsF32[i] = Number(latRaw[i]);
+    for (let i = 0; i < nx; i++) lonsF32[i] = Number(lonRaw[i]);
+
+    const timesF64 = new Float64Array(nt);
+    if (timC) {
+      const timDS    = f.get(timC.name);
+      const timUnits = String(this._nc4Attr(timDS.attrs, 'units') ?? 'days since 1970-01-01');
+      const timRaw   = timDS.value;
+      for (let i = 0; i < nt; i++)
+        timesF64[i] = this._nc4TimeToS(Number(timRaw[i]), timUnits);
+    } else {
+      for (let i = 0; i < nt; i++) timesF64[i] = i * 86400;
+    }
+
+    const rawData = item.value;
+    const dataF32 = new Float32Array(nt * ny * nx);
+    const strides = new Array(shape.length);
+    strides[shape.length - 1] = 1;
+    for (let d = shape.length - 2; d >= 0; d--)
+      strides[d] = strides[d + 1] * shape[d + 1];
+
+    const timDim = timC ? timC.dim : -1;
+    const latDim = latC.dim;
+    const lonDim = lonC.dim;
+
+    for (let tt = 0; tt < nt; tt++) {
+      for (let y = 0; y < ny; y++) {
+        for (let x = 0; x < nx; x++) {
+          let src = 0;
+          if (timDim >= 0) src += tt * strides[timDim];
+          src += y * strides[latDim];
+          src += x * strides[lonDim];
+          const dst = tt * ny * nx + y * nx + x;
+          const val = Number(rawData[src]);
+          dataF32[dst] = (val === fill || val === miss || !isFinite(val))
+                          ? NaN : val * scale + offset;
+        }
+      }
+    }
+    return { latsF32, lonsF32, timesF64, dataF32, ny, nx, nt };
   }
 
   /* -----------------------------------------------------------------------
