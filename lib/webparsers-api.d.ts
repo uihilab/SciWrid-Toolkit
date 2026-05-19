@@ -2,7 +2,7 @@
  * Type definitions for the webparsers functional API.
  */
 
-export type Format = 'grib2' | 'netcdf3' | 'netcdf4';
+export type Format = 'grib2' | 'netcdf3' | 'netcdf4' | 'zarr';
 
 export type Source =
   | Uint8Array

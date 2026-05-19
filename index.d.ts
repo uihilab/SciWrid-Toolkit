@@ -18,7 +18,7 @@ export type {
   ExtractGridResult,
   ExtractGridProgress,
   GridOutputFormat,
-} from './wasm/webparsers-api.js';
+} from './lib/webparsers-api.js';
 
 export {
   scan,
@@ -34,10 +34,10 @@ export {
   VariableNotFoundError,
   SourceError,
   ExtractError,
-} from './wasm/webparsers-api.js';
+} from './lib/webparsers-api.js';
 
 // Low-level class API
-export { webparsers as WebParsers } from './wasm/webparsers-lib.js';
+export { webparsers as WebParsers } from './lib/webparsers-lib.js';
 
-import type { default as _default } from './wasm/webparsers-lib.js';
+import type { default as _default } from './lib/webparsers-lib.js';
 export default _default;

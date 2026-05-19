@@ -19,7 +19,7 @@ import {
   extract,
   extractOutput,
   UnsupportedFormatError,
-} from '../wasm/webparsers-api.js';
+} from '../lib/webparsers-api.js';
 
 /* The Emscripten module is built with MODULARIZE=1 + EXPORT_ES6=1, so it's a
  * real ES module that uses import.meta.url to resolve the .wasm. Import it

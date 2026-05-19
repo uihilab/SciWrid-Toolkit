@@ -28,7 +28,7 @@ import {
   gridToJSON,
   gridToGeoTIFF,
   VariableNotFoundError,
-} from '../wasm/webparsers-api.js';
+} from '../lib/webparsers-api.js';
 
 /* Emscripten module is ES-module style (EXPORT_ES6=1) — import directly. */
 import WebParsers from '../wasm/webparsers.js';
