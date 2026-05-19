@@ -177,9 +177,17 @@
     return {
       byteOrder: order === '|' ? 'na' : 'le',
       kind, bytes, Ctor,
-      /* view raw bytes as the typed array */
-      view: (buf, byteOff, count) =>
-        new Ctor(buf.buffer, buf.byteOffset + byteOff, count),
+      /* view raw bytes as the typed array. Chunk bytes can land at any byte
+       * offset in their parent ZIP buffer, so the absolute offset is not
+       * guaranteed to be a multiple of `bytes`. When misaligned, copy into
+       * a fresh aligned buffer (rare path; only ever costs us once per chunk). */
+      view: (buf, byteOff, count) => {
+        const abs = buf.byteOffset + byteOff;
+        if (abs % bytes === 0) return new Ctor(buf.buffer, abs, count);
+        const copy = new Uint8Array(count * bytes);
+        copy.set(buf.subarray(byteOff, byteOff + count * bytes));
+        return new Ctor(copy.buffer);
+      },
     };
   }
 
@@ -235,6 +243,92 @@
   }
 
   /* ====================================================================== */
+  /* Coordinate-axis resolution                                              */
+  /*                                                                         */
+  /* Real-world zarr stores carry their own 1-D lat/lon/time arrays — either */
+  /* linked explicitly via xarray's `_ARRAY_DIMENSIONS` attr, or by          */
+  /* convention (sibling arrays named `latitude`/`lat`/`y` etc.).            */
+  /* This helper is pure-metadata (cheap) so it can run during scan(),       */
+  /* before any chunk bytes are decoded.                                     */
+  /* ====================================================================== */
+
+  const LAT_ALIASES  = ['latitude',  'lat', 'y'];
+  const LON_ALIASES  = ['longitude', 'lon', 'x'];
+  const TIME_ALIASES = ['time',      't',   'valid_time'];
+
+  /** Find a 1-D array in scanResult.arrays by name and required length. */
+  function find1DArray(arrays, name, expectedLen) {
+    if (!name) return null;
+    const got = arrays.find(x => x.name === name);
+    if (!got || !got.meta || !Array.isArray(got.meta.shape)) return null;
+    if (got.meta.shape.length !== 1) return null;
+    if (got.meta.shape[0] !== expectedLen) return null;
+    return got;
+  }
+
+  /**
+   * Resolve coordinate references for a multi-dim data var.
+   * Returns { latRef, lonRef, timeRef, nt, ny, nx, source, warnings }.
+   *
+   *   source: 'explicit' | 'fallback' | 'synthetic'
+   *     - explicit:   matched via _ARRAY_DIMENSIONS
+   *     - fallback:   matched by alias name + length
+   *     - synthetic:  no lat/lon arrays found; caller must use index axes
+   *
+   * Cheap — only inspects .zarray/.zattrs already parsed by indexArrays().
+   * No chunk bytes are read here.
+   */
+  function resolveCoordRefs(scanResult, arrayInfo) {
+    const shape   = (arrayInfo.meta && arrayInfo.meta.shape) || [];
+    const ndim    = shape.length;
+    const arrays  = scanResult.arrays;
+    const warnings = [];
+
+    let nt, ny, nx;
+    if (ndim === 1)      { nt = 1;        ny = 1;             nx = shape[0]; }
+    else if (ndim === 2) { nt = 1;        ny = shape[0];      nx = shape[1]; }
+    else if (ndim === 3) { nt = shape[0]; ny = shape[1];      nx = shape[2]; }
+    else                 { nt = shape[0]; ny = shape[ndim-2]; nx = shape[ndim-1]; }
+
+    let latRef = null, lonRef = null, timeRef = null;
+    let source = 'synthetic';
+
+    /* 1. Explicit xarray-style _ARRAY_DIMENSIONS linkage. */
+    const attrs = arrayInfo.attrs || null;
+    const dims  = attrs && Array.isArray(attrs._ARRAY_DIMENSIONS)
+      ? attrs._ARRAY_DIMENSIONS : null;
+
+    if (dims && dims.length === ndim) {
+      const latDim  = dims[ndim - 2];
+      const lonDim  = dims[ndim - 1];
+      const timeDim = ndim >= 3 ? dims[0] : null;
+      latRef  = find1DArray(arrays, latDim, ny);
+      lonRef  = find1DArray(arrays, lonDim, nx);
+      timeRef = timeDim ? find1DArray(arrays, timeDim, nt) : null;
+      if (latRef && lonRef) source = 'explicit';
+    }
+
+    /* 2. Name-alias fallback. */
+    if (source !== 'explicit') {
+      if (!latRef)  for (const a of LAT_ALIASES)  { const g = find1DArray(arrays, a, ny); if (g) { latRef  = g; break; } }
+      if (!lonRef)  for (const a of LON_ALIASES)  { const g = find1DArray(arrays, a, nx); if (g) { lonRef  = g; break; } }
+      if (!timeRef && ndim >= 3)
+        for (const a of TIME_ALIASES) { const g = find1DArray(arrays, a, nt); if (g) { timeRef = g; break; } }
+      if (latRef && lonRef) source = 'fallback';
+    }
+
+    if (!latRef || !lonRef) {
+      warnings.push(
+        'No coordinate arrays found for variable "' + arrayInfo.name +
+        '" — using synthetic axes (lats[j]=j, lons[i]=i). ' +
+        'extractGrid bbox is in index space, not degrees.'
+      );
+    }
+
+    return { latRef, lonRef, timeRef, nt, ny, nx, source, warnings };
+  }
+
+  /* ====================================================================== */
   /* Scan / metadata API — same shape as wp_scan_get_vars_json output        */
   /* ====================================================================== */
 
@@ -287,6 +381,16 @@
       const nx = shape.length >= 1 ? shape[shape.length - 1] : 1;
       const messages = shape.length >= 3 ? shape[0] : 1;  /* outermost dim */
 
+      /* Coord resolution only makes sense for multi-dim data vars; 1-D coord
+       * arrays themselves get coord_source='n/a'. */
+      let coord_source = 'n/a';
+      let warnings = [];
+      if (shape.length >= 2) {
+        const refs = resolveCoordRefs(scanResult, a);
+        coord_source = refs.source;
+        warnings = refs.warnings;
+      }
+
       return {
         index:    i,
         name:     a.name,
@@ -302,6 +406,8 @@
         compressor:   a.meta.compressor ? a.meta.compressor.id : null,
         attrs:        a.attrs,
         supported:    true,
+        coord_source,
+        warnings,
       };
     });
     return JSON.stringify(out);
@@ -431,11 +537,10 @@
    *   varIndex:   index into scanResult.arrays
    *   wasm:       the loaded WebParsers WASM module
    *
-   * Strategy: we don't try to map zarr coordinate variables onto lat/lon
-   * automatically.  Instead we treat the trailing dims (ny, nx) as spatial
-   * with synthetic axes (lats[j]=j, lons[i]=i), and the leading dim (if any)
-   * as time with synthetic timestamps (t * 86400).  Real coordinate hookup
-   * can come later when the user wants to map a `lat` variable into lats.
+   * Coord strategy: try real lat/lon/time arrays from the store first
+   * (xarray's `_ARRAY_DIMENSIONS` or name aliases like 'latitude'/'lat').
+   * Fall back to synthetic indices when the store has no coordinate arrays.
+   * See resolveCoordRefs() for the full resolution order.
    */
   async function normalize(scanResult, varIndex, wasm) {
     const a = scanResult.arrays[varIndex];
@@ -452,10 +557,35 @@
     else if (ndim === 3) { nt = shape[0];   ny = shape[1];   nx = shape[2]; }
     else                 { nt = shape[0];   ny = shape[ndim-2]; nx = shape[ndim-1]; }
 
-    /* Synthetic coordinate axes. Real coord hookup is a future enhancement. */
-    const lats    = new Float32Array(ny); for (let j = 0; j < ny; j++) lats[j] = j;
-    const lons    = new Float32Array(nx); for (let i = 0; i < nx; i++) lons[i] = i;
-    const times_s = new Float64Array(nt); for (let t = 0; t < nt; t++) times_s[t] = t * 86400;
+    const refs = ndim >= 2 ? resolveCoordRefs(scanResult, a) : null;
+
+    let lats, lons, times_s;
+
+    if (refs && refs.latRef) {
+      lats = await readArrayAsFloat32(scanResult, refs.latRef);
+    } else {
+      lats = new Float32Array(ny);
+      for (let j = 0; j < ny; j++) lats[j] = j;
+    }
+
+    if (refs && refs.lonRef) {
+      lons = await readArrayAsFloat32(scanResult, refs.lonRef);
+    } else {
+      lons = new Float32Array(nx);
+      for (let i = 0; i < nx; i++) lons[i] = i;
+    }
+
+    /* readArrayAsFloat32 widens to Float32; widen again to Float64 for the
+     * times buffer the C engine expects. Precision loss matters for real
+     * unix-epoch seconds (>2^24); the C path treats values as raw seconds.
+     * For now we accept this; a Float64-preserving reader is a follow-up. */
+    times_s = new Float64Array(nt);
+    if (refs && refs.timeRef) {
+      const raw = await readArrayAsFloat32(scanResult, refs.timeRef);
+      for (let t = 0; t < nt; t++) times_s[t] = raw[t];
+    } else {
+      for (let t = 0; t < nt; t++) times_s[t] = t * 86400;
+    }
 
     /* Hand all four buffers + the float data to wp_open_from_float_arrays.
      * That C function copies them, so we can let GC reclaim the JS originals. */

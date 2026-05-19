@@ -64,7 +64,10 @@ async function resolveSource(source) {
  * Internal: open a webparsers instance, run a callback, always close
  * ======================================================================= */
 async function withInstance(source, opts, fn) {
-  const lib = new webparsers(opts?.wasmFactory ? { wasmFactory: opts.wasmFactory } : {});
+  const lib = new webparsers({
+    wasmFactory: opts?.wasmFactory,
+    h5wasmUrl:   opts?.h5wasmUrl,
+  });
   try {
     const data = await resolveSource(source);
     try { await lib.read(data); }

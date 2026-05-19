@@ -37,8 +37,8 @@
   <!-- 1. File picker -->
   <div class="section">
     <span class="label">1. Pick a file</span><br>
-    <span class="muted">GRIB2 (.grb2 / .grib2), NetCDF3 (.nc3), or NetCDF4 / HDF5 (.nc)</span><br><br>
-    <input type="file" id="file" accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4">
+    <span class="muted">GRIB2 (.grb2 / .grib2), NetCDF3 (.nc3), NetCDF4 / HDF5 (.nc), or Zarr v2 (zipped store, .zip / .zarr)</span><br><br>
+    <input type="file" id="file" accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr">
     <button id="btn-detect">detectFormat()</button>
     <span id="detect-out"></span>
   </div>
@@ -95,14 +95,9 @@
     </div>
   </div>
 
-  <!-- Import map: tells the browser where to find bare package names -->
-  <script type="importmap">
-  {
-    "imports": {
-      "h5wasm": "/node_modules/h5wasm/dist/esm/hdf5_hl.js"
-    }
-  }
-  </script>
+  <!-- No import map needed: the lib loads h5wasm from jsdelivr CDN on demand.
+       If you'd rather mirror it, pass `{ h5wasmUrl: '<your-url>' }` to the
+       WebParsers class constructor or via the functional API's `wasmFactory`. -->
 
   <script type="module">
     import {
