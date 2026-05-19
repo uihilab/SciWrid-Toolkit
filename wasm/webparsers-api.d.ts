@@ -15,6 +15,9 @@ export type Source =
 export interface CommonOptions {
   /** Optional Emscripten WASM factory override (for non-standard loaders). */
   wasmFactory?: () => Promise<any>;
+  /** Override the URL/specifier used to load h5wasm (NetCDF4 only).
+   *  Default: jsdelivr CDN in browsers, bare `h5wasm` import in Node. */
+  h5wasmUrl?: string;
 }
 
 export interface VariableInfo {

@@ -445,16 +445,21 @@ export class webparsers {
       };
     }
 
-    if (this._format === 'zarr')
-      throw new Error('extractGrid: Zarr support not yet implemented (v1 supports grib2, netcdf3, netcdf4)');
-
-    /* GRIB2 / NetCDF3: go through WASM, extract via wp_ds_*_ptr */
+    /* GRIB2 / NetCDF3 / Zarr: go through WASM, extract via wp_ds_*_ptr.
+     * For zarr we delegate to Zarr.normalize (which decodes chunks + calls
+     * wp_open_from_float_arrays) instead of wp_normalize; the resulting
+     * refs_dataset_t* responds to the same wp_ds_*_ptr exports. */
     const wasm = this.wasm;
     if (typeof wasm._wp_ds_lats_ptr !== 'function')
       throw new Error('extractGrid requires the wp_ds_*_ptr WASM exports. Rebuild: python wasm/build.py');
 
-    const normFn = this._format === 'netcdf3' ? 'wp_nc3_normalize' : 'wp_normalize';
-    const ds = wasm.ccall(normFn, 'number', ['number', 'number'], [this.scanPtr, v.index]);
+    let ds;
+    if (this._format === 'zarr') {
+      ds = await Zarr.normalize(this._zarrScan, v.index, wasm);
+    } else {
+      const normFn = this._format === 'netcdf3' ? 'wp_nc3_normalize' : 'wp_normalize';
+      ds = wasm.ccall(normFn, 'number', ['number', 'number'], [this.scanPtr, v.index]);
+    }
     if (!ds || ds === 0) throw new Error(`Failed to decode variable: ${v.name}`);
 
     try {
@@ -779,22 +784,47 @@ export class webparsers {
    * NetCDF4 private helpers
    * ======================================================================= */
 
-  /* Lazy-load h5wasm from CDN (only when a NetCDF4 file is first opened).
-   * Returns { h5, FS } where h5 is the module and FS is the Emscripten FS. */
+  /* Lazy-load h5wasm only when a NetCDF4 file is first opened.
+   *
+   * Resolution order so consumers never have to `npm install h5wasm` separately:
+   *   1. Browsers           → fetch the ESM bundle from jsdelivr CDN
+   *   2. Node / bundlers    → resolve the bare specifier `h5wasm` from node_modules
+   *                           (when the host project did install it, e.g. via Vite,
+   *                            Webpack, or a Node script)
+   *
+   * Override:
+   *   new WebParsers({ h5wasmUrl: '<your-mirror-url>' })   // takes priority
+   *
+   * The browser path requires the CDN to allow cross-origin fetches (jsdelivr does).
+   * Returns { h5, FS } where h5 is the module and FS is the Emscripten FS.
+   */
   async _getH5wasm() {
     if (this._h5wasmModule) return this._h5wasmModule;
-    try {
-      const mod = await import('h5wasm');
-      const h5  = mod.default ?? mod;
-      // h5.ready resolves with { FS } — that's where the virtual filesystem lives
-      const { FS } = await h5.ready;
-      this._h5wasmModule = { h5, FS };
-      return this._h5wasmModule;
-    } catch (e) {
+
+    const override = this.config?.h5wasmUrl;
+    const isNode   = typeof process !== 'undefined' && !!(process.versions && process.versions.node);
+    const candidates = override
+      ? [override]
+      : isNode
+        ? ['h5wasm', 'https://cdn.jsdelivr.net/npm/h5wasm@0.7.7/+esm']
+        : ['https://cdn.jsdelivr.net/npm/h5wasm@0.7.7/+esm', 'h5wasm'];
+
+    let mod, lastErr;
+    for (const spec of candidates) {
+      try { mod = await import(/* @vite-ignore */ spec); break; }
+      catch (e) { lastErr = e; }
+    }
+    if (!mod) {
       throw new Error(
-        'Failed to load h5wasm (NetCDF4 needs internet access for the first load): ' + e.message
+        'Failed to load h5wasm — tried ' + candidates.join(', ') +
+        '. Last error: ' + (lastErr?.message || lastErr)
       );
     }
+
+    const h5 = mod.default ?? mod;
+    const { FS } = await h5.ready;
+    this._h5wasmModule = { h5, FS };
+    return this._h5wasmModule;
   }
 
   /* Read an h5wasm attribute value defensively (handles both {value} and raw forms) */

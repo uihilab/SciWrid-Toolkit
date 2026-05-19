@@ -41,7 +41,7 @@
     "gfs"
   ],
   "license": "MIT",
-  "dependencies": {
+  "optionalDependencies": {
     "h5wasm": "^0.7.7"
   },
   "scripts": {
@@ -52,7 +52,8 @@
     "demo:web":     "node scripts/serve.js",
     "build:wasm":   "python wasm/build.py",
     "test:api":     "node scripts/test-api.js",
-    "test:grid":    "node scripts/test-grid.js"
+    "test:grid":    "node scripts/test-grid.js",
+    "test:zarr":    "node scripts/test-zarr.js"
   },
   "engines": {
     "node": ">=18"
