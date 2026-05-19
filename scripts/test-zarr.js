@@ -28,7 +28,7 @@ import { dirname, resolve } from 'node:path';
 import {
   scan, extract, extractGrid,
   extractGridOutput, gridToJSON, gridToGeoTIFF,
-} from '../wasm/webparsers-api.js';
+} from '../lib/webparsers-api.js';
 import WebParsers from '../wasm/webparsers.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -386,6 +386,137 @@ await test('extractGrid() without coord arrays falls back to synthetic axes', as
     'expected warnings to be a non-empty array');
   assert(v.warnings.some(w => /synthetic/i.test(w)),
     'expected synthetic-axis warning, got: ' + JSON.stringify(v.warnings));
+});
+
+/* ============================================================================
+ * Compressor coverage — built-in (gzip / zlib via DecompressionStream) and
+ * numcodecs-backed (blosc / zstd / lz4). The encode side uses numcodecs so
+ * tests skip cleanly if the optional dep isn't installed.
+ * ========================================================================== */
+
+/** Re-build the temperature fixture, but compress the data chunk with `codec`
+ *  and stamp the .zarray with the matching compressor config. */
+async function buildCompressedFixture(codecId, config) {
+  const rawBytes = f32Bytes([
+    0, 1, 2,    3, 4, 5,    6, 7, 8,
+    10, 11, 12, 13, 14, 15, 16, 17, 18,
+  ]);
+
+  let compressedBytes = rawBytes;
+  if (codecId !== null) {
+    const mod = await import('numcodecs/' + codecId);
+    const Codec = mod.default ?? mod;
+    const codec = Codec.fromConfig({ id: codecId, ...config });
+    const out = await codec.encode(rawBytes);
+    compressedBytes = out instanceof Uint8Array ? out : new Uint8Array(out);
+  }
+
+  const entries = [
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 'temperature/.zarray', bytes: jsonBytes({
+        zarr_format: 2,
+        shape:       [2, 3, 3],
+        chunks:      [2, 3, 3],
+        dtype:       '<f4',
+        compressor:  codecId === null ? null : { id: codecId, ...config },
+        fill_value:  null,
+        order:       'C',
+        filters:     null,
+        dimension_separator: '.',
+    })},
+    { name: 'temperature/.zattrs', bytes: jsonBytes({
+        _ARRAY_DIMENSIONS: ['time', 'lat', 'lon'], units: 'K',
+    })},
+    { name: 'temperature/0.0.0', bytes: compressedBytes },
+
+    { name: 'lat/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [3], chunks: [3], dtype: '<f4',
+        compressor: null, fill_value: null, order: 'C', filters: null,
+        dimension_separator: '.',
+    })},
+    { name: 'lat/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lat'] }) },
+    { name: 'lat/0', bytes: f32Bytes([30.0, 35.0, 40.0]) },
+
+    { name: 'lon/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [3], chunks: [3], dtype: '<f4',
+        compressor: null, fill_value: null, order: 'C', filters: null,
+        dimension_separator: '.',
+    })},
+    { name: 'lon/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lon'] }) },
+    { name: 'lon/0', bytes: f32Bytes([-100.0, -95.0, -90.0]) },
+  ];
+
+  return buildZip(entries);
+}
+
+/** Run scan + extract + extractGrid on a compressed fixture, asserting
+ *  identical numbers to the uncompressed reference. */
+async function assertCompressorRoundTrip(codecId, config) {
+  const zip = await buildCompressedFixture(codecId, config);
+
+  const r = await extract(zip, {
+    ...wf, variable: 'temperature', lat: 35.0, lon: -95.0, t1: 0, t2: 0,
+  });
+  assertClose(pickScalar(r), 4.0, 1e-4,
+    codecId + ': extract(35°N,95°W,t=0) should be 4.0');
+
+  const g = await extractGrid(zip, {
+    ...wf, variable: 'temperature',
+    bbox: [-100, 30, -90, 40], width: 3, height: 3, time: 0, workers: 0,
+  });
+  assert(g.data.length === 9, codecId + ': grid length');
+  for (let i = 0; i < 9; i++) {
+    if (Number.isNaN(g.data[i]) && Number.isNaN(referenceGrid[i])) continue;
+    assertClose(g.data[i], referenceGrid[i], 1e-4,
+      codecId + ': grid cell[' + i + '] vs uncompressed reference');
+  }
+}
+
+await test('compressor: blosc/lz4 + shuffle round-trip', async () => {
+  try { await import('numcodecs/blosc'); }
+  catch { return 'skip'; }
+  await assertCompressorRoundTrip('blosc', { cname: 'lz4', clevel: 5, shuffle: 1, blocksize: 0 });
+});
+
+await test('compressor: blosc/zstd + bitshuffle round-trip', async () => {
+  try { await import('numcodecs/blosc'); }
+  catch { return 'skip'; }
+  await assertCompressorRoundTrip('blosc', { cname: 'zstd', clevel: 3, shuffle: 2, blocksize: 0 });
+});
+
+await test('compressor: zstd round-trip', async () => {
+  try { await import('numcodecs/zstd'); }
+  catch { return 'skip'; }
+  await assertCompressorRoundTrip('zstd', { level: 3 });
+});
+
+await test('compressor: lz4 round-trip', async () => {
+  try { await import('numcodecs/lz4'); }
+  catch { return 'skip'; }
+  await assertCompressorRoundTrip('lz4', { acceleration: 1 });
+});
+
+await test('filters present → clear error naming the filter id', async () => {
+  /* Build a fixture whose .zarray declares an unsupported filter; the
+   * readArrayAsFloat32 path should throw with the filter id mentioned. */
+  const entries = [
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 'temperature/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [3, 3], chunks: [3, 3], dtype: '<f4',
+        compressor: null, fill_value: null, order: 'C',
+        filters: [{ id: 'fixedscaleoffset', scale: 100, offset: 0, dtype: '<f4', astype: '<i2' }],
+        dimension_separator: '.',
+    })},
+    { name: 'temperature/0.0', bytes: f32Bytes([0,1,2,3,4,5,6,7,8]) },
+  ];
+  const zip = buildZip(entries);
+  let err;
+  try {
+    await extract(zip, { ...wf, variable: 'temperature', lat: 0, lon: 0, t1: 0, t2: 0 });
+  } catch (e) { err = e; }
+  assert(err, 'expected an error');
+  assert(/filters not supported/i.test(err.message), 'message should say filters not supported: ' + err.message);
+  assert(/fixedscaleoffset/.test(err.message), 'message should name the filter id: ' + err.message);
 });
 
 console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped`);

@@ -19,11 +19,11 @@
   "files": [
     "index.js",
     "index.d.ts",
-    "wasm/webparsers-lib.js",
-    "wasm/webparsers-api.js",
-    "wasm/webparsers-api.d.ts",
-    "wasm/zarr-helper.js",
-    "wasm/grid-output.js",
+    "lib/webparsers-lib.js",
+    "lib/webparsers-api.js",
+    "lib/webparsers-api.d.ts",
+    "lib/zarr-helper.js",
+    "lib/grid-output.js",
     "wasm/webparsers.js",
     "wasm/webparsers.wasm",
     "worker/worker.js",
@@ -42,18 +42,19 @@
   ],
   "license": "MIT",
   "optionalDependencies": {
-    "h5wasm": "^0.7.7"
+    "h5wasm": "^0.7.7",
+    "numcodecs": "^0.3.2"
   },
   "scripts": {
-    "demo:grib2":   "node examples/testfile/demoGrib2File.js",
+    "demo:grib2": "node examples/testfile/demoGrib2File.js",
     "demo:netcdf3": "node examples/testfile/demoNetcdf3File.js",
     "demo:netcdf4": "node examples/testfile/demoNetcdf4File.js",
-    "demo:zarr":    "node examples/testfile/demoZarrFile.js",
-    "demo:web":     "node scripts/serve.js",
-    "build:wasm":   "python wasm/build.py",
-    "test:api":     "node scripts/test-api.js",
-    "test:grid":    "node scripts/test-grid.js",
-    "test:zarr":    "node scripts/test-zarr.js"
+    "demo:zarr": "node examples/testfile/demoZarrFile.js",
+    "demo:web": "node scripts/serve.js",
+    "build:wasm": "python wasm/build.py",
+    "test:api": "node scripts/test-api.js",
+    "test:grid": "node scripts/test-grid.js",
+    "test:zarr": "node scripts/test-zarr.js"
   },
   "engines": {
     "node": ">=18"

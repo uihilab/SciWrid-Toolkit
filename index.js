@@ -52,7 +52,7 @@ export {
   gridToJSON,
   gridToGeoTIFF,
   detectFormat,
-} from './wasm/webparsers-api.js';
+} from './lib/webparsers-api.js';
 
 // ── Typed error classes ───────────────────────────────────────────────────────
 export {
@@ -61,12 +61,12 @@ export {
   VariableNotFoundError,
   SourceError,
   ExtractError,
-} from './wasm/webparsers-api.js';
+} from './lib/webparsers-api.js';
 
 // ── Low-level class API ───────────────────────────────────────────────────────
 // Import the class as `WebParsers` (capital W, capital P) for a clear
 // public-facing name. The internal file still uses lowercase `webparsers`.
-export { webparsers as WebParsers } from './wasm/webparsers-lib.js';
+export { webparsers as WebParsers } from './lib/webparsers-lib.js';
 
 // ── Default export — the class, for convenience ───────────────────────────────
-export { default } from './wasm/webparsers-lib.js';
+export { default } from './lib/webparsers-lib.js';
