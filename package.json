@@ -43,7 +43,11 @@
   "license": "MIT",
   "optionalDependencies": {
     "h5wasm": "^0.7.7",
+    "hyparquet": "^1.10.0",
     "numcodecs": "^0.3.2"
+  },
+  "devDependencies": {
+    "hyparquet-writer": "^0.15.1"
   },
   "scripts": {
     "demo:grib2": "node examples/testfile/demoGrib2File.js",
@@ -54,7 +58,8 @@
     "build:wasm": "python wasm/build.py",
     "test:api": "node scripts/test-api.js",
     "test:grid": "node scripts/test-grid.js",
-    "test:zarr": "node scripts/test-zarr.js"
+    "test:zarr": "node scripts/test-zarr.js",
+    "test:kerchunk": "node scripts/test-kerchunk.js"
   },
   "engines": {
     "node": ">=18"
