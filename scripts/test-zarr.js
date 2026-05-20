@@ -515,8 +515,52 @@ await test('filters present → clear error naming the filter id', async () => {
     await extract(zip, { ...wf, variable: 'temperature', lat: 0, lon: 0, t1: 0, t2: 0 });
   } catch (e) { err = e; }
   assert(err, 'expected an error');
-  assert(/filters not supported/i.test(err.message), 'message should say filters not supported: ' + err.message);
+  assert(/filter.*not supported/i.test(err.message), 'message should say filter not supported: ' + err.message);
   assert(/fixedscaleoffset/.test(err.message), 'message should name the filter id: ' + err.message);
+});
+
+/* ---------------- Top-level shuffle filter round-trip ---------------- *
+ * Authors a tiny fixture with filters: [{id:'shuffle', elementsize:4}] +
+ * compressor: zlib. Mirrors what kerchunk-over-HDF5 emits for a typical
+ * float32 chunk. Hand-rolled shuffleEncode here, hand-rolled shuffleDecode
+ * in lib/zarr-helper.js — they must be mirror operations.
+ * --------------------------------------------------------------------- */
+await test('top-level shuffle filter + zlib decodes to original floats', async () => {
+  const { deflateSync } = await import('node:zlib');
+
+  /* Same algorithm as scripts/build-kerchunk-fixture.js shuffleEncode */
+  function shuffleEncode(input, elementsize) {
+    const count = input.length / elementsize;
+    const out = new Uint8Array(input.length);
+    for (let j = 0; j < elementsize; j++) {
+      for (let i = 0; i < count; i++) {
+        out[j * count + i] = input[i * elementsize + j];
+      }
+    }
+    return out;
+  }
+
+  const values = Float32Array.from([1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5]);
+  const raw    = new Uint8Array(values.buffer, values.byteOffset, values.byteLength);
+  const shuf   = shuffleEncode(raw, 4);
+  const comp   = deflateSync(Buffer.from(shuf), { level: 4 });
+
+  const entries = [
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 'v/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [8], chunks: [8], dtype: '<f4',
+        compressor: { id: 'zlib', level: 4 },
+        filters:    [{ id: 'shuffle', elementsize: 4 }],
+        fill_value: 'NaN', order: 'C', dimension_separator: '.',
+    })},
+    { name: 'v/0', bytes: new Uint8Array(comp) },
+  ];
+
+  const zip = buildZip(entries);
+  const got = await extract(zip, { ...wf, variable: 'v', lat: 0, lon: 0, t1: 0, t2: 0 });
+  /* The variable is 1D length 8; extract treats last dim as longitude.
+   * For 1D arrays the shape ends up as (1, 1, 8); lon=0 is index 0 → 1.5. */
+  assertClose(got.value, 1.5, 1e-5, 'expected 1.5 at lon=0');
 });
 
 /* ---------------- Real-world Zarr fixture: on-disk slice ---------------- *
