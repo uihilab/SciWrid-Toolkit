@@ -519,5 +519,74 @@ await test('filters present → clear error naming the filter id', async () => {
   assert(/fixedscaleoffset/.test(err.message), 'message should name the filter id: ' + err.message);
 });
 
+/* ---------------- Real-world Zarr fixture: on-disk slice ---------------- *
+ * examples/testfile/sample-zarr/AA — one full 1000x1000 int32 chunk of an
+ * xarray/zarr-python produced store. Bytes are blosc/lz4+shuffle as emitted
+ * by a real producer (not bytes we authored). Proves the ChunkSource
+ * abstraction works against a real on-disk Zarr layout, and exercises the
+ * blosc decode path at one-chunk scale (~1M elements decoded).
+ *
+ * Strategy: subclass-style inline DiskChunkSource. This is also a preview
+ * of KerchunkRefStore (Task 5 of the kerchunk plan) — same interface,
+ * simpler resolution (path = arrayRoot + chunkKey instead of parquet refs).
+ * ------------------------------------------------------------------------ */
+await test('real-world Zarr slice: DiskChunkSource → readArrayAsFloat32 round-trip', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { existsSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { _readArrayAsFloat32, scanFree } =
+    await import('../lib/zarr-helper.js');
+
+  const SLICE_ROOT = resolve(root, 'examples/testfile/sample-zarr');
+  if (!existsSync(SLICE_ROOT))
+    throw new Error('fixture missing at ' + SLICE_ROOT);
+
+  class DiskChunkSource {
+    constructor(rootDir, arrays) { this._rootDir = rootDir; this._arrays = arrays; }
+    listArrays() { return this._arrays; }
+    async getChunkBytes(arrayName, chunkKey) {
+      const a = this._arrays.find(x => x.name === arrayName);
+      if (!a) throw new Error('unknown array ' + arrayName);
+      const fp = join(this._rootDir, a.name === '/' ? '' : a.name, chunkKey);
+      try {
+        const buf = await readFile(fp);
+        return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+      } catch (e) {
+        if (e.code === 'ENOENT') return null;
+        throw e;
+      }
+    }
+  }
+
+  /* Read AA's metadata from disk */
+  const zarrayBuf = await readFile(join(SLICE_ROOT, 'AA', '.zarray'));
+  const zattrsBuf = await readFile(join(SLICE_ROOT, 'AA', '.zattrs'));
+  const fullMeta  = JSON.parse(zarrayBuf.toString('utf8'));
+  const attrs     = JSON.parse(zattrsBuf.toString('utf8'));
+
+  /* Sanity-check metadata is the real-world shape we expect */
+  assert.deepStrictEqual = undefined;  /* avoid clobbering ESM linter */
+  if (fullMeta.dtype !== '<i4') throw new Error('expected dtype <i4 from real-world fixture, got ' + fullMeta.dtype);
+  if (fullMeta.compressor?.id !== 'blosc') throw new Error('expected blosc compressor in real-world fixture');
+
+  /* Slice down to a single chunk: shape = chunks. We only committed chunk
+   * 0.0, so we override shape so chunkGridDims = [1,1] and only chunk 0.0
+   * is read. The bytes and decode path stay real-world. */
+  const slicedMeta = { ...fullMeta, shape: fullMeta.chunks };
+  const arrays = [{ name: 'AA', root: 'AA/', meta: slicedMeta, attrs }];
+  const source = new DiskChunkSource(SLICE_ROOT, arrays);
+  const scanResult = { source, arrays, entries: null };
+
+  const flat = await _readArrayAsFloat32(scanResult, arrays[0]);
+
+  assert(flat.length === 1_000_000, 'expected 1M elements, got ' + flat.length);
+  /* Known values captured from the source dataset (see verify run on 2026-05-20). */
+  assertClose(flat[0],              57617008, 1e-3, 'flat[0]');
+  assertClose(flat[1],               2078086, 1e-3, 'flat[1]');
+  assertClose(flat[500 * 1000 + 500], 93480224, 1e-3, 'center value');
+
+  await scanFree(scanResult);
+});
+
 console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped`);
 process.exit(failed > 0 ? 1 : 0);

@@ -4,6 +4,9 @@ node_modules/
 # VS Code
 .vscode/
 
+# Claude Code / agent harness footprint — never commit
+.claude/
+
 # Build artifacts
 *.exe
 *.o
