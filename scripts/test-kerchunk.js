@@ -138,5 +138,57 @@ await test('KerchunkRefStore caches file handles across multiple chunks', async 
   await store.close();
 });
 
+/* -------------------- Task 6: kerchunkScan end-to-end -------------------- */
+
+await test('kerchunkScan → scanGetVarsJson lists tas/x/y with explicit coords', async () => {
+  const { kerchunkScan, scanGetVarsJson, scanFree } =
+    await import('../lib/kerchunk-helper.js');
+
+  const sr = await kerchunkScan(FIXTURE);
+
+  const meta  = JSON.parse(scanGetVarsJson(sr));
+  const names = meta.map(v => v.name).sort();
+  assert(names.includes('tas') && names.includes('x') && names.includes('y'),
+    `expected tas/x/y, got ${names.join(',')}`);
+
+  const tasMeta = meta.find(v => v.name === 'tas');
+  assert(tasMeta.shape[0] === 4 && tasMeta.shape[1] === 8,
+    'expected tas shape [4,8], got ' + JSON.stringify(tasMeta.shape));
+  assert(tasMeta.compressor === 'zlib', 'expected zlib compressor');
+  assert(tasMeta.coord_source === 'explicit',
+    'expected explicit coord_source via _ARRAY_DIMENSIONS, got ' + tasMeta.coord_source);
+
+  await scanFree(sr);
+});
+
+await test('kerchunkScan → _readArrayAsFloat32 round-trips fixture chunk values', async () => {
+  const { kerchunkScan, scanFree } = await import('../lib/kerchunk-helper.js');
+  const { _readArrayAsFloat32 }    = await import('../lib/zarr-helper.js');
+
+  const sr     = await kerchunkScan(FIXTURE);
+  const tasArr = sr.arrays.find(a => a.name === 'tas');
+  assert(tasArr, 'tas array missing from kerchunkScan result');
+
+  const flat = await _readArrayAsFloat32(sr, tasArr);
+
+  /* Fixture authored as arange(32).reshape(4, 8). Verify a few cells:
+   *   (0,0) = 0, (0,7) = 7, (2,3) = 19, (3,7) = 31. */
+  assert(flat.length === 32, 'expected 32 elements, got ' + flat.length);
+  assert(flat[0]            === 0,  'flat[0] = ' + flat[0]);
+  assert(flat[7]            === 7,  'flat[7] = ' + flat[7]);
+  assert(flat[2 * 8 + 3]    === 19, 'flat[19] = ' + flat[2*8+3]);
+  assert(flat[3 * 8 + 7]    === 31, 'flat[31] = ' + flat[3*8+7]);
+
+  /* Also verify y and x coord arrays round-trip through the same path */
+  const yArr   = sr.arrays.find(a => a.name === 'y');
+  const xArr   = sr.arrays.find(a => a.name === 'x');
+  const yFlat  = await _readArrayAsFloat32(sr, yArr);
+  const xFlat  = await _readArrayAsFloat32(sr, xArr);
+  assert(Array.from(yFlat).join(',') === '0,1,2,3', 'y mismatch: ' + Array.from(yFlat));
+  assert(Array.from(xFlat).join(',') === '0,1,2,3,4,5,6,7', 'x mismatch: ' + Array.from(xFlat));
+
+  await scanFree(sr);
+});
+
 console.log(`\n  ${passed} passed, ${failed} failed, ${skipped} skipped`);
 process.exit(failed > 0 ? 1 : 0);
