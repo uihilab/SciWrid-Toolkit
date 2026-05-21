@@ -84,5 +84,59 @@ await test('openRefIndex resolves chunk refs to absolute paths + offsets', async
   assert(idx.getRef('tas', '99.99') === null, 'missing key should return null');
 });
 
+/* -------------------- Task 5: KerchunkRefStore -------------------- */
+
+await test('KerchunkRefStore.getChunkBytes reads bytes at the right offset', async () => {
+  const { openRefIndex } = await import('../lib/kerchunk/parquet-refs.js');
+  const { KerchunkRefStore } = await import('../lib/kerchunk/ref-store.js');
+
+  const idx    = await openRefIndex(FIXTURE);
+  const ref    = idx.getRef('tas', '0.0');
+  const arrays = [{ name: 'tas', root: 'tas/', meta: {}, attrs: null }];
+
+  const store = new KerchunkRefStore(idx, arrays);
+  const bytes = await store.getChunkBytes('tas', '0.0');
+  assert(bytes instanceof Uint8Array, 'expected Uint8Array');
+  assert(bytes.length === ref.length,
+    `expected ${ref.length} bytes, got ${bytes.length}`);
+
+  /* Bytes should match a raw fs.read of the same slice */
+  const fileBuf = readFileSync(BIN_FIX);
+  for (let i = 0; i < ref.length; i++) {
+    if (bytes[i] !== fileBuf[ref.offset + i])
+      throw new Error('byte ' + i + ' mismatch: ' + bytes[i] + ' vs ' + fileBuf[ref.offset + i]);
+  }
+
+  /* Missing chunk → null (no throw) */
+  const missing = await store.getChunkBytes('tas', '99.99');
+  assert(missing === null, 'expected null for missing chunk');
+
+  await store.close();
+});
+
+await test('KerchunkRefStore caches file handles across multiple chunks', async () => {
+  const { openRefIndex } = await import('../lib/kerchunk/parquet-refs.js');
+  const { KerchunkRefStore } = await import('../lib/kerchunk/ref-store.js');
+
+  const idx    = await openRefIndex(FIXTURE);
+  const arrays = [{ name: 'tas', root: 'tas/', meta: {}, attrs: null }];
+  const store  = new KerchunkRefStore(idx, arrays);
+
+  /* Read all four tas chunks; offset/lengths from build script */
+  const expected = [
+    { key: '0.0', offset: 0,   length: 26 },
+    { key: '0.1', offset: 26,  length: 28 },
+    { key: '1.0', offset: 54,  length: 23 },
+    { key: '1.1', offset: 77,  length: 23 },
+  ];
+  for (const { key, offset, length } of expected) {
+    const got = await store.getChunkBytes('tas', key);
+    assert(got && got.length === length,
+      `chunk ${key}: expected length ${length}, got ${got?.length}`);
+  }
+
+  await store.close();
+});
+
 console.log(`\n  ${passed} passed, ${failed} failed, ${skipped} skipped`);
 process.exit(failed > 0 ? 1 : 0);
