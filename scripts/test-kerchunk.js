@@ -190,5 +190,80 @@ await test('kerchunkScan → _readArrayAsFloat32 round-trips fixture chunk value
   await scanFree(sr);
 });
 
+/* -------------------- Task 7: error-path coverage -------------------- */
+
+await test('missing source file: error names the ref path and chunk key', async () => {
+  const { openRefIndex } = await import('../lib/kerchunk/parquet-refs.js');
+  const { KerchunkRefStore } = await import('../lib/kerchunk/ref-store.js');
+
+  const idx    = await openRefIndex(FIXTURE);
+  const arrays = [{ name: 'tas', root: 'tas/', meta: {}, attrs: null }];
+
+  /* Monkey-patch the index to point one chunk at a nonexistent file */
+  const orig = idx.getRef.bind(idx);
+  idx.getRef = (v, k) => (v === 'tas' && k === '0.0')
+    ? { kind: 'file', path: '/definitely/not/here.bin', offset: 0, length: 16 }
+    : orig(v, k);
+
+  const store = new KerchunkRefStore(idx, arrays);
+  let err;
+  try { await store.getChunkBytes('tas', '0.0'); }
+  catch (e) { err = e; }
+  assert(err, 'expected an error');
+  assert(/tas\/0\.0/.test(err.message), 'error should name chunk key: ' + err.message);
+  assert(/definitely[\\\/]not[\\\/]here\.bin/.test(err.message),
+    'error should name path: ' + err.message);
+  await store.close();
+});
+
+await test('inline ref: returns the embedded bytes verbatim', async () => {
+  const { KerchunkRefStore } = await import('../lib/kerchunk/ref-store.js');
+
+  const payload = new Uint8Array([1, 2, 3, 4, 5]);
+  const stubIdx = {
+    listMetaKeys: () => [],
+    getMeta:      () => null,
+    listChunkKeys:() => ['0.0'],
+    getRef: (v, k) => (v === 'tas' && k === '0.0')
+      ? { kind: 'inline', bytes: payload } : null,
+  };
+  const arrays = [{ name: 'tas', root: 'tas/', meta: {}, attrs: null }];
+  const store  = new KerchunkRefStore(stubIdx, arrays);
+  const got    = await store.getChunkBytes('tas', '0.0');
+  assert(got === payload, 'expected the exact inline payload reference');
+  await store.close();
+});
+
+await test('unknown filter id: applyFilters throws and names the filter', async () => {
+  /* Build a kerchunk-scan-shaped scanResult by hand, pointing at a chunk
+   * whose .zarray declares an unsupported filter. We don't need a real
+   * parquet — just enough for readArrayAsFloat32 to walk into applyFilters. */
+  const { _readArrayAsFloat32 } = await import('../lib/zarr-helper.js');
+
+  const meta = {
+    zarr_format: 2,
+    shape: [4], chunks: [4],
+    dtype: '<f4',
+    compressor: null,
+    filters: [{ id: 'bogus_filter_id' }],
+    fill_value: 'NaN', order: 'C', dimension_separator: '.',
+  };
+  const arrayInfo = { name: 'v', root: 'v/', meta, attrs: null };
+
+  const stubSource = {
+    listArrays: () => [arrayInfo],
+    /* Hand back 16 zero bytes — would be the "raw" of a 4-element f32 array */
+    getChunkBytes: async () => new Uint8Array(16),
+  };
+  const scanResult = { source: stubSource, arrays: [arrayInfo] };
+
+  let err;
+  try { await _readArrayAsFloat32(scanResult, arrayInfo); }
+  catch (e) { err = e; }
+  assert(err, 'expected an error');
+  assert(/bogus_filter_id/.test(err.message),
+    'error should name the unknown filter: ' + err.message);
+});
+
 console.log(`\n  ${passed} passed, ${failed} failed, ${skipped} skipped`);
 process.exit(failed > 0 ? 1 : 0);
