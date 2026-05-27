@@ -160,6 +160,38 @@ export function gridToJSON(grid: ExtractGridResult, opts?: { pretty?: boolean })
 /** Serialize an already-extracted grid to a single-band Float32 GeoTIFF (WGS84). */
 export function gridToGeoTIFF(grid: ExtractGridResult): Uint8Array;
 
+/* =========================================================================
+ * slim — same-format file trimming
+ * ======================================================================= */
+
+export interface SlimOptions extends CommonOptions {
+  /** Variable names to keep. Names from `scan().variable_names`. */
+  variables: string[];
+  /** Inclusive lower time index. Omit to start at 0. */
+  t1?: number;
+  /** Inclusive upper time index. Omit to keep all timesteps from t1. */
+  t2?: number;
+}
+
+export interface SlimResult {
+  /** Slimmed file bytes, same format as input. */
+  bytes: Uint8Array;
+  format: Format;
+  /** Human-readable warnings (e.g. Zarr time-range boundary widening). */
+  warnings: string[];
+  stats: {
+    inputSize: number;
+    outputSize: number;
+    variablesKept: number;
+    variablesDropped: number;
+  };
+}
+
+/** Produce a smaller file in the same format containing only the selected variables/time range. */
+export function slim(source: Source, opts: SlimOptions): Promise<SlimResult>;
+
+export class SlimError extends WebparsersError {}
+
 declare const _default: {
   detectFormat: typeof detectFormat;
   scan: typeof scan;
@@ -169,10 +201,12 @@ declare const _default: {
   extractGridOutput: typeof extractGridOutput;
   gridToJSON: typeof gridToJSON;
   gridToGeoTIFF: typeof gridToGeoTIFF;
+  slim: typeof slim;
   WebparsersError: typeof WebparsersError;
   UnsupportedFormatError: typeof UnsupportedFormatError;
   VariableNotFoundError: typeof VariableNotFoundError;
   SourceError: typeof SourceError;
   ExtractError: typeof ExtractError;
+  SlimError: typeof SlimError;
 };
 export default _default;

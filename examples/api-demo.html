@@ -95,6 +95,29 @@
     </div>
   </div>
 
+  <!-- 5. Slim — keep only selected variables (and an optional time slice) -->
+  <div class="section">
+    <span class="label">5. Slim — same-format file trimming</span><br>
+    <code>await slim(file, { variables, t1, t2 })</code><br>
+    <span class="muted">
+      Byte-cut for GRIB2 / NetCDF3 / Zarr (no decode). h5wasm writer for NetCDF4.
+      Zarr time slice widens to chunk boundaries — see warnings.
+    </span><br><br>
+    <button id="btn-slim-scan">Scan & list variables</button>
+    <span id="slim-scan-out" class="muted"></span>
+    <div id="slim-vars" style="margin-top:.75rem;
+         display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:4px;
+         max-height:180px; overflow:auto;"></div>
+    <div class="row" style="margin-top:.75rem;">
+      <label>t1: <input type="number" id="slim-t1" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
+      <label>t2: <input type="number" id="slim-t2" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
+      <button id="btn-slim">Slim</button>
+      <button id="btn-slim-download" disabled>Download slimmed file</button>
+      <span id="slim-status" class="muted"></span>
+    </div>
+    <pre id="slim-out">(no slim yet)</pre>
+  </div>
+
   <!-- No import map needed: the lib loads h5wasm from jsdelivr CDN on demand.
        If you'd rather mirror it, pass `{ h5wasmUrl: '<your-url>' }` to the
        WebParsers class constructor or via the functional API's `wasmFactory`. -->
@@ -102,8 +125,8 @@
   <script type="module">
     import {
       detectFormat, scan, extract, extractOutput, extractGrid,
-      gridToJSON, gridToGeoTIFF,
-      WebparsersError,
+      gridToJSON, gridToGeoTIFF, slim,
+      WebparsersError, SlimError,
     } from '../lib/webparsers-api.js';
 
     /* Small browser download helper — Blob + anchor click. */
@@ -385,9 +408,105 @@
       }
     });
 
+    /* ===== Slim ======================================================== */
+    let slimScan   = null;
+    let slimResult = null;   /* last SlimResult */
+
+    $('btn-slim-scan').addEventListener('click', async () => {
+      const out  = $('slim-scan-out');
+      const list = $('slim-vars');
+      list.innerHTML = '';
+      $('slim-out').textContent = '(scan done — pick variables, then click Slim)';
+      $('btn-slim-download').disabled = true;
+      try {
+        const f = requireFile();
+        out.textContent = ' scanning…';
+        const meta = await scan(f);
+        slimScan = meta;
+        out.innerHTML = ` <span class="success">${meta.format}</span> · ${meta.total_variables} variables`;
+        for (const v of meta.variables) {
+          const wrap = document.createElement('label');
+          wrap.style.cssText = 'display:flex; gap:.4rem; align-items:center;' +
+                               (v.supported === false ? 'opacity:.5;' : '');
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.value = v.name;
+          cb.checked = v.supported !== false;
+          cb.dataset.varname = v.name;
+          wrap.appendChild(cb);
+          const span = document.createElement('span');
+          span.textContent = v.name;
+          span.style.cssText = 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+          wrap.appendChild(span);
+          list.appendChild(wrap);
+        }
+      } catch (e) {
+        out.innerHTML = ` <span class="error">${e.message}</span>`;
+        console.error(e);
+      }
+    });
+
+    $('btn-slim').addEventListener('click', async () => {
+      const status = $('slim-status');
+      const out    = $('slim-out');
+      $('btn-slim-download').disabled = true;
+      try {
+        const f = requireFile();
+        const checked = [...$('slim-vars').querySelectorAll('input[type=checkbox]:checked')]
+                          .map(c => c.value);
+        if (!checked.length) throw new SlimError('Pick at least one variable.');
+
+        const t1raw = $('slim-t1').value.trim();
+        const t2raw = $('slim-t2').value.trim();
+        const opts  = { variables: checked };
+        if (t1raw !== '') opts.t1 = parseInt(t1raw, 10);
+        if (t2raw !== '') opts.t2 = parseInt(t2raw, 10);
+
+        status.innerHTML = ' slimming…';
+        const t0 = performance.now();
+        const r = await slim(f, opts);
+        const ms = (performance.now() - t0).toFixed(0);
+        slimResult = r;
+
+        const pct = ((r.stats.outputSize / r.stats.inputSize) * 100).toFixed(1);
+        const warn = r.warnings.length
+          ? '\n\nWarnings:\n' + r.warnings.map(w => '  - ' + w).join('\n')
+          : '';
+        out.textContent =
+          `Format:          ${r.format}\n` +
+          `Variables kept:  ${r.stats.variablesKept}\n` +
+          `Variables drop:  ${r.stats.variablesDropped}\n` +
+          `Input size:      ${r.stats.inputSize} bytes\n` +
+          `Output size:     ${r.stats.outputSize} bytes (${pct}% of input)\n` +
+          `Elapsed:         ${ms} ms` + warn;
+        out.className = 'success';
+        status.innerHTML = ` <span class="success">done</span>`;
+        $('btn-slim-download').disabled = false;
+        log('slim result', r);
+      } catch (e) {
+        out.textContent = 'Error: ' + e.message;
+        out.className = 'error';
+        status.innerHTML = ` <span class="error">${e.constructor.name}</span>`;
+        console.error(e);
+      }
+    });
+
+    $('btn-slim-download').addEventListener('click', () => {
+      if (!slimResult) return;
+      const f = fileInput.files[0];
+      const stem = (f?.name || 'file').replace(/\.[^.]+$/, '');
+      const ext  = (f?.name || '').match(/\.[^.]+$/)?.[0] ||
+                   ({ grib2:'.grb2', netcdf3:'.nc3', netcdf4:'.nc', zarr:'.zip' }[slimResult.format] || '.bin');
+      const mime = slimResult.format === 'zarr'    ? 'application/zip'
+                 : slimResult.format === 'netcdf4' ? 'application/x-hdf'
+                 : 'application/octet-stream';
+      saveBlob(slimResult.bytes, mime, `${stem}_slim${ext}`);
+      log('Saved slimmed file', `${stem}_slim${ext} (${slimResult.bytes.length} bytes)`);
+    });
+
     /* Expose for console hacking */
     window.api = { detectFormat, scan, extract, extractOutput, extractGrid,
-                   gridToJSON, gridToGeoTIFF };
+                   gridToJSON, gridToGeoTIFF, slim };
     console.log('[api-demo] Ready. Try `api.scan(yourFile)` from this console.');
   </script>
 </body>

@@ -24,7 +24,7 @@ End users do **not** need to install peer compression libraries — `h5wasm` (Ne
 ## Quick start
 
 ```js
-import { scan, extract, extractGrid, gridToGeoTIFF } from 'webparsers';
+import { scan, extract, extractGrid, gridToGeoTIFF, slim } from 'webparsers';
 
 // 1. Inspect a file
 const meta = await scan(file);          // file: Uint8Array | Blob | File | URL | string
@@ -47,6 +47,14 @@ const grid = await extractGrid(file, {
 
 // 4. Save as Float32 WGS84 GeoTIFF
 const tiff = gridToGeoTIFF(grid);    // Uint8Array
+
+// 5. Slim a huge file in-place — keep only what you need, same format out
+const trimmed = await slim(file, {
+  variables: ['TMP', 'UGRD'],     // names from scan().variable_names
+  t1: 0, t2: 23,                  // optional time-axis slice
+});
+// trimmed.bytes is a Uint8Array of the same format as the input.
+// GRIB2 / NetCDF3 / Zarr are byte-cut (no decode); NetCDF4 uses h5wasm.
 ```
 
 Full API reference: [`docs/API.md`](docs/API.md). TypeScript types ship with the package — no `@types` needed.
@@ -60,13 +68,14 @@ import {
   // Functional API (recommended)
   detectFormat, scan, extract, extractOutput,
   extractGrid, extractGridOutput, gridToJSON, gridToGeoTIFF,
+  slim,
 
   // Class API (advanced — reuse one instance across many extracts)
   WebParsers,
 
   // Typed errors (all extend WebparsersError)
   WebparsersError, UnsupportedFormatError, VariableNotFoundError,
-  SourceError, ExtractError,
+  SourceError, ExtractError, SlimError,
 } from 'webparsers';
 ```
 
@@ -104,6 +113,7 @@ npm run demo:grib2      # CLI: scan + extract a sample GRIB2 file
 npm run demo:zarr       # CLI: scan + extract a sample Zarr file
 npm run test:zarr       # smoke tests for the Zarr path
 npm run test:grid       # smoke tests for extractGrid
+npm run test:slim       # smoke tests for slim() across all four formats
 ```
 
 The `demo:web` page lets you drop a `.grb2`, `.nc`, or `.zip`/`.zarr` file in directly and run `scan` / `extract` / `extractGrid` interactively (heat-map canvas, progress, abort, GeoTIFF / JSON download).

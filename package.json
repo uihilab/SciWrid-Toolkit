@@ -27,6 +27,13 @@
     "lib/kerchunk-helper.js",
     "lib/kerchunk/parquet-refs.js",
     "lib/kerchunk/ref-store.js",
+    "lib/slim/index.js",
+    "lib/slim/byte-source.js",
+    "lib/slim/errors.js",
+    "lib/slim/grib2.js",
+    "lib/slim/netcdf3.js",
+    "lib/slim/zarr.js",
+    "lib/slim/netcdf4.js",
     "wasm/webparsers.js",
     "wasm/webparsers.wasm",
     "worker/worker.js",
@@ -62,7 +69,8 @@
     "test:api": "node scripts/test-api.js",
     "test:grid": "node scripts/test-grid.js",
     "test:zarr": "node scripts/test-zarr.js",
-    "test:kerchunk": "node scripts/test-kerchunk.js"
+    "test:kerchunk": "node scripts/test-kerchunk.js",
+    "test:slim": "node scripts/test-slim.js"
   },
   "engines": {
     "node": ">=18"
