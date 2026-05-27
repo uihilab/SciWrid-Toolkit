@@ -152,12 +152,6 @@ wp_scan_result_t* wp_scan(const uint8_t* data, uint32_t data_len) {
     return result;
 }
 
-/* Get number of variables found */
-EMSCRIPTEN_KEEPALIVE
-int wp_scan_num_vars(const wp_scan_result_t* s) {
-    return s ? s->n_vars : 0;
-}
-
 /* Get variable info as JSON string */
 EMSCRIPTEN_KEEPALIVE
 char* wp_scan_get_vars_json(const wp_scan_result_t* s) {
@@ -967,11 +961,6 @@ void wp_close(refs_dataset_t* ds) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-const char* wp_variable_name(const refs_dataset_t* ds) {
-    return refs_variable_name(ds);
-}
-
-EMSCRIPTEN_KEEPALIVE
 uint32_t wp_nx(const refs_dataset_t* ds) { return refs_nx(ds); }
 
 EMSCRIPTEN_KEEPALIVE
@@ -979,9 +968,6 @@ uint32_t wp_ny(const refs_dataset_t* ds) { return refs_ny(ds); }
 
 EMSCRIPTEN_KEEPALIVE
 uint32_t wp_nt(const refs_dataset_t* ds) { return refs_nt(ds); }
-
-EMSCRIPTEN_KEEPALIVE
-int wp_is_timeseries(const refs_dataset_t* ds) { return refs_is_timeseries(ds); }
 
 /* ---- Pointer accessors for parallel bbox grid extraction (extractGrid) ----
  *
@@ -993,8 +979,6 @@ int wp_is_timeseries(const refs_dataset_t* ds) { return refs_is_timeseries(ds); 
  * Layout:
  *   wp_ds_lats_ptr  -> float[ny]
  *   wp_ds_lons_ptr  -> float[nx]
- *   wp_ds_times_ptr -> int64_t[nt]   (transfer as BigInt64Array or treat each
- *                                     8-byte stride as the underlying type)
  *   wp_ds_data_ptr  -> float[nt*ny*nx], row-major [t, y, x]
  */
 EMSCRIPTEN_KEEPALIVE
@@ -1002,9 +986,6 @@ const float* wp_ds_lats_ptr(const refs_dataset_t* ds) { return refs_lats(ds); }
 
 EMSCRIPTEN_KEEPALIVE
 const float* wp_ds_lons_ptr(const refs_dataset_t* ds) { return refs_lons(ds); }
-
-EMSCRIPTEN_KEEPALIVE
-const int64_t* wp_ds_times_ptr(const refs_dataset_t* ds) { return refs_times(ds); }
 
 EMSCRIPTEN_KEEPALIVE
 const float* wp_ds_data_ptr(const refs_dataset_t* ds) { return refs_data(ds); }
