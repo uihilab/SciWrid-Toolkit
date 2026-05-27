@@ -9,6 +9,7 @@ Three calls cover the common cases:
 | `scan`          | metadata + variable list                                     | List what's in the file      |
 | `extract`       | structured object                                            | Pull values for a variable   |
 | `extractOutput` | `string` (JSON or CSV)                                       | Same, ready to write to disk |
+| `slim`          | `{ bytes, format, warnings, stats }`                         | Trim a huge file in place    |
 
 Supported formats:
 
@@ -229,6 +230,98 @@ const result = await extract(file, {
 ```
 
 ---
+
+## `slim(source, options)`
+
+Produce a smaller file in the **same format** as the input, containing only
+the selected variables (and optionally a time-axis slice). The result is a
+`Uint8Array` plus a stats/warnings envelope.
+
+Per-format strategy:
+
+| Format       | How it's slimmed                                    | Decode? |
+| ------------ | --------------------------------------------------- | ------- |
+| **GRIB2**    | Filter messages by variable + valid time; concat    | No      |
+| **NetCDF3**  | Rewrite header with kept vars; copy data spans      | No      |
+| **Zarr** (zip) | Filter zip entries by var + chunk; re-zip         | No      |
+| **NetCDF4**  | Open with h5wasm; copy selected datasets to new file | Partial (HDF5 re-frames B-trees) |
+
+```js
+import { slim } from 'webparsers';
+
+const result = await slim(file, {
+  variables: ['2t', 'sp'],   // names from scan().variable_names
+  t1: 0, t2: 23,             // optional inclusive time-axis range
+});
+
+console.log(result.format);            // 'grib2' | 'netcdf3' | 'netcdf4' | 'zarr'
+console.log(result.stats);             // { inputSize, outputSize, variablesKept, variablesDropped }
+console.log(result.warnings);          // human-readable notes (e.g. Zarr boundary widening)
+fs.writeFileSync('slim.grb2', result.bytes);
+```
+
+### Options
+
+| Option       | Type        | Notes                                                          |
+| ------------ | ----------- | -------------------------------------------------------------- |
+| `variables`  | `string[]`  | **Required.** Variable names to keep. Same naming as `scan()`. |
+| `t1`         | `number`    | Inclusive lower time-axis index. Defaults to `0`.              |
+| `t2`         | `number`    | Inclusive upper time-axis index. Defaults to the last one.     |
+
+`t1`/`t2` semantics match `extract()` — they're indices into the variable's
+time axis in the order `scan()` reports.
+
+### Result shape
+
+```ts
+{
+  bytes:    Uint8Array,                                  // the slimmed file
+  format:   'grib2' | 'netcdf3' | 'netcdf4' | 'zarr',
+  warnings: string[],                                    // see below
+  stats: {
+    inputSize: number,
+    outputSize: number,
+    variablesKept: number,
+    variablesDropped: number,
+  },
+}
+```
+
+### Boundary widening (Zarr only)
+
+Zarr chunks are atomic — the whole chunk is either present or absent. If
+the requested `[t1, t2]` range crosses chunk boundaries, the slim widens
+to keep every chunk that *touches* the range. The actual time range that
+ends up in the output is reported in `warnings`:
+
+```text
+Zarr variable 'temperature': time range [3,7] widened to [0,7]
+because chunk size along time axis is 8
+```
+
+GRIB2 (one timestep per message), NetCDF3 (records addressable
+individually), and NetCDF4 (h5wasm hyperslab) all give exact ranges.
+
+### Errors
+
+| Thrown                       | When                                                        |
+| ---------------------------- | ----------------------------------------------------------- |
+| `SlimError`                  | Invalid `opts`, out-of-range `t1`, format-specific failure   |
+| `VariableNotFoundError`      | A requested variable isn't in the source                    |
+| `UnsupportedFormatError`     | The source isn't one of the four supported formats          |
+
+### Known limitations (v1)
+
+- **Spatial bbox** is not yet supported. Tracked for a follow-up sprint.
+- **NetCDF4** writes via h5wasm into the WASM heap, so the practical
+  output cap is ~1–2 GB.
+- **NetCDF4** v1 walks **top-level datasets only** — datasets nested
+  inside HDF5 groups are not copied. Most NetCDF4 files in the wild use
+  the root group.
+- **NetCDF4** dim-coord matching in `extract()` (pre-existing) uses dim
+  length; if a sliced time axis ends up with the same length as another
+  coordinate (e.g. `lat`), the existing extract heuristic may mis-assign
+  dims. The slimmed bytes are correct — verify with a direct h5wasm read.
 
 ## Class-based API (`WebParsers`)
 

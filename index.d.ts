@@ -18,6 +18,8 @@ export type {
   ExtractGridResult,
   ExtractGridProgress,
   GridOutputFormat,
+  SlimOptions,
+  SlimResult,
 } from './lib/webparsers-api.js';
 
 export {
@@ -29,11 +31,13 @@ export {
   gridToJSON,
   gridToGeoTIFF,
   detectFormat,
+  slim,
   WebparsersError,
   UnsupportedFormatError,
   VariableNotFoundError,
   SourceError,
   ExtractError,
+  SlimError,
 } from './lib/webparsers-api.js';
 
 // Low-level class API

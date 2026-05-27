@@ -52,6 +52,7 @@ export {
   gridToJSON,
   gridToGeoTIFF,
   detectFormat,
+  slim,
 } from './lib/webparsers-api.js';
 
 // ── Typed error classes ───────────────────────────────────────────────────────
@@ -61,6 +62,7 @@ export {
   VariableNotFoundError,
   SourceError,
   ExtractError,
+  SlimError,
 } from './lib/webparsers-api.js';
 
 // ── Low-level class API ───────────────────────────────────────────────────────

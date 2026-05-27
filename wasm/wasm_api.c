@@ -21,6 +21,40 @@
 #include "../formats/grib2/grib2_metadata.h"
 #include "../formats/netcdf/netcdf3.h"
 #include "../tools/query_refs.h"
+#include "../core/util/base64.h"
+
+/* Portable strnlen (not in C99). */
+static size_t wp_strnlen(const char* s, size_t maxlen) {
+    size_t i = 0;
+    while (i < maxlen && s[i] != '\0') i++;
+    return i;
+}
+
+/* JSON-escape helper used by the *_layout exports below.
+ * Writes a quoted, escaped form of `src` (nelems bytes, NOT null-terminated)
+ * into out. Returns the number of chars written (excluding null). */
+static size_t json_escape(const char* src, size_t n, char* out, size_t out_cap) {
+    size_t o = 0;
+    if (o < out_cap) out[o++] = '"';
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (c == 0) break;                       /* stop at first NUL */
+        if (o + 8 >= out_cap) break;             /* leave room for closing + esc */
+        if (c == '"' || c == '\\') { out[o++] = '\\'; out[o++] = (char)c; }
+        else if (c == '\n')        { out[o++] = '\\'; out[o++] = 'n';     }
+        else if (c == '\r')        { out[o++] = '\\'; out[o++] = 'r';     }
+        else if (c == '\t')        { out[o++] = '\\'; out[o++] = 't';     }
+        else if (c < 0x20) {
+            int w = snprintf(out + o, out_cap - o, "\\u%04x", c);
+            if (w > 0) o += (size_t)w;
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    if (o < out_cap) out[o++] = '"';
+    if (o < out_cap) out[o] = '\0';
+    return o;
+}
 
 /* =========================================================================
  * Scan result: list of unique variables found in a GRIB2 file
@@ -163,6 +197,85 @@ char* wp_scan_get_vars_json(const wp_scan_result_t* s) {
     APPEND("]\n");
 
     #undef APPEND
+    return buf;
+}
+
+/* =========================================================================
+ * Slim helper: per-message byte-range layout for the JS slim pipeline.
+ *
+ * Returns a JSON array describing every GRIB2 message in the source. Each
+ * entry carries the message's byte span in the original buffer, the
+ * (cat, num) and human-readable variable name, the reference time (Unix
+ * seconds), and the forecast offset (seconds). JS slim filters this array
+ * by variable + time and concatenates the kept byte spans verbatim — no
+ * decode involved.
+ *
+ * Returned string is malloc'd; caller frees with wp_free.
+ * ======================================================================= */
+EMSCRIPTEN_KEEPALIVE
+char* wp_scan_messages_layout(const wp_scan_result_t* s) {
+    if (!s || s->n_msgs == 0) return NULL;
+
+    size_t cap = 8192, len = 0;
+    char* buf = (char*)malloc(cap);
+    if (!buf) return NULL;
+
+    #define MAPPEND(...) do { \
+        int _n; \
+        while (1) { \
+            _n = snprintf(buf + len, cap - len, __VA_ARGS__); \
+            if (_n < 0) { free(buf); return NULL; } \
+            if ((size_t)_n < cap - len) { len += (size_t)_n; break; } \
+            cap *= 2; \
+            char* _t = (char*)realloc(buf, cap); \
+            if (!_t) { free(buf); return NULL; } \
+            buf = _t; \
+        } \
+    } while (0)
+
+    MAPPEND("[\n");
+    for (int i = 0; i < s->n_msgs; i++) {
+        const grib2_msg_t* m = &s->msgs[i];
+
+        /* Section 0 is always 16 bytes immediately before Section 1 in the
+         * GRIB2 wire format. The total message length is encoded as a
+         * big-endian uint64 in Section 0 bytes 8..15. */
+        uint64_t msg_start = m->sec1_off - 16;
+        uint64_t msg_len   = 0;
+        if (msg_start + 16 <= s->grb_len)
+            msg_len = be64(s->grb_data + msg_start + 8);
+
+        uint16_t gtmpl = (m->sec3_len >= 14)
+                         ? be16(s->grb_data + m->sec3_off + 12) : 0;
+
+        int64_t ref_time = parse_sec1_reftime(s->grb_data + m->sec1_off,
+                                              (uint32_t)m->sec1_len);
+        int64_t fc_off   = parse_sec4_forecast_offset(s->grb_data + m->sec4_off,
+                                                      (uint32_t)m->sec4_len);
+
+        const char* name = grib2_get_variable_name(m->param_cat, m->param_num);
+        char name_esc[128];
+        json_escape(name ? name : "", name ? strlen(name) : 0,
+                    name_esc, sizeof(name_esc));
+
+        int supported = (gtmpl == 0 || gtmpl == 30 ||
+                         gtmpl == 40 || gtmpl == 101);
+
+        MAPPEND("  {\"index\": %d, \"start\": %llu, \"len\": %llu, "
+                "\"cat\": %u, \"num\": %u, \"name\": %s, "
+                "\"grid_template\": %u, \"data_template\": %u, "
+                "\"ref_time\": %lld, \"forecast_offset\": %lld, "
+                "\"valid_time\": %lld, \"supported\": %s}%s\n",
+                i, (unsigned long long)msg_start, (unsigned long long)msg_len,
+                m->param_cat, m->param_num, name_esc,
+                gtmpl, m->data_template,
+                (long long)ref_time, (long long)fc_off,
+                (long long)(ref_time + fc_off),
+                supported ? "true" : "false",
+                (i + 1 < s->n_msgs) ? "," : "");
+    }
+    MAPPEND("]\n");
+    #undef MAPPEND
     return buf;
 }
 
@@ -587,6 +700,148 @@ char* wp_nc3_scan_get_vars_json(const wp_nc3_scan_result_t* s) {
     }
     NC3APPEND("]\n");
     #undef NC3APPEND
+    return buf;
+}
+
+/* ------------------------------------------------------------------
+ * Slim helper: full header layout for the JS slim pipeline.
+ *
+ * Returns a JSON dump of the parsed nc3_file_t — version, numrecs, dims,
+ * global attrs, and per-variable definitions including the byte offset
+ * (`begin`) and size (`vsize`) JS needs to copy data spans verbatim.
+ *
+ * Attribute values are base64-encoded so binary attrs (e.g. _FillValue
+ * as IEEE bytes) round-trip exactly. Truncated atts (parser stores at
+ * most 512 bytes inline) are emitted as-is; nelems still reflects the
+ * original count so JS can detect truncation by comparing
+ * nelems * type_size to the decoded length.
+ *
+ * Returned string is malloc'd; caller frees with wp_free.
+ * ------------------------------------------------------------------ */
+
+/* Emit one nc3_att_t as `{"name":..., "type":n, "nelems":n, "value_b64":"..."}` */
+static int wp_nc3_emit_att(const nc3_att_t* a, char** buf, size_t* len, size_t* cap) {
+    uint32_t tsz   = nc3_type_size(a->type);
+    size_t   nbyte = (size_t)a->nelems * (size_t)tsz;
+    if (nbyte > sizeof(a->value)) nbyte = sizeof(a->value);  /* truncated */
+
+    size_t b64cap = base64_encode_len(nbyte);
+    char*  b64    = (char*)malloc(b64cap);
+    if (!b64) return -1;
+    if (nbyte > 0)
+        base64_encode((const uint8_t*)a->value, nbyte, b64);
+    else
+        b64[0] = '\0';
+
+    char name_esc[NC3_MAX_NAME + 8];
+    json_escape(a->name, wp_strnlen(a->name, NC3_MAX_NAME),
+                name_esc, sizeof(name_esc));
+
+    /* Grow buf if needed and append */
+    size_t need = strlen(name_esc) + b64cap + 96;
+    while (*cap - *len < need) {
+        *cap *= 2;
+        char* t = (char*)realloc(*buf, *cap);
+        if (!t) { free(b64); return -1; }
+        *buf = t;
+    }
+    int n = snprintf(*buf + *len, *cap - *len,
+        "{\"name\":%s,\"type\":%d,\"nelems\":%u,\"value_b64\":\"%s\"}",
+        name_esc, (int)a->type, a->nelems, b64);
+    if (n < 0) { free(b64); return -1; }
+    *len += (size_t)n;
+    free(b64);
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+char* wp_nc3_full_layout(const wp_nc3_scan_result_t* s) {
+    if (!s) return NULL;
+    const nc3_file_t* nc = &s->nc;
+
+    size_t cap = 16384, len = 0;
+    char*  buf = (char*)malloc(cap);
+    if (!buf) return NULL;
+
+    #define NCLAY(...) do { \
+        int _n; \
+        while (1) { \
+            _n = snprintf(buf + len, cap - len, __VA_ARGS__); \
+            if (_n < 0) { free(buf); return NULL; } \
+            if ((size_t)_n < cap - len) { len += (size_t)_n; break; } \
+            cap *= 2; \
+            char* _t = (char*)realloc(buf, cap); \
+            if (!_t) { free(buf); return NULL; } \
+            buf = _t; \
+        } \
+    } while (0)
+
+    NCLAY("{\n");
+    NCLAY("  \"version\": %u,\n", nc->version);
+    NCLAY("  \"numrecs\": %u,\n", nc->numrecs);
+    NCLAY("  \"data_len\": %u,\n", s->data_len);
+
+    /* Dimensions */
+    NCLAY("  \"dims\": [");
+    for (uint32_t d = 0; d < nc->ndims; d++) {
+        const nc3_dim_t* di = &nc->dims[d];
+        char dn[NC3_MAX_NAME + 8];
+        json_escape(di->name, wp_strnlen(di->name, NC3_MAX_NAME), dn, sizeof(dn));
+        NCLAY("%s{\"index\":%u,\"name\":%s,\"length\":%u,\"is_unlimited\":%s}",
+              (d == 0 ? "" : ","), d, dn, di->length,
+              di->is_unlimited ? "true" : "false");
+    }
+    NCLAY("],\n");
+
+    /* Global attributes */
+    NCLAY("  \"gatts\": [");
+    for (uint32_t a = 0; a < nc->ngatts; a++) {
+        if (a > 0) NCLAY(",");
+        if (wp_nc3_emit_att(&nc->gatts[a], &buf, &len, &cap) != 0) {
+            free(buf); return NULL;
+        }
+    }
+    NCLAY("],\n");
+
+    /* Variables */
+    NCLAY("  \"vars\": [");
+    for (uint32_t v = 0; v < nc->nvars; v++) {
+        const nc3_var_t* var = &nc->vars[v];
+        if (v > 0) NCLAY(",");
+
+        char vn[NC3_MAX_NAME + 8];
+        json_escape(var->name, wp_strnlen(var->name, NC3_MAX_NAME), vn, sizeof(vn));
+
+        NCLAY("{\"index\":%u,\"name\":%s,\"type\":%d,\"type_size\":%u,"
+              "\"ndims\":%u,\"dim_indices\":[",
+              v, vn, (int)var->type, nc3_type_size(var->type), var->ndims);
+        for (uint32_t d = 0; d < var->ndims; d++) {
+            NCLAY("%s%u", (d == 0 ? "" : ","), var->dimids[d]);
+        }
+        NCLAY("],\"shape\":[");
+        for (uint32_t d = 0; d < var->ndims; d++) {
+            uint32_t did   = var->dimids[d];
+            uint32_t dlen  = (did < nc->ndims) ? nc->dims[did].length : 0;
+            int     unlim  = (did < nc->ndims) ? nc->dims[did].is_unlimited : 0;
+            /* For the unlimited dim, project shape using numrecs */
+            uint32_t shp = unlim ? nc->numrecs : dlen;
+            NCLAY("%s%u", (d == 0 ? "" : ","), shp);
+        }
+        NCLAY("],\"is_record\":%s,\"begin\":%llu,\"vsize\":%u,\"natts\":%u,\"atts\":[",
+              var->is_record ? "true" : "false",
+              (unsigned long long)var->begin, var->vsize, var->natts);
+        for (uint32_t a = 0; a < var->natts; a++) {
+            if (a > 0) NCLAY(",");
+            if (wp_nc3_emit_att(&var->atts[a], &buf, &len, &cap) != 0) {
+                free(buf); return NULL;
+            }
+        }
+        NCLAY("]}");
+    }
+    NCLAY("]\n");
+    NCLAY("}\n");
+
+    #undef NCLAY
     return buf;
 }
 
