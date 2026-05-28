@@ -362,5 +362,45 @@ await test('BigTIFF (magic 43) scan + extract', async () => {
   assertEq(r.value, 3);
 });
 
+console.log('\n[packbits]');
+await test('packbits decoder: canonical Apple example', async () => {
+  const { decode } = await import('../lib/tiff/decoders/packbits.js');
+  // Apple PackBits spec example:
+  //   FE AA            → -2 → repeat 0xAA three times
+  //   02 80 00 2A      → 2 → copy 3 literals
+  //   FD AA            → -3 → repeat 0xAA four times
+  //   03 80 00 2A 22   → 3 → copy 4 literals
+  //   F7 AA            → -9 → repeat 0xAA ten times
+  const compressed = new Uint8Array([
+    0xFE, 0xAA, 0x02, 0x80, 0x00, 0x2A, 0xFD, 0xAA,
+    0x03, 0x80, 0x00, 0x2A, 0x22, 0xF7, 0xAA,
+  ]);
+  const out = await decode(compressed);
+  // Expected (24 bytes):
+  //   3× AA + 3 literals (80, 00, 2A) + 4× AA + 4 literals (80, 00, 2A, 22) + 10× AA
+  const expected = [
+    0xAA, 0xAA, 0xAA,
+    0x80, 0x00, 0x2A,
+    0xAA, 0xAA, 0xAA, 0xAA,
+    0x80, 0x00, 0x2A, 0x22,
+    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
+  ];
+  assertEq(out.length, expected.length, 'length');
+  for (let i = 0; i < expected.length; i++) assertEq(out[i], expected[i], `out[${i}]`);
+});
+
+await test('PackBits TIFF: scan + extract', async () => {
+  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-packbits-strip-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.compression, 'packbits');
+  // Row 0 (top), col 0 = pixels[0] = 0xaa (i<16 → 0xaa)
+  const r = await extract(buf, { variable: 'band_1', lat: 23.5, lon: 10.5 });
+  assertEq(r.value, 0xaa);
+  // Row 3 (bottom), col 7 = pixels[31] = 31 & 7 = 7 (i>=16 path)
+  const r2 = await extract(buf, { variable: 'band_1', lat: 20.5, lon: 17.5 });
+  assertEq(r2.value, 7);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

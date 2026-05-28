@@ -738,6 +738,67 @@ function fixtureBigTiffU8NoneStripWgs84() {
   return { bytes: buildBigTiff(tags, strips), expected: { W, H, pixels } };
 }
 
+// ── PackBits encoder (TIFF Compression=32773) — used by the fixture builder ─
+function packbitsEncode(bytes) {
+  const out = [];
+  let i = 0;
+  while (i < bytes.length) {
+    // Greedy: look for the longest run of the same byte starting at i.
+    let runLen = 1;
+    while (runLen < 128 && i + runLen < bytes.length && bytes[i + runLen] === bytes[i]) runLen++;
+    if (runLen >= 3) {
+      // Emit a repeat block: control byte = 1 - runLen (signed), then the byte.
+      out.push((257 - runLen) & 0xff);
+      out.push(bytes[i]);
+      i += runLen;
+      continue;
+    }
+    // Otherwise, gather literal bytes until we hit a 3+ run or end of input.
+    let litStart = i;
+    while (i < bytes.length && i - litStart < 128) {
+      // Stop if a 3+ run begins at i.
+      if (i + 2 < bytes.length && bytes[i] === bytes[i + 1] && bytes[i + 1] === bytes[i + 2]) break;
+      i++;
+    }
+    const litLen = i - litStart;
+    out.push(litLen - 1);                   // 0..127 = copy litLen bytes
+    for (let k = 0; k < litLen; k++) out.push(bytes[litStart + k]);
+  }
+  return new Uint8Array(out);
+}
+
+// ── Fixture (v2): synthetic-u8-packbits-strip-wgs84.tif ──────────────────
+function fixtureU8PackbitsStripWgs84() {
+  const W = 8, H = 4;
+  // Mix of literal and repeated bytes so the encoder exercises both paths.
+  const pixels = new Uint8Array(W * H);
+  for (let i = 0; i < pixels.length; i++) pixels[i] = (i < 16) ? 0xaa : (i & 0x07);
+  const strips = [];
+  for (let r = 0; r < H; r++)
+    strips.push(packbitsEncode(pixels.subarray(r * W, (r + 1) * W)));
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [8] },
+    { tag: 259, type: T_SHORT, values: [32773] },             // PackBits
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 273, type: T_LONG,  values: [0] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 278, type: T_SHORT, values: [1] },
+    { tag: 279, type: T_LONG,  values: [0] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 339, type: T_SHORT, values: [1] },
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 10, 24, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+  ];
+  return { bytes: buildTiff(tags, strips), expected: { W, H, pixels } };
+}
+
 // ── Fixture (v2): big-endian classic TIFF — same content as the LE u8 fixture
 function fixtureU8NoneStripWgs84BE() {
   const lhs = fixtureU8NoneStripWgs84();
@@ -778,6 +839,7 @@ const fixtures = {
   'synthetic-u8-none-strip-wgs84.tif': fixtureU8NoneStripWgs84(),
   'synthetic-u8-none-strip-be-wgs84.tif': fixtureU8NoneStripWgs84BE(),
   'synthetic-bigtiff-u8-none-strip-wgs84.tif': fixtureBigTiffU8NoneStripWgs84(),
+  'synthetic-u8-packbits-strip-wgs84.tif': fixtureU8PackbitsStripWgs84(),
   'synthetic-f32-deflate-fp-strip-wgs84.tif': fixtureF32DeflateFpStripWgs84(),
   'synthetic-f32-deflate-fp-tile-utm15n.tif': fixtureF32DeflateFpTileUtm15N(),
   'synthetic-f32-deflate-fp-tile-sinusoidal.tif': fixtureF32DeflateFpTileSinusoidal(),
