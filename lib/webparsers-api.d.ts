@@ -2,7 +2,7 @@
  * Type definitions for the webparsers functional API.
  */
 
-export type Format = 'grib2' | 'netcdf3' | 'netcdf4' | 'zarr';
+export type Format = 'grib2' | 'netcdf3' | 'netcdf4' | 'zarr' | 'tiff';
 
 export type Source =
   | Uint8Array
@@ -128,6 +128,14 @@ export class VariableNotFoundError extends WebparsersError {}
 export class SourceError extends WebparsersError {}
 export class ExtractError extends WebparsersError {}
 
+/** Thrown by the TIFF/GeoTIFF reader for CRS outside the v1 supported set. */
+export class UnsupportedCRSError extends WebparsersError {
+  /** EPSG code parsed from the GeoKey directory (null if unparseable). */
+  epsg: number | null;
+  /** Free-text CRS name when available. */
+  crsName?: string;
+}
+
 /* ---- Functions ---- */
 export function detectFormat(source: Source): Promise<Format | null>;
 export function scan(source: Source, opts?: CommonOptions): Promise<ScanResult>;
@@ -208,5 +216,6 @@ declare const _default: {
   SourceError: typeof SourceError;
   ExtractError: typeof ExtractError;
   SlimError: typeof SlimError;
+  UnsupportedCRSError: typeof UnsupportedCRSError;
 };
 export default _default;
