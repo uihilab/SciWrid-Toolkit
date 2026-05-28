@@ -79,5 +79,70 @@ await test('deflate decoder round-trips a known deflate stream', async () => {
   assertEq(s, 'hello world');
 });
 
+// Hand-rolled TIFF-LZW encoder (MSB-first, early-change) used only by tests
+// to verify decoder round-trip on known inputs.
+function tiffLzwEncode(bytes) {
+  const CLEAR = 256, EOI = 257;
+  // String table: Map<string, code>
+  const table = new Map();
+  let nextCode;
+  let codeWidth = 9;
+  function reset() {
+    table.clear();
+    for (let i = 0; i < 256; i++) table.set(String.fromCharCode(i), i);
+    nextCode = 258;
+    codeWidth = 9;
+  }
+  const bits = [];
+  function emit(code) {
+    for (let i = codeWidth - 1; i >= 0; i--) bits.push((code >>> i) & 1);
+  }
+  reset();
+  emit(CLEAR);
+  let w = '';
+  for (let i = 0; i < bytes.length; i++) {
+    const c = String.fromCharCode(bytes[i]);
+    const wc = w + c;
+    if (table.has(wc)) {
+      w = wc;
+    } else {
+      emit(table.get(w));
+      table.set(wc, nextCode++);
+      // TIFF early-change semantics (matches libtiff): bump width when the
+      // just-assigned entry's index == (1<<width)-1. After post-increment,
+      // nextCode == (1<<width).
+      if (nextCode === (1 << codeWidth) && codeWidth < 12) codeWidth++;
+      w = c;
+    }
+  }
+  if (w !== '') emit(table.get(w));
+  emit(EOI);
+  // Pack bits MSB-first into bytes
+  const out = new Uint8Array(Math.ceil(bits.length / 8));
+  for (let i = 0; i < bits.length; i++) {
+    if (bits[i]) out[i >> 3] |= 1 << (7 - (i & 7));
+  }
+  return out;
+}
+
+await test('lzw decoder round-trips a hand-encoded TIFF-LZW stream', async () => {
+  const { decode } = await import('../lib/tiff/decoders/lzw.js');
+  const input = new Uint8Array([7, 7, 7, 8, 8, 7, 7, 6, 6]);
+  const enc = tiffLzwEncode(input);
+  const out = await decode(enc);
+  assertEq(out.length, input.length, 'length');
+  for (let i = 0; i < input.length; i++) assertEq(out[i], input[i], `out[${i}]`);
+});
+
+await test('lzw decoder handles a 4 KiB repeating pattern (covers width bump)', async () => {
+  const { decode } = await import('../lib/tiff/decoders/lzw.js');
+  const input = new Uint8Array(4096);
+  for (let i = 0; i < input.length; i++) input[i] = (i * 31 + 7) & 0xff;
+  const enc = tiffLzwEncode(input);
+  const out = await decode(enc);
+  assertEq(out.length, input.length, 'length');
+  for (let i = 0; i < input.length; i++) assertEq(out[i], input[i], `out[${i}]`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
