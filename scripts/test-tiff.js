@@ -339,5 +339,18 @@ await test('polar stereographic fixture throws UnsupportedCRSError with EPSG', a
   assertEq(caught.epsg, 3413);
 });
 
+console.log('\n[big-endian]');
+await test('big-endian TIFF: scan + extract', async () => {
+  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-be-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.format, 'tiff');
+  assertEq(meta.width, 8);
+  assertEq(meta.dtype, 'uint8');
+  // Same value as the LE fixture: pixels[0] = (0*7+3)&0xff = 3
+  const r = await extract(buf, { variable: 'band_1', lat: 23.5, lon: 10.5 });
+  assertEq(r.value, 3);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
