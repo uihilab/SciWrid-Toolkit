@@ -480,6 +480,19 @@ await test('TIFF slim: unknown variable throws VariableNotFoundError', async () 
     `wrong error: ${err && err.constructor.name}: ${err && err.message}`);
 });
 
+await test('TIFF slim: planar=2 byte-copies the kept band group (no re-encode)', async () => {
+  const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-planar2-strip-wgs84.tif');
+  if (!existsSync(tiffPath)) return 'skip';
+  const buf = new Uint8Array(readFileSync(tiffPath));
+  const out = await slim(buf, { variables: ['green'] });
+  const m = await scan(out.bytes);
+  assert(m.variable_names.length === 1, `expected 1 band, got ${m.variable_names.length}`);
+  assert(m.variable_names[0] === 'green');
+  // The kept band's pixel value at (row=0, col=0) was 200 in the source.
+  const r = await extract(out.bytes, { variable: 'green', lat: 23.5, lon: 10.5 });
+  assert(r.value === 200, `expected 200, got ${r.value}`);
+});
+
 /* ---------------- Summary ---------------- */
 
 console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped`);

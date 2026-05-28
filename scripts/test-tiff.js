@@ -558,5 +558,20 @@ await test('2-IFD COG fixture: scan surfaces overview metadata', async () => {
   assertEq(meta.cog, true);
 });
 
+console.log('\n[planar=2]');
+await test('PlanarConfiguration=2: read distinct values per band', async () => {
+  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-multiband-u16-planar2-strip-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.variable_names[0], 'red');
+  // Pixel (0, 0) values: band 0 = 100, band 1 = 200, band 2 = 300
+  const r = await extract(buf, { variable: 'red',   lat: 23.5, lon: 10.5 });
+  const g = await extract(buf, { variable: 'green', lat: 23.5, lon: 10.5 });
+  const b = await extract(buf, { variable: 'blue',  lat: 23.5, lon: 10.5 });
+  assertEq(r.value, 100);
+  assertEq(g.value, 200);
+  assertEq(b.value, 300);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
