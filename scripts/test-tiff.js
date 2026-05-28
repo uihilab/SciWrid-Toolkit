@@ -542,5 +542,21 @@ await test('Albers fixture: extract at native (0,0) returns pixel (0,0) value', 
   assert(Math.abs(r.value - 1.0) < 1e-5, `got ${r.value}`);
 });
 
+console.log('\n[cog-overviews]');
+await test('2-IFD COG fixture: scan surfaces overview metadata', async () => {
+  const { scan } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-none-tile-cog-2ifd-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.format, 'tiff');
+  assertEq(meta.width, 16);
+  assertEq(meta.height, 16);
+  assert(Array.isArray(meta.overviews), 'overviews should be an array');
+  assertEq(meta.overviews.length, 1);
+  assertEq(meta.overviews[0].width, 8);
+  assertEq(meta.overviews[0].height, 8);
+  assertEq(meta.overviews[0].ratio, 2);
+  assertEq(meta.cog, true);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
