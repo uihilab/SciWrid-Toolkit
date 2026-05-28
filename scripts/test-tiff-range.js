@@ -70,6 +70,64 @@ await test('extract over Range URL reads only IFD + one tile', async () => {
     throw new Error(`extract read ${used}/${fileSize} bytes — Range not used`);
 });
 
+// Serve a 2-IFD COG fixture to verify overview auto-select.
+import { readFileSync as rfs2, statSync as ss2 } from 'node:fs';
+const cogPath = resolve(__dirname, '..', 'examples', 'testfile', 'tiff',
+  'synthetic-f32-none-tile-cog-2ifd-wgs84.tif');
+const cogBytes = rfs2(cogPath);
+const cogSize  = ss2(cogPath).size;
+let cogBytesServed = 0;
+const cogServer = createServer((req, res) => {
+  const range = req.headers.range;
+  if (!range || req.method === 'HEAD') {
+    res.setHeader('Content-Length', cogSize);
+    res.setHeader('Accept-Ranges', 'bytes');
+    if (req.method === 'HEAD') { res.end(); return; }
+    cogBytesServed += cogSize;
+    res.end(cogBytes);
+    return;
+  }
+  const m = /bytes=(\d+)-(\d+)/.exec(range);
+  if (!m) { res.statusCode = 416; res.end(); return; }
+  const start = Number(m[1]), end = Number(m[2]);
+  const chunk = cogBytes.subarray(start, end + 1);
+  res.statusCode = 206;
+  res.setHeader('Content-Range', `bytes ${start}-${end}/${cogSize}`);
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Content-Length', chunk.length);
+  cogBytesServed += chunk.length;
+  res.end(chunk);
+});
+await new Promise(r => cogServer.listen(0, r));
+const cogUrl = `http://127.0.0.1:${cogServer.address().port}/cog2.tif`;
+
+console.log(`\n[overview auto-select — fixture ${cogSize} bytes]`);
+const beforeOverview = cogBytesServed;
+await test('extractGrid({width:4}) picks the overview IFD (not full-res)', async () => {
+  const { extractGrid } = await import('../lib/webparsers-api.js');
+  // Main = 16×16, overview = 8×8. Requesting width:4,height:4 — the 8×8
+  // overview is the smallest that meets the request.
+  const g = await extractGrid(cogUrl, { variable: 'band_1', width: 4, height: 4 });
+  if (g.data.length !== 16) throw new Error(`expected 16 pixels (4×4 viewport), got ${g.data.length}`);
+});
+await test('extractGrid({width:16}) reads the full-res IFD and reports usedOverview=false', async () => {
+  const { extractGrid } = await import('../lib/webparsers-api.js');
+  const g = await extractGrid(cogUrl, { variable: 'band_1', width: 16, height: 16 });
+  if (g.data.length !== 16 * 16) throw new Error(`expected 256 pixels, got ${g.data.length}`);
+  if (g.usedOverview !== false)
+    throw new Error(`expected usedOverview=false for full-res request, got ${g.usedOverview}`);
+});
+
+await test('extractGrid({width:4}) reports usedOverview=true', async () => {
+  const { extractGrid } = await import('../lib/webparsers-api.js');
+  const g = await extractGrid(cogUrl, { variable: 'band_1', width: 4, height: 4 });
+  if (g.usedOverview !== true)
+    throw new Error(`expected usedOverview=true for downsampled request, got ${g.usedOverview}`);
+});
+
+if (typeof cogServer.closeAllConnections === 'function') cogServer.closeAllConnections();
+cogServer.close();
+
 // Tear down: close keep-alive sockets so the process can exit naturally on
 // Windows (calling process.exit() with pending libuv handles trips a native
 // assertion in this Node + undici combo).
