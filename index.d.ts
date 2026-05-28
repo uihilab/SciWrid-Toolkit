@@ -39,6 +39,7 @@ export {
   gridToJSON,
   gridToGeoTIFF,
   gridToImageData,
+  gridToPNG,
   detectFormat,
   slim,
   WebparsersError,

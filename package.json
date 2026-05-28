@@ -74,7 +74,8 @@
     "numcodecs": "^0.3.2"
   },
   "devDependencies": {
-    "hyparquet-writer": "^0.15.1"
+    "hyparquet-writer": "^0.15.1",
+    "pngjs": "^7.0.0"
   },
   "scripts": {
     "demo:grib2": "node examples/testfile/demoGrib2File.js",
