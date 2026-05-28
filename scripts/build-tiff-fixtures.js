@@ -485,6 +485,115 @@ function fixtureCogF32NoneTileWgs84() {
   return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, f32 } };
 }
 
+// ── TIFF-LZW encoder (matches libtiff "early change") for fixture builder ─
+function tiffLzwEncode(bytes) {
+  const CLEAR = 256, EOI = 257;
+  const table = new Map();
+  let nextCode;
+  let codeWidth = 9;
+  function reset() {
+    table.clear();
+    for (let i = 0; i < 256; i++) table.set(String.fromCharCode(i), i);
+    nextCode = 258;
+    codeWidth = 9;
+  }
+  const bits = [];
+  function emit(code) {
+    for (let i = codeWidth - 1; i >= 0; i--) bits.push((code >>> i) & 1);
+  }
+  reset();
+  emit(CLEAR);
+  let w = '';
+  for (let i = 0; i < bytes.length; i++) {
+    const c = String.fromCharCode(bytes[i]);
+    const wc = w + c;
+    if (table.has(wc)) {
+      w = wc;
+    } else {
+      emit(table.get(w));
+      table.set(wc, nextCode++);
+      if (nextCode === (1 << codeWidth) && codeWidth < 12) codeWidth++;
+      w = c;
+    }
+  }
+  if (w !== '') emit(table.get(w));
+  emit(EOI);
+  const out = new Uint8Array(Math.ceil(bits.length / 8));
+  for (let i = 0; i < bits.length; i++) {
+    if (bits[i]) out[i >> 3] |= 1 << (7 - (i & 7));
+  }
+  return out;
+}
+
+// Horizontal predictor (encoder) — per-row, per-sample diff
+function applyHorizontalPredictorU16(bytes, { width, height, samplesPerPixel }) {
+  const rowBytes = width * samplesPerPixel * 2;
+  for (let r = 0; r < height; r++) {
+    const dv = new DataView(bytes.buffer, bytes.byteOffset + r * rowBytes, rowBytes);
+    for (let i = width * samplesPerPixel - 1; i >= samplesPerPixel; i--) {
+      const v  = dv.getUint16(i * 2, true);
+      const pv = dv.getUint16((i - samplesPerPixel) * 2, true);
+      dv.setUint16(i * 2, (v - pv) & 0xffff, true);
+    }
+  }
+  return bytes;
+}
+
+// ── Fixture 8: synthetic-multiband-u16-lzw-h-strip-wgs84.tif ─────────────
+function fixtureMultibandU16LzwHorizStripWgs84() {
+  // 3 bands (R/G/B), UInt16, LZW + horizontal predictor, strip layout.
+  const W = 8, H = 4, SPP = 3;
+  const pixels = new Uint16Array(W * H * SPP);
+  for (let r = 0; r < H; r++) {
+    for (let c = 0; c < W; c++) {
+      pixels[(r * W + c) * SPP + 0] = (r * 100 + c * 10) & 0xffff; // band 0
+      pixels[(r * W + c) * SPP + 1] = (r * 200 + c * 20 + 5) & 0xffff;
+      pixels[(r * W + c) * SPP + 2] = (r * 300 + c * 30 + 11) & 0xffff;
+    }
+  }
+  const allBytes = new Uint8Array(pixels.buffer.slice());
+  applyHorizontalPredictorU16(allBytes, { width: W, height: H, samplesPerPixel: SPP });
+  // One strip per row, LZW-encoded
+  const rowBytes = W * SPP * 2;
+  const strips = [];
+  for (let r = 0; r < H; r++) {
+    const rowSlice = allBytes.subarray(r * rowBytes, (r + 1) * rowBytes);
+    strips.push(tiffLzwEncode(rowSlice));
+  }
+  // GDAL_METADATA XML — band descriptions stored as ASCII (null-terminated)
+  const xml =
+    '<GDALMetadata>\n' +
+    '  <Item name="DESCRIPTION" sample="0">B04_red</Item>\n' +
+    '  <Item name="DESCRIPTION" sample="1">B03_green</Item>\n' +
+    '  <Item name="DESCRIPTION" sample="2">B02_blue</Item>\n' +
+    '</GDALMetadata>\0';
+  const xmlBytes = Array.from(xml, ch => ch.charCodeAt(0));
+
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [16, 16, 16] },        // BitsPerSample × 3
+    { tag: 259, type: T_SHORT, values: [5] },                 // Compression = LZW
+    { tag: 262, type: T_SHORT, values: [1] },                 // BlackIsZero
+    { tag: 273, type: T_LONG,  values: [0] },                 // StripOffsets (patched)
+    { tag: 277, type: T_SHORT, values: [SPP] },               // SamplesPerPixel = 3
+    { tag: 278, type: T_SHORT, values: [1] },                 // RowsPerStrip = 1
+    { tag: 279, type: T_LONG,  values: [0] },                 // StripByteCounts (patched)
+    { tag: 284, type: T_SHORT, values: [1] },                 // PlanarConfiguration = chunky
+    { tag: 317, type: T_SHORT, values: [2] },                 // Predictor = horizontal
+    { tag: 339, type: T_SHORT, values: [1, 1, 1] },           // SampleFormat (uint) × 3
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 10, 24, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+    { tag: 42112, type: T_ASCII, values: xmlBytes },          // GDAL_METADATA
+  ];
+  return { bytes: buildTiff(tags, strips), expected: { W, H, SPP, pixels } };
+}
+
 // ── main: write every fixture ─────────────────────────────────────────────
 mkdirSync(outDir, { recursive: true });
 const fixtures = {
@@ -495,6 +604,7 @@ const fixtures = {
   'synthetic-i16-none-strip-wgs84.tif': fixtureI16NoneStripWgs84(),
   'synthetic-u8-none-tile-wgs84.tif':  fixtureU8NoneTileWgs84(),
   'synthetic-f32-none-tile-cog-wgs84.tif': fixtureCogF32NoneTileWgs84(),
+  'synthetic-multiband-u16-lzw-h-strip-wgs84.tif': fixtureMultibandU16LzwHorizStripWgs84(),
 };
 for (const [name, { bytes }] of Object.entries(fixtures)) {
   const out = resolve(outDir, name);
