@@ -402,5 +402,29 @@ await test('PackBits TIFF: scan + extract', async () => {
   assertEq(r2.value, 7);
 });
 
+console.log('\n[jpeg]');
+await test('JPEG TIFF: scan reports 3 bands, extract returns plausible RGB', async () => {
+  const fpath = resolve(fixtures, 'synthetic-u8-jpeg-strip-wgs84.tif');
+  let exists = true;
+  try { readFileSync(fpath); } catch { exists = false; }
+  if (!exists) return 'skip';   // jpeg-js was unavailable at fixture build time
+  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(fpath));
+  const meta = await scan(buf);
+  assertEq(meta.compression, 'jpeg');
+  assertEq(meta.variable_names.length, 3);
+  // Fixture is 16×16 RGB with R = c*16, G = r*16, B = (r+c)*8.
+  // Sample a center pixel ~(r=8, c=8) → R ≈ 128, G ≈ 128, B ≈ 128.
+  // Bbox: pixel (0,0) at (lon=10, lat=24), 1°/px → center at (lon=18, lat=16).
+  // Use the center: lat = 24 - 8.5 = 15.5, lon = 10 + 8.5 = 18.5.
+  const r = await extract(buf, { variable: 'band_1', lat: 15.5, lon: 18.5 });
+  const g = await extract(buf, { variable: 'band_2', lat: 15.5, lon: 18.5 });
+  const b = await extract(buf, { variable: 'band_3', lat: 15.5, lon: 18.5 });
+  // JPEG is lossy — tolerate ±30 around the smooth ramp's expected values.
+  assert(Math.abs(r.value - 128) < 30, `R=${r.value}`);
+  assert(Math.abs(g.value - 128) < 30, `G=${g.value}`);
+  assert(Math.abs(b.value - 128) < 30, `B=${b.value}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

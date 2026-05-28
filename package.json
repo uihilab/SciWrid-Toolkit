@@ -70,6 +70,7 @@
   "optionalDependencies": {
     "h5wasm": "^0.7.7",
     "hyparquet": "^1.10.0",
+    "jpeg-js": "^0.4.4",
     "numcodecs": "^0.3.2"
   },
   "devDependencies": {
