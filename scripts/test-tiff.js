@@ -59,5 +59,25 @@ await test('scan returns metadata for u8-none-strip fixture', async () => {
   assertEq(meta.bbox[3], 24);   // maxLat
 });
 
+console.log('\n[decoders]');
+await test('none decoder is identity', async () => {
+  const { decode } = await import('../lib/tiff/decoders/none.js');
+  const a = new Uint8Array([1, 2, 3, 4]);
+  const b = await decode(a);
+  assertEq(b.length, 4); assertEq(b[2], 3);
+});
+
+await test('deflate decoder round-trips a known deflate stream', async () => {
+  const { decode } = await import('../lib/tiff/decoders/deflate.js');
+  // Pre-built deflate of "hello world" (raw deflate, no zlib wrapper)
+  const compressed = new Uint8Array([
+    0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x28, 0xcf,
+    0x2f, 0xca, 0x49, 0x01, 0x00,
+  ]);
+  const out = await decode(compressed, 11);
+  const s = new TextDecoder().decode(out);
+  assertEq(s, 'hello world');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
