@@ -47,6 +47,16 @@ function buildTiff(tags, stripBytes) {
   const ifdSize = 2 + tags.length * 12 + 4;
   let cursor = 8 + ifdSize;
 
+  // Pre-pass: expand StripOffsets / StripByteCounts to the actual strip count
+  // so the externals allocation below sizes them correctly. Values are filled
+  // with placeholders here and patched with real offsets after externals.
+  const stripOffsetsTag = tags.find(t => t.tag === 273);   // StripOffsets
+  const stripByteCountsTag = tags.find(t => t.tag === 279); // StripByteCounts
+  if (stripOffsetsTag && stripBytes.length) {
+    stripOffsetsTag.values    = new Array(stripBytes.length).fill(0);
+    stripByteCountsTag.values = new Array(stripBytes.length).fill(0);
+  }
+
   // Allocate space for external values
   const externals = [];
   for (const t of tags) {
@@ -60,16 +70,13 @@ function buildTiff(tags, stripBytes) {
     }
   }
 
-  // Allocate space for strip data; patch StripOffsets / StripByteCounts.
-  const stripOffsetsTag = tags.find(t => t.tag === 273);   // StripOffsets
-  const stripByteCountsTag = tags.find(t => t.tag === 279); // StripByteCounts
+  // Now patch StripOffsets / StripByteCounts with the real offsets into the
+  // strip-data region (which sits after all external values).
   if (stripOffsetsTag && stripBytes.length) {
-    stripOffsetsTag.values    = [];
-    stripByteCountsTag.values = [];
-    for (const s of stripBytes) {
-      stripOffsetsTag.values.push(cursor);
-      stripByteCountsTag.values.push(s.length);
-      cursor += s.length;
+    for (let i = 0; i < stripBytes.length; i++) {
+      stripOffsetsTag.values[i]    = cursor;
+      stripByteCountsTag.values[i] = stripBytes[i].length;
+      cursor += stripBytes[i].length;
     }
   }
 

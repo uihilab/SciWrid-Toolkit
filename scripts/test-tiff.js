@@ -172,5 +172,23 @@ await test('floating-point predictor (float32) reverses byte-shuffle deltas', as
   assert(Math.abs(dec[1] - 2.0) < 1e-6, `dec[1]=${dec[1]}`);
 });
 
+console.log('\n[extract]');
+await test('extract returns correct uint8 value at known lat/lon', async () => {
+  const { extract } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-wgs84.tif')));
+  // Fixture: 8×4 grid at bbox [10,20,18,24], pixel 1°×1°, pixels[i] = (i*7+3)&0xff
+  // (row 0 = top, north-up). lat=23.5, lon=10.5 → row 0, col 0 → pixels[0] = 3
+  const r = await extract(buf, { variable: 'band_1', lat: 23.5, lon: 10.5 });
+  assertEq(r.value, 3);
+  assertEq(r.variable, 'band_1');
+});
+
+await test('extract out-of-bounds returns null', async () => {
+  const { extract } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-wgs84.tif')));
+  const r = await extract(buf, { variable: 'band_1', lat: 0, lon: 0 });
+  assertEq(r.value, null);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
