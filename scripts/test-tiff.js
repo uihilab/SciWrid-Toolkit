@@ -426,5 +426,21 @@ await test('JPEG TIFF: scan reports 3 bands, extract returns plausible RGB', asy
   assert(Math.abs(b.value - 128) < 30, `B=${b.value}`);
 });
 
+console.log('\n[webp]');
+await test('WebP decoder throws UnsupportedFormatError in Node', async () => {
+  // Skip this test if the environment provides createImageBitmap (e.g. happy-dom).
+  if (typeof createImageBitmap !== 'undefined') return 'skip';
+  const { decode } = await import('../lib/tiff/decoders/webp.js');
+  const { UnsupportedFormatError } = await import('../lib/errors.js');
+  let caught;
+  try { await decode(new Uint8Array([0, 1, 2, 3])); }
+  catch (e) { caught = e; }
+  if (!caught) throw new Error('expected throw');
+  if (!(caught instanceof UnsupportedFormatError))
+    throw new Error(`wrong error type: ${caught.constructor.name}`);
+  if (!/browser/i.test(caught.message))
+    throw new Error(`expected "browser" in message: ${caught.message}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
