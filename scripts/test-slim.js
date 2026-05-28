@@ -442,6 +442,30 @@ await test('NetCDF4: unknown variable → VariableNotFoundError', async () => {
   assert(err instanceof VariableNotFoundError);
 });
 
+await test('NetCDF4: bbox clips lat/lon dims of data variables', async () => {
+  if (!nc4) return 'skip';
+  // Source lat = [30, 35, 40, 45] (NY=4), lon = [-100, -95, -90, -85, -80, -75] (NX=6).
+  // Pick bbox [-95, 35, -85, 45] → keeps lat indices 1..3 (3 vals) and lon 1..3 (3 vals).
+  const out = await slim(nc4.bytes, {
+    variables: ['tas', 'lat', 'lon', 'time', 'height'],
+    bbox: [-95, 35, -85, 45],
+  });
+  assert(out.bytes instanceof Uint8Array);
+  // Verify the lat/lon arrays and the data dims using h5wasm directly.
+  const dbg = `_dbg_${Date.now()}.nc`;
+  nc4.FS.writeFile(dbg, out.bytes);
+  const f = new nc4.h5.File(dbg, 'r');
+  const latArr = Array.from(f.get('lat').value);
+  const lonArr = Array.from(f.get('lon').value);
+  const tasShape = Array.from(f.get('tas').shape, Number);
+  assert(latArr.length === 3, `expected 3 lats, got ${latArr.length}`);
+  assert(lonArr.length === 3, `expected 3 lons, got ${lonArr.length}`);
+  assert(tasShape[0] === nc4.NT, `time dim should stay ${nc4.NT}, got ${tasShape[0]}`);
+  assert(tasShape[1] === 3,      `lat dim should be 3, got ${tasShape[1]}`);
+  assert(tasShape[2] === 3,      `lon dim should be 3, got ${tasShape[2]}`);
+  f.close(); nc4.FS.unlink(dbg);
+});
+
 /* ---------------- TIFF (v2: band selection) ---------------- */
 console.log('\n[tiff]');
 await test('TIFF slim: keep 1 of 3 bands (LZW + horizontal predictor)', async () => {
