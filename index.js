@@ -63,6 +63,7 @@ export {
   SourceError,
   ExtractError,
   SlimError,
+  UnsupportedCRSError,
 } from './lib/webparsers-api.js';
 
 // ── Low-level class API ───────────────────────────────────────────────────────

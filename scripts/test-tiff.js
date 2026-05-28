@@ -326,5 +326,18 @@ await test('multiband fixture: extract returns distinct values per band', async 
   assertEq(b.value, 11);
 });
 
+console.log('\n[unsupported-crs]');
+await test('polar stereographic fixture throws UnsupportedCRSError with EPSG', async () => {
+  const { scan, UnsupportedCRSError } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-unsupported-crs.tif')));
+  let caught;
+  try { await scan(buf); }
+  catch (e) { caught = e; }
+  if (!caught) throw new Error('expected scan() to throw');
+  if (!(caught instanceof UnsupportedCRSError))
+    throw new Error(`wrong error type: ${caught.constructor.name} ${caught.message}`);
+  assertEq(caught.epsg, 3413);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
