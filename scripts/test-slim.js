@@ -433,6 +433,19 @@ await test('NetCDF4: unknown variable → VariableNotFoundError', async () => {
   assert(err instanceof VariableNotFoundError);
 });
 
+/* ---------------- TIFF (v1: explicit reject) ---------------- */
+console.log('\n[tiff]');
+await test('slim rejects TIFF in v1', async () => {
+  const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-u8-none-strip-wgs84.tif');
+  if (!existsSync(tiffPath)) return 'skip';
+  const buf = new Uint8Array(readFileSync(tiffPath));
+  let err;
+  try { await slim(buf, { variables: ['band_1'] }); }
+  catch (e) { err = e; }
+  assert(err instanceof UnsupportedFormatError,
+    `expected UnsupportedFormatError, got ${err && err.constructor.name}: ${err && err.message}`);
+});
+
 /* ---------------- Summary ---------------- */
 
 console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped`);
