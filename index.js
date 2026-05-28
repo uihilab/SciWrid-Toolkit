@@ -51,6 +51,7 @@ export {
   extractGridOutput,
   gridToJSON,
   gridToGeoTIFF,
+  gridToImageData,
   detectFormat,
   slim,
 } from './lib/webparsers-api.js';
