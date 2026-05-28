@@ -480,6 +480,21 @@ await test('TIFF slim: unknown variable throws VariableNotFoundError', async () 
     `wrong error: ${err && err.constructor.name}: ${err && err.message}`);
 });
 
+await test('TIFF slim: spatial bbox clips a tile-layout COG to a smaller window', async () => {
+  const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-f32-none-tile-cog-wgs84.tif');
+  if (!existsSync(tiffPath)) return 'skip';
+  const buf = new Uint8Array(readFileSync(tiffPath));
+  // Source: 64×64 single-band Float32, tiles 16×16. Drop to ~16×16 window
+  // (one tile in each direction) by asking for bbox [16, 32, 32, 48] in WGS84.
+  // (Source covers [0, 0, 64, 64] in degrees.)
+  const out = await slim(buf, { variables: ['band_1'], bbox: [16, 32, 32, 48] });
+  assert(out.bytes.length < buf.length, `bbox slim should shrink the file (got ${out.bytes.length} vs ${buf.length})`);
+  const m = await scan(out.bytes);
+  // After clipping (snapped to tile grid), the width/height should be 16.
+  assert(m.width === 16,  `expected width=16 after bbox clip, got ${m.width}`);
+  assert(m.height === 16, `expected height=16 after bbox clip, got ${m.height}`);
+});
+
 await test('TIFF slim: planar=2 byte-copies the kept band group (no re-encode)', async () => {
   const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-planar2-strip-wgs84.tif');
   if (!existsSync(tiffPath)) return 'skip';
