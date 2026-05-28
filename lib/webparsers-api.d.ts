@@ -199,6 +199,8 @@ export interface SlimOptions extends CommonOptions {
   t1?: number;
   /** Inclusive upper time index. Omit to keep all timesteps from t1. */
   t2?: number;
+  /** Spatial bbox in WGS84 [minLon, minLat, maxLon, maxLat]. Per-format snapping rules apply. */
+  bbox?: BBox;
 }
 
 export interface SlimResult {
