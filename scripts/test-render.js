@@ -47,5 +47,23 @@ await test('resolveRamp rejects unknown built-in names', async () => {
   assert(threw, 'should throw on unknown ramp name');
 });
 
+console.log('\n[normalize]');
+await test('autoRange ignores NaN and Infinity', async () => {
+  const { autoRange } = await import('../lib/render/normalize.js');
+  const r = autoRange(new Float32Array([1, NaN, 3, Infinity, -2, 4]));
+  assertEq(r.vmin, -2); assertEq(r.vmax, 4);
+});
+
+await test('autoRange returns null for all-NaN', async () => {
+  const { autoRange } = await import('../lib/render/normalize.js');
+  assertEq(autoRange(new Float32Array([NaN, NaN])), null);
+});
+
+await test('autoRange handles flat grids without divide-by-zero', async () => {
+  const { autoRange } = await import('../lib/render/normalize.js');
+  const r = autoRange(new Float32Array([5, 5, 5]));
+  assert(r.vmax > r.vmin, 'vmax > vmin even on flat input');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
