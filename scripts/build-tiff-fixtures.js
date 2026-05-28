@@ -847,6 +847,70 @@ async function fixtureU8JpegStripWgs84() {
   return { bytes: buildTiff(tags, [new Uint8Array(jpegBytes)]), expected: { W, H } };
 }
 
+// ── Fixture (v2): LCC (NOAA HRRR-style) projected float tile fixture ────
+function fixtureF32DeflateFpTileLcc() {
+  // 8×8 grid in HRRR-like LCC. Use a single-SP variant (sp1 == sp2) at 38.5°
+  // centred at lon0=-97.5. Pixel scale 3000m. Tiepoint at native (0, 0).
+  const W = 8, H = 8, TW = 4, TL = 4;
+  const f32 = new Float32Array(W * H);
+  for (let i = 0; i < f32.length; i++) f32[i] = i * 0.5 + 1.0;
+  const tilesAcross = Math.ceil(W / TW), tilesDown = Math.ceil(H / TL);
+  const tiles = [];
+  for (let ty = 0; ty < tilesDown; ty++) {
+    for (let tx = 0; tx < tilesAcross; tx++) {
+      const tileBytes = new Uint8Array(TW * TL * 4);
+      const dv = new DataView(tileBytes.buffer);
+      for (let r = 0; r < TL; r++) {
+        for (let c = 0; c < TW; c++) {
+          const gr = ty * TL + r, gc = tx * TW + c;
+          dv.setFloat32((r * TW + c) * 4, f32[gr * W + gc], true);
+        }
+      }
+      applyFloatingPointPredictor(tileBytes, { width: TW, height: TL, samplesPerPixel: 1, bps: 4 });
+      tiles.push(new Uint8Array(deflateRawSync(tileBytes)));
+    }
+  }
+  // We need to ship LCC parameters via GeoDoubleParams (tag 34736) — the
+  // doubles get referenced from the GeoKeyDirectory.  Layout used here:
+  //   doubles[0] = sp1   = 38.5
+  //   doubles[1] = sp2   = 38.5
+  //   doubles[2] = lat0  = 38.5
+  //   doubles[3] = lon0  = -97.5
+  const doubles = [38.5, 38.5, 38.5, -97.5];
+
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [32] },
+    { tag: 259, type: T_SHORT, values: [8] },              // Deflate
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 317, type: T_SHORT, values: [3] },              // FP predictor
+    { tag: 322, type: T_SHORT, values: [TW] },
+    { tag: 323, type: T_SHORT, values: [TL] },
+    { tag: 324, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 325, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 339, type: T_SHORT, values: [3] },
+    { tag: 33550, type: T_DOUBLE, values: [3000, 3000, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 0, 0, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0,     count: 1, valueOrOffset: 1 },          // projected
+      { keyId: 1025, tiffTag: 0,     count: 1, valueOrOffset: 1 },          // pixel-is-area
+      { keyId: 3072, tiffTag: 0,     count: 1, valueOrOffset: 32767 },      // user-defined
+      { keyId: 3075, tiffTag: 0,     count: 1, valueOrOffset: 8 },          // LCC_2SP
+      { keyId: 3078, tiffTag: 34736, count: 1, valueOrOffset: 0 },          // sp1 → doubles[0]
+      { keyId: 3079, tiffTag: 34736, count: 1, valueOrOffset: 1 },          // sp2 → doubles[1]
+      { keyId: 3085, tiffTag: 34736, count: 1, valueOrOffset: 2 },          // FalseOriginLat → doubles[2]
+      { keyId: 3084, tiffTag: 34736, count: 1, valueOrOffset: 3 },          // FalseOriginLong → doubles[3]
+      { keyId: 3082, tiffTag: 0,     count: 1, valueOrOffset: 0 },          // FalseEasting = 0
+      { keyId: 3083, tiffTag: 0,     count: 1, valueOrOffset: 0 },          // FalseNorthing = 0
+    ]),
+    { tag: 34736, type: T_DOUBLE, values: doubles },     // GeoDoubleParams
+  ];
+  return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, f32 } };
+}
+
 // ── Fixture (v2): big-endian classic TIFF — same content as the LE u8 fixture
 function fixtureU8NoneStripWgs84BE() {
   const lhs = fixtureU8NoneStripWgs84();
@@ -888,6 +952,7 @@ const fixtures = {
   'synthetic-u8-none-strip-be-wgs84.tif': fixtureU8NoneStripWgs84BE(),
   'synthetic-bigtiff-u8-none-strip-wgs84.tif': fixtureBigTiffU8NoneStripWgs84(),
   'synthetic-u8-packbits-strip-wgs84.tif': fixtureU8PackbitsStripWgs84(),
+  'synthetic-f32-deflate-fp-tile-lcc.tif': fixtureF32DeflateFpTileLcc(),
   'synthetic-f32-deflate-fp-strip-wgs84.tif': fixtureF32DeflateFpStripWgs84(),
   'synthetic-f32-deflate-fp-tile-utm15n.tif': fixtureF32DeflateFpTileUtm15N(),
   'synthetic-f32-deflate-fp-tile-sinusoidal.tif': fixtureF32DeflateFpTileSinusoidal(),
