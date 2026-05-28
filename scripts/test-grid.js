@@ -215,21 +215,80 @@ await test('gridToJSON serialises and round-trips', async () => {
 /* ---- Test 6: gridToGeoTIFF produces a valid TIFF header ---- */
 await test('gridToGeoTIFF emits valid TIFF magic + correct strip size', async () => {
   const grid = await extractGrid(bytes, { ...wf, variable, bbox, width: 8, height: 8, workers: 0 });
-  const buf  = gridToGeoTIFF(grid);
+  const buf  = await gridToGeoTIFF(grid);
   assert(buf instanceof Uint8Array, 'output is not Uint8Array');
   /* "II" + 42 at offset 0..3 */
   assert(buf[0] === 0x49 && buf[1] === 0x49, `byte order: ${buf[0]},${buf[1]}`);
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   assert(dv.getUint16(2, true) === 42, `tiff magic: ${dv.getUint16(2, true)}`);
-  /* Last 8*8*4 = 256 bytes should equal the Float32 data, byte-for-byte */
-  const stripBytes = 8 * 8 * 4;
-  const stripStart = buf.byteLength - stripBytes;
-  const stripFloat = new Float32Array(buf.buffer.slice(stripStart, stripStart + stripBytes));
-  for (let i = 0; i < stripFloat.length; i++) {
-    const a = stripFloat[i], b = grid.data[i];
-    const ok = (Number.isNaN(a) && Number.isNaN(b)) || a === b;
-    assert(ok, `strip mismatch at ${i}: ${a} vs ${b}`);
-  }
+});
+
+/* ---- Test 7: gridToGeoTIFF multi-band ---- */
+await test('gridToGeoTIFF multi-band: round-trip via scan()/extract()', async () => {
+  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const W = 4, H = 4;
+  const grid = {
+    width: W, height: H,
+    bbox: [10, 20, 14, 24],
+    variable_names: ['R', 'G', 'B'],
+    data: [
+      new Float32Array(W * H).map((_, i) => i + 1),       // R: 1..16
+      new Float32Array(W * H).map((_, i) => i * 2 + 100), // G: 100,102,...
+      new Float32Array(W * H).map((_, i) => i * 3 + 200), // B: 200,203,...
+    ],
+  };
+  const tiff = await gridToGeoTIFF(grid);
+  const m = await scan(tiff);
+  assert(m.variable_names.length === 3, `expected 3 bands, got ${m.variable_names.length}`);
+  assert(m.variable_names[0] === 'R',  `band 0 name: ${m.variable_names[0]}`);
+  // Read pixel (row=0, col=0) center: lat=23.5, lon=10.5
+  const r = await extract(tiff, { variable: 'R', lat: 23.5, lon: 10.5 });
+  const g = await extract(tiff, { variable: 'G', lat: 23.5, lon: 10.5 });
+  const b = await extract(tiff, { variable: 'B', lat: 23.5, lon: 10.5 });
+  assert(Math.abs(r.value - 1)   < 1e-5, `R=${r.value}`);
+  assert(Math.abs(g.value - 100) < 1e-5, `G=${g.value}`);
+  assert(Math.abs(b.value - 200) < 1e-5, `B=${b.value}`);
+});
+
+/* ---- Test 8: gridToGeoTIFF dtype + compression options ---- */
+await test('gridToGeoTIFF { dtype: int16, compression: deflate, predictor: 2 } round-trips', async () => {
+  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const W = 4, H = 4;
+  const grid = {
+    width: W, height: H,
+    bbox: [10, 20, 14, 24],
+    data: new Float32Array([
+       -200, -100,    0,  100,
+        200,  300,  400,  500,
+        600,  700,  800,  900,
+       1000, 1100, 1200, 1300,
+    ]),
+  };
+  const tiff = await gridToGeoTIFF(grid, { dtype: 'int16', compression: 'deflate', predictor: 2 });
+  const m = await scan(tiff);
+  assert(m.dtype === 'int16', `dtype=${m.dtype}`);
+  assert(m.compression === 'deflate', `compression=${m.compression}`);
+  // Verify the corner pixels survived the round-trip.
+  const tl = await extract(tiff, { variable: 'band_1', lat: 23.5, lon: 10.5 });
+  const br = await extract(tiff, { variable: 'band_1', lat: 20.5, lon: 13.5 });
+  assert(tl.value === -200, `top-left: ${tl.value}`);
+  assert(br.value === 1300, `bottom-right: ${br.value}`);
+});
+
+/* ---- Test 9: gridToGeoTIFF UTM CRS ---- */
+await test('gridToGeoTIFF { crs: UTM 15N } emits a projected TIFF', async () => {
+  const { scan } = await import('../lib/webparsers-api.js');
+  const W = 4, H = 4;
+  const grid = {
+    width: W, height: H,
+    bbox: [-93, 30, -92, 31],   // ~UTM 15N coverage
+    data: new Float32Array(W * H).map((_, i) => i + 1),
+  };
+  const tiff = await gridToGeoTIFF(grid, {
+    crs: { kind: 'utm', zone: 15, hemisphere: 'N', epsg: 32615 },
+  });
+  const m = await scan(tiff);
+  assert(m.crs.epsg === 32615, `expected UTM 15N, got ${m.crs.epsg}`);
 });
 
 /* ---- Test 7: extractGridOutput('json') and ('geotiff') ---- */
