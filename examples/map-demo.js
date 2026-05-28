@@ -5,15 +5,38 @@
 // runs inline here (Phase 5); Phase 6 moves it into a Web Worker so pan/zoom
 // stays smooth.
 
-import { scan, extractGrid, extract, gridToImageData } from '../index.js';
-import { resolveRamp, sampleRamp, autoRange } from '../lib/render/index.js';
+import { scan, extract } from '../index.js';
+import { resolveRamp, sampleRamp } from '../lib/render/index.js';
 
 const $ = (id) => document.getElementById(id);
 
 let map;
 let lastScan   = null;
 let lastSource = null;
-let renderToken = 0;   // bumped each refresh; stale renders are discarded
+let renderToken = 0;   // bumped each refresh; stale worker responses are discarded
+
+/* ── render worker ──────────────────────────────────────────────────────── */
+// extractGrid + gridToImageData run off the main thread so pan/zoom stays
+// smooth. Each request carries the current renderToken; responses with a stale
+// token are ignored (cancellation).
+const worker = new Worker(new URL('./map-demo.worker.js', import.meta.url), { type: 'module' });
+const pending = new Map(); // token → { resolve, reject }
+
+worker.onmessage = (e) => {
+  const { requestId, image, range, error } = e.data;
+  const slot = pending.get(requestId);
+  if (!slot) return;            // already superseded / unknown
+  pending.delete(requestId);
+  if (error) slot.reject(new Error(error));
+  else slot.resolve({ image, range });
+};
+
+function renderInWorker(token, payload) {
+  return new Promise((resolve, reject) => {
+    pending.set(token, { resolve, reject });
+    worker.postMessage({ requestId: token, ...payload });
+  });
+}
 
 /* ── status helpers ─────────────────────────────────────────────────────── */
 function setStatus(msg, cls = '') {
@@ -111,13 +134,16 @@ async function refreshLayer() {
   const py = Math.min(1024, Math.max(64, Math.round(map.getCanvas().clientHeight)));
 
   const token = ++renderToken;
+  // Drop any earlier in-flight request — its response will be ignored.
+  for (const [id, slot] of pending) {
+    if (id !== token) { pending.delete(id); slot.reject(new Error('superseded')); }
+  }
   setStatus('Rendering…', 'busy');
   try {
-    const grid = await extractGrid(lastSource, { variable, bbox, width: px, height: py });
+    const { image: img, range } = await renderInWorker(token, {
+      source: lastSource, variable, bbox, width: px, height: py, ramp,
+    });
     if (token !== renderToken) return; // a newer refresh superseded us
-
-    const range = autoRange(grid.data);
-    const img = gridToImageData(grid, { ramp });
 
     const canvas = document.createElement('canvas');
     canvas.width = img.width; canvas.height = img.height;
