@@ -362,6 +362,15 @@ await test('Zarr: time slice crossing chunk boundary surfaces a widening warning
     'expected a widening warning; got ' + JSON.stringify(r.warnings));
 });
 
+await test('Zarr: bbox without lat/lon coord arrays throws clearly', async () => {
+  const buf = buildZarrFixture();
+  let err;
+  try { await slim(buf, { variables: ['temperature'], bbox: [-180, -90, 180, 90] }); }
+  catch (e) { err = e; }
+  assert(err instanceof SlimError, `wrong error: ${err && err.constructor.name}: ${err && err.message}`);
+  assert(/lat\/lon/i.test(err.message), `expected lat/lon in message: ${err.message}`);
+});
+
 await test('Zarr: unknown variable → VariableNotFoundError', async () => {
   const fx = buildZarrFixture();
   let err;
