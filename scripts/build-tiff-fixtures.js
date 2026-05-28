@@ -439,6 +439,52 @@ function fixtureU8NoneTileWgs84() {
   return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, pixels } };
 }
 
+// ── Fixture 7: COG-style tile fixture large enough to exercise Range fetching ─
+// Single-IFD tile layout, Float32 uncompressed so the file is bulky and
+// scan/extract reading << full file is meaningful.
+function fixtureCogF32NoneTileWgs84() {
+  const W = 64, H = 64, TW = 16, TL = 16;
+  const f32 = new Float32Array(W * H);
+  for (let i = 0; i < f32.length; i++) f32[i] = i * 0.5;
+  const tilesAcross = Math.ceil(W / TW), tilesDown = Math.ceil(H / TL);
+  const tiles = [];
+  for (let ty = 0; ty < tilesDown; ty++) {
+    for (let tx = 0; tx < tilesAcross; tx++) {
+      const tileBytes = new Uint8Array(TW * TL * 4);
+      const dv = new DataView(tileBytes.buffer);
+      for (let r = 0; r < TL; r++) {
+        for (let c = 0; c < TW; c++) {
+          const gr = ty * TL + r, gc = tx * TW + c;
+          dv.setFloat32((r * TW + c) * 4, f32[gr * W + gc], true);
+        }
+      }
+      tiles.push(tileBytes);
+    }
+  }
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [32] },
+    { tag: 259, type: T_SHORT, values: [1] },     // Compression = none
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 322, type: T_SHORT, values: [TW] },
+    { tag: 323, type: T_SHORT, values: [TL] },
+    { tag: 324, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 325, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 339, type: T_SHORT, values: [3] },     // SampleFormat = float
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 0, 64, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+  ];
+  return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, f32 } };
+}
+
 // ── main: write every fixture ─────────────────────────────────────────────
 mkdirSync(outDir, { recursive: true });
 const fixtures = {
@@ -448,6 +494,7 @@ const fixtures = {
   'synthetic-f32-deflate-fp-tile-sinusoidal.tif': fixtureF32DeflateFpTileSinusoidal(),
   'synthetic-i16-none-strip-wgs84.tif': fixtureI16NoneStripWgs84(),
   'synthetic-u8-none-tile-wgs84.tif':  fixtureU8NoneTileWgs84(),
+  'synthetic-f32-none-tile-cog-wgs84.tif': fixtureCogF32NoneTileWgs84(),
 };
 for (const [name, { bytes }] of Object.entries(fixtures)) {
   const out = resolve(outDir, name);
