@@ -279,5 +279,27 @@ await test('extractGrid with bbox clips correctly', async () => {
   assertEq(g.width, 3); assertEq(g.height, 2);
 });
 
+console.log('\n[i16 + u8 tile]');
+await test('Int16 strip: extract returns signed value', async () => {
+  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-i16-none-strip-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.dtype, 'int16');
+  // pixel (row=0, col=0) → i=0 → (0-16)*13 = -208
+  const r = await extract(buf, { variable: 'band_1', lat: 23.5, lon: 10.5 });
+  assertEq(r.value, -208);
+});
+
+await test('UInt8 tile: extract returns correct value from tile (1,1)', async () => {
+  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-tile-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.layout, 'tile');
+  // Pixel (row=5, col=5) is in tile (ty=1, tx=1). pixels[5*8+5] = (45*5+11)&0xff = 236
+  // lat=24-5.5=18.5, lon=10+5.5=15.5
+  const r = await extract(buf, { variable: 'band_1', lat: 18.5, lon: 15.5 });
+  assertEq(r.value, 236);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

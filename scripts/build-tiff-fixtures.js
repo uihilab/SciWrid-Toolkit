@@ -367,6 +367,78 @@ function fixtureF32DeflateFpTileSinusoidal() {
   return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, f32 } };
 }
 
+// ── Fixture 5: synthetic-i16-none-strip-wgs84.tif ────────────────────────
+function fixtureI16NoneStripWgs84() {
+  const W = 8, H = 4;
+  const buf = new Uint8Array(W * H * 2);
+  const dv  = new DataView(buf.buffer);
+  // Use values spanning negatives so the int16 path is genuinely exercised.
+  for (let i = 0; i < W * H; i++) dv.setInt16(i * 2, (i - 16) * 13, true);
+  const strips = [];
+  for (let r = 0; r < H; r++) strips.push(buf.subarray(r * W * 2, (r + 1) * W * 2));
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [16] },               // BitsPerSample
+    { tag: 259, type: T_SHORT, values: [1] },                // Compression = none
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 273, type: T_LONG,  values: [0] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 278, type: T_SHORT, values: [1] },
+    { tag: 279, type: T_LONG,  values: [0] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 339, type: T_SHORT, values: [2] },                // SampleFormat = signed int
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 10, 24, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+  ];
+  return { bytes: buildTiff(tags, strips), expected: { W, H } };
+}
+
+// ── Fixture 6: synthetic-u8-none-tile-wgs84.tif ──────────────────────────
+function fixtureU8NoneTileWgs84() {
+  const W = 8, H = 8, TW = 4, TL = 4;
+  const pixels = new Uint8Array(W * H);
+  for (let i = 0; i < pixels.length; i++) pixels[i] = (i * 5 + 11) & 0xff;
+  const tilesAcross = Math.ceil(W / TW), tilesDown = Math.ceil(H / TL);
+  const tiles = [];
+  for (let ty = 0; ty < tilesDown; ty++) {
+    for (let tx = 0; tx < tilesAcross; tx++) {
+      const tile = new Uint8Array(TW * TL);
+      for (let r = 0; r < TL; r++) for (let c = 0; c < TW; c++) {
+        tile[r * TW + c] = pixels[(ty * TL + r) * W + (tx * TW + c)];
+      }
+      tiles.push(tile);
+    }
+  }
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [8] },
+    { tag: 259, type: T_SHORT, values: [1] },
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 322, type: T_SHORT, values: [TW] },
+    { tag: 323, type: T_SHORT, values: [TL] },
+    { tag: 324, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 325, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 339, type: T_SHORT, values: [1] },
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 10, 24, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+  ];
+  return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, pixels } };
+}
+
 // ── main: write every fixture ─────────────────────────────────────────────
 mkdirSync(outDir, { recursive: true });
 const fixtures = {
@@ -374,6 +446,8 @@ const fixtures = {
   'synthetic-f32-deflate-fp-strip-wgs84.tif': fixtureF32DeflateFpStripWgs84(),
   'synthetic-f32-deflate-fp-tile-utm15n.tif': fixtureF32DeflateFpTileUtm15N(),
   'synthetic-f32-deflate-fp-tile-sinusoidal.tif': fixtureF32DeflateFpTileSinusoidal(),
+  'synthetic-i16-none-strip-wgs84.tif': fixtureI16NoneStripWgs84(),
+  'synthetic-u8-none-tile-wgs84.tif':  fixtureU8NoneTileWgs84(),
 };
 for (const [name, { bytes }] of Object.entries(fixtures)) {
   const out = resolve(outDir, name);
