@@ -433,17 +433,51 @@ await test('NetCDF4: unknown variable → VariableNotFoundError', async () => {
   assert(err instanceof VariableNotFoundError);
 });
 
-/* ---------------- TIFF (v1: explicit reject) ---------------- */
+/* ---------------- TIFF (v2: band selection) ---------------- */
 console.log('\n[tiff]');
-await test('slim rejects TIFF in v1', async () => {
-  const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-u8-none-strip-wgs84.tif');
+await test('TIFF slim: keep 1 of 3 bands (LZW + horizontal predictor)', async () => {
+  const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-lzw-h-strip-wgs84.tif');
+  if (!existsSync(tiffPath)) return 'skip';
+  const buf = new Uint8Array(readFileSync(tiffPath));
+  const out = await slim(buf, { variables: ['B04_red'] });
+  assert(out.format === 'tiff', `format=${out.format}`);
+  assert(out.bytes instanceof Uint8Array);
+  assert(out.bytes.length < buf.length, `slim should shrink the file (got ${out.bytes.length} vs ${buf.length})`);
+  assert(out.stats.variablesKept === 1, `kept=${out.stats.variablesKept}`);
+  assert(out.stats.variablesDropped === 2, `dropped=${out.stats.variablesDropped}`);
+});
+
+await test('TIFF slim: re-scan returns just the kept band', async () => {
+  const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-lzw-h-strip-wgs84.tif');
+  if (!existsSync(tiffPath)) return 'skip';
+  const buf = new Uint8Array(readFileSync(tiffPath));
+  const out = await slim(buf, { variables: ['B04_red'] });
+  const m = await scan(out.bytes);
+  assert(m.format === 'tiff');
+  assert(m.variable_names.length === 1, `expected 1 band, got ${m.variable_names.length}`);
+  assert(m.variable_names[0] === 'B04_red', `got name '${m.variable_names[0]}'`);
+});
+
+await test('TIFF slim: kept band values match the original', async () => {
+  const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-lzw-h-strip-wgs84.tif');
+  if (!existsSync(tiffPath)) return 'skip';
+  const buf = new Uint8Array(readFileSync(tiffPath));
+  const orig = await extract(buf, { variable: 'B04_red', lat: 23.5, lon: 10.5 });
+  const out  = await slim(buf, { variables: ['B04_red'] });
+  const slimmed = await extract(out.bytes, { variable: 'B04_red', lat: 23.5, lon: 10.5 });
+  assert(orig.value === slimmed.value,
+    `band value drift after slim: orig=${orig.value}, slimmed=${slimmed.value}`);
+});
+
+await test('TIFF slim: unknown variable throws VariableNotFoundError', async () => {
+  const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-lzw-h-strip-wgs84.tif');
   if (!existsSync(tiffPath)) return 'skip';
   const buf = new Uint8Array(readFileSync(tiffPath));
   let err;
-  try { await slim(buf, { variables: ['band_1'] }); }
+  try { await slim(buf, { variables: ['NOPE'] }); }
   catch (e) { err = e; }
-  assert(err instanceof UnsupportedFormatError,
-    `expected UnsupportedFormatError, got ${err && err.constructor.name}: ${err && err.message}`);
+  assert(err instanceof VariableNotFoundError,
+    `wrong error: ${err && err.constructor.name}: ${err && err.message}`);
 });
 
 /* ---------------- Summary ---------------- */
