@@ -246,11 +246,134 @@ function fixtureF32DeflateFpStripWgs84() {
   return { bytes: buildTiff(tags, strips), expected: { W, H, f32 } };
 }
 
+// ── buildTiffWithTiles: like buildTiff but patches tile-offset tags ─────
+//
+// Trick: temporarily rename 324/325 → 273/279 so buildTiff treats them as
+// strip-offset tags (and writes block bytes after the IFD). After the file
+// is built, scan the IFD bytes and rename them back.
+function buildTiffWithTiles(tags, tileBlocks) {
+  tags = [...tags];
+  const off = tags.find(t => t.tag === 324);
+  const cnt = tags.find(t => t.tag === 325);
+  off.tag = 273; cnt.tag = 279;
+  const bytes = buildTiff(tags, tileBlocks);
+  off.tag = 324; cnt.tag = 325;
+  const dv = new DataView(bytes.buffer);
+  const numTags = dv.getUint16(8, true);
+  for (let i = 0; i < numTags; i++) {
+    const p = 10 + i * 12;
+    const id = dv.getUint16(p, true);
+    if (id === 273) dv.setUint16(p, 324, true);
+    if (id === 279) dv.setUint16(p, 325, true);
+  }
+  return bytes;
+}
+
+// ── Fixture 3: synthetic-f32-deflate-fp-tile-utm15n.tif ──────────────────
+function fixtureF32DeflateFpTileUtm15N() {
+  // 8×8 grid in UTM 15N, 4×4 tiles. Tiepoint at UTM (500000, 3320000), 1000m pixel.
+  const W = 8, H = 8, TW = 4, TL = 4;
+  const f32 = new Float32Array(W * H);
+  for (let i = 0; i < f32.length; i++) f32[i] = i * 0.25 + 7;
+  const tilesAcross = Math.ceil(W / TW), tilesDown = Math.ceil(H / TL);
+  const tiles = [];
+  for (let ty = 0; ty < tilesDown; ty++) {
+    for (let tx = 0; tx < tilesAcross; tx++) {
+      const tileBytes = new Uint8Array(TW * TL * 4);
+      const dv = new DataView(tileBytes.buffer);
+      for (let r = 0; r < TL; r++) {
+        for (let c = 0; c < TW; c++) {
+          const gr = ty * TL + r, gc = tx * TW + c;
+          dv.setFloat32((r * TW + c) * 4, f32[gr * W + gc], true);
+        }
+      }
+      applyFloatingPointPredictor(tileBytes, { width: TW, height: TL, samplesPerPixel: 1, bps: 4 });
+      tiles.push(new Uint8Array(deflateRawSync(tileBytes)));
+    }
+  }
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [32] },
+    { tag: 259, type: T_SHORT, values: [8] },
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 317, type: T_SHORT, values: [3] },
+    { tag: 322, type: T_SHORT, values: [TW] },
+    { tag: 323, type: T_SHORT, values: [TL] },
+    { tag: 324, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 325, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 339, type: T_SHORT, values: [3] },
+    { tag: 33550, type: T_DOUBLE, values: [1000, 1000, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 500000, 3320000, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 1 },        // projected
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 3072, tiffTag: 0, count: 1, valueOrOffset: 32615 },    // UTM 15N
+    ]),
+  ];
+  return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, f32 } };
+}
+
+// ── Fixture 4: synthetic-f32-deflate-fp-tile-sinusoidal.tif ──────────────
+function fixtureF32DeflateFpTileSinusoidal() {
+  // 8×8 grid in MODIS sinusoidal (R=6371007.181). Tiepoint native (0,0), 1000m pixel.
+  const W = 8, H = 8, TW = 4, TL = 4;
+  const f32 = new Float32Array(W * H);
+  for (let i = 0; i < f32.length; i++) f32[i] = i * 0.25 + 7;
+  const tilesAcross = Math.ceil(W / TW), tilesDown = Math.ceil(H / TL);
+  const tiles = [];
+  for (let ty = 0; ty < tilesDown; ty++) {
+    for (let tx = 0; tx < tilesAcross; tx++) {
+      const tileBytes = new Uint8Array(TW * TL * 4);
+      const dv = new DataView(tileBytes.buffer);
+      for (let r = 0; r < TL; r++) {
+        for (let c = 0; c < TW; c++) {
+          const gr = ty * TL + r, gc = tx * TW + c;
+          dv.setFloat32((r * TW + c) * 4, f32[gr * W + gc], true);
+        }
+      }
+      applyFloatingPointPredictor(tileBytes, { width: TW, height: TL, samplesPerPixel: 1, bps: 4 });
+      tiles.push(new Uint8Array(deflateRawSync(tileBytes)));
+    }
+  }
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [32] },
+    { tag: 259, type: T_SHORT, values: [8] },
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 317, type: T_SHORT, values: [3] },
+    { tag: 322, type: T_SHORT, values: [TW] },
+    { tag: 323, type: T_SHORT, values: [TL] },
+    { tag: 324, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 325, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 339, type: T_SHORT, values: [3] },
+    { tag: 33550, type: T_DOUBLE, values: [1000, 1000, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 0, 0, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 1 },        // projected
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 3072, tiffTag: 0, count: 1, valueOrOffset: 32767 },    // user-defined PCS
+      { keyId: 3075, tiffTag: 0, count: 1, valueOrOffset: 24 },       // Sinusoidal
+      { keyId: 3082, tiffTag: 0, count: 1, valueOrOffset: 0 },        // FalseEasting (integer slot)
+      { keyId: 3083, tiffTag: 0, count: 1, valueOrOffset: 0 },        // FalseNorthing
+      { keyId: 3088, tiffTag: 0, count: 1, valueOrOffset: 0 },        // CenterLong (integer slot)
+    ]),
+  ];
+  return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, f32 } };
+}
+
 // ── main: write every fixture ─────────────────────────────────────────────
 mkdirSync(outDir, { recursive: true });
 const fixtures = {
   'synthetic-u8-none-strip-wgs84.tif': fixtureU8NoneStripWgs84(),
   'synthetic-f32-deflate-fp-strip-wgs84.tif': fixtureF32DeflateFpStripWgs84(),
+  'synthetic-f32-deflate-fp-tile-utm15n.tif': fixtureF32DeflateFpTileUtm15N(),
+  'synthetic-f32-deflate-fp-tile-sinusoidal.tif': fixtureF32DeflateFpTileSinusoidal(),
 };
 for (const [name, { bytes }] of Object.entries(fixtures)) {
   const out = resolve(outDir, name);

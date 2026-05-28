@@ -230,5 +230,33 @@ await test('sinusoidal round-trip near equator', async () => {
   }
 });
 
+console.log('\n[utm + sinusoidal]');
+await test('UTM 15N tile fixture: extract at known lat/lon', async () => {
+  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-utm15n.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.crs.epsg, 32615);
+  // Tiepoint pixel (0,0) at UTM (500000, 3320000). Inverse → ~lat=30.00094, lon=-93.0
+  const { nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const ll = nativeToLatLon({ x: 500500, y: 3319500 }, { kind: 'utm', zone: 15, hemisphere: 'N', epsg: 32615 });
+  const r = await extract(buf, { variable: 'band_1', lat: ll.lat, lon: ll.lon });
+  // Pixel (row=0, col=0) value = 0 * 0.25 + 7 = 7
+  assert(Math.abs(r.value - 7) < 1e-5, `got ${r.value}`);
+});
+
+await test('sinusoidal tile fixture: extract at known lat/lon', async () => {
+  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-sinusoidal.tif')));
+  const meta = await scan(buf);
+  assert(meta.crs.epsg === 32767 || /sinusoidal/i.test(meta.crs.name));
+  // Tiepoint pixel (0,0) at native (0,0) → lat=0, lon=0. Pick a lat/lon ≈ center of pixel (0,0)
+  // pixel scale 1000m → 1 px south is y=-1000 → lat = -1000/R rad. Pick lat slightly negative.
+  const R = 6371007.181;
+  const lat = -500 / R * (180 / Math.PI);   // ~half a pixel south
+  const lon = 500  / R * (180 / Math.PI);   // ~half a pixel east
+  const r = await extract(buf, { variable: 'band_1', lat, lon });
+  assert(Math.abs(r.value - 7) < 1e-5, `got ${r.value}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
