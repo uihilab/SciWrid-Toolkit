@@ -10,6 +10,7 @@
 // writes them to disk. We start with the simplest fixture and grow.
 
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { deflateRawSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -189,10 +190,67 @@ function fixtureU8NoneStripWgs84() {
   return { bytes: buildTiff(tags, strips), expected: { W, H, pixels } };
 }
 
+// ── Floating-point predictor (encoder side) ─────────────────────────────
+function applyFloatingPointPredictor(bytes, { width, height, samplesPerPixel, bps }) {
+  const rowBytes = width * samplesPerPixel * bps;
+  const tmp = new Uint8Array(rowBytes);
+  for (let r = 0; r < height; r++) {
+    const rowOff = r * rowBytes;
+    // 1) Shuffle: byte (j*bps + i) -> position (i * samplesInRow + j)
+    const samplesInRow = width * samplesPerPixel;
+    for (let b = 0; b < bps; b++) {
+      for (let s = 0; s < samplesInRow; s++) {
+        tmp[b * samplesInRow + s] = bytes[rowOff + s * bps + b];
+      }
+    }
+    // 2) Horizontal diff per byte
+    for (let i = rowBytes - 1; i >= 1; i--) tmp[i] = (tmp[i] - tmp[i - 1]) & 0xff;
+    bytes.set(tmp, rowOff);
+  }
+  return bytes;
+}
+
+// ── Fixture 2: synthetic-f32-deflate-fp-strip-wgs84.tif ──────────────────
+function fixtureF32DeflateFpStripWgs84() {
+  const W = 8, H = 4;
+  const f32 = new Float32Array(W * H);
+  for (let i = 0; i < f32.length; i++) f32[i] = (i % 7) * 0.5 + 1.25;
+  // Build row strips: each row is one strip → one independent deflate
+  const strips = [];
+  for (let r = 0; r < H; r++) {
+    const rowBytes = new Uint8Array(f32.buffer.slice(r * W * 4, (r + 1) * W * 4));
+    applyFloatingPointPredictor(rowBytes, { width: W, height: 1, samplesPerPixel: 1, bps: 4 });
+    strips.push(new Uint8Array(deflateRawSync(rowBytes)));
+  }
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [32] },               // BitsPerSample
+    { tag: 259, type: T_SHORT, values: [8] },                // Compression = Deflate
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 273, type: T_LONG,  values: [0] },                // StripOffsets (patched)
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 278, type: T_SHORT, values: [1] },                // RowsPerStrip = 1
+    { tag: 279, type: T_LONG,  values: [0] },                // StripByteCounts (patched)
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 317, type: T_SHORT, values: [3] },                // Predictor = 3 (floating-point)
+    { tag: 339, type: T_SHORT, values: [3] },                // SampleFormat = float
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 10, 24, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+  ];
+  return { bytes: buildTiff(tags, strips), expected: { W, H, f32 } };
+}
+
 // ── main: write every fixture ─────────────────────────────────────────────
 mkdirSync(outDir, { recursive: true });
 const fixtures = {
   'synthetic-u8-none-strip-wgs84.tif': fixtureU8NoneStripWgs84(),
+  'synthetic-f32-deflate-fp-strip-wgs84.tif': fixtureF32DeflateFpStripWgs84(),
 };
 for (const [name, { bytes }] of Object.entries(fixtures)) {
   const out = resolve(outDir, name);
