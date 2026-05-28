@@ -626,6 +626,118 @@ function fixtureUnsupportedCrs() {
   return { bytes: buildTiff(tags, [buf]) };
 }
 
+// ── BigTIFF builder (magic 43, 64-bit offsets) ───────────────────────────
+//
+// Layout differences vs classic TIFF:
+//   header  = 16 bytes (8 + uint64 first-IFD-offset)
+//   IFD     = uint64 numTags + 20*N tag entries + uint64 next-IFD-offset
+//   tag     = uint16 tag + uint16 type + uint64 count + uint64 valueOrOffset
+//   inline cutoff is 8 bytes (not 4)
+function buildBigTiff(tags, stripBytes, { le = true } = {}) {
+  tags = [...tags].sort((a, b) => a.tag - b.tag);
+
+  const HEADER_SIZE = 16;
+  const TAG_ENTRY   = 20;
+  const ifdSize = 8 + tags.length * TAG_ENTRY + 8;
+  let cursor = HEADER_SIZE + ifdSize;
+
+  // Same StripOffsets/StripByteCounts pre-pass as classic builder.
+  const stripOffsetsTag = tags.find(t => t.tag === 273);
+  const stripByteCountsTag = tags.find(t => t.tag === 279);
+  if (stripOffsetsTag && stripBytes.length) {
+    stripOffsetsTag.values    = new Array(stripBytes.length).fill(0);
+    stripByteCountsTag.values = new Array(stripBytes.length).fill(0);
+  }
+
+  const externals = [];
+  for (const t of tags) {
+    const sz = TYPE_SIZE[t.type] * t.values.length;
+    if (sz > 8) {
+      t._offset = cursor;
+      externals.push({ tag: t, offset: cursor, size: sz });
+      cursor += sz;
+    } else {
+      t._offset = null;
+    }
+  }
+  if (stripOffsetsTag && stripBytes.length) {
+    for (let i = 0; i < stripBytes.length; i++) {
+      stripOffsetsTag.values[i]    = cursor;
+      stripByteCountsTag.values[i] = stripBytes[i].length;
+      cursor += stripBytes[i].length;
+    }
+  }
+
+  const out = new Uint8Array(cursor);
+  const dv  = new DataView(out.buffer);
+  // Header
+  if (le) { out[0] = 0x49; out[1] = 0x49; }
+  else    { out[0] = 0x4D; out[1] = 0x4D; }
+  dv.setUint16(2, 43, le);           // magic
+  dv.setUint16(4, 8,  le);           // offset size = 8
+  dv.setUint16(6, 0,  le);           // constant 0
+  dv.setBigUint64(8, BigInt(HEADER_SIZE), le);   // first IFD offset
+
+  // IFD
+  dv.setBigUint64(HEADER_SIZE, BigInt(tags.length), le);
+  for (let i = 0; i < tags.length; i++) {
+    const t = tags[i];
+    const p = HEADER_SIZE + 8 + i * TAG_ENTRY;
+    dv.setUint16(p,     t.tag,  le);
+    dv.setUint16(p + 2, t.type, le);
+    dv.setBigUint64(p + 4, BigInt(t.values.length), le);
+
+    const sz = TYPE_SIZE[t.type] * t.values.length;
+    if (sz <= 8) {
+      writeValuesAt(dv, p + 12, t.type, t.values, le);
+    } else {
+      dv.setBigUint64(p + 12, BigInt(t._offset), le);
+    }
+  }
+  // Next-IFD offset
+  dv.setBigUint64(HEADER_SIZE + 8 + tags.length * TAG_ENTRY, 0n, le);
+
+  for (const { tag, offset } of externals) {
+    writeValuesAt(dv, offset, tag.type, tag.values, le);
+  }
+  if (stripOffsetsTag) {
+    for (let i = 0; i < stripBytes.length; i++) {
+      out.set(stripBytes[i], stripOffsetsTag.values[i]);
+    }
+  }
+  return out;
+}
+
+// ── Fixture (v2): BigTIFF (uses same content as the LE u8 fixture)
+function fixtureBigTiffU8NoneStripWgs84() {
+  const W = 8, H = 4;
+  const pixels = new Uint8Array(W * H);
+  for (let i = 0; i < pixels.length; i++) pixels[i] = (i * 7 + 3) & 0xff;
+  const strips = [];
+  for (let r = 0; r < H; r++) strips.push(pixels.subarray(r * W, (r + 1) * W));
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [8] },
+    { tag: 259, type: T_SHORT, values: [1] },
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 273, type: T_LONG,  values: [0] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 278, type: T_SHORT, values: [1] },
+    { tag: 279, type: T_LONG,  values: [0] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 339, type: T_SHORT, values: [1] },
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 10, 24, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+  ];
+  return { bytes: buildBigTiff(tags, strips), expected: { W, H, pixels } };
+}
+
 // ── Fixture (v2): big-endian classic TIFF — same content as the LE u8 fixture
 function fixtureU8NoneStripWgs84BE() {
   const lhs = fixtureU8NoneStripWgs84();
@@ -665,6 +777,7 @@ mkdirSync(outDir, { recursive: true });
 const fixtures = {
   'synthetic-u8-none-strip-wgs84.tif': fixtureU8NoneStripWgs84(),
   'synthetic-u8-none-strip-be-wgs84.tif': fixtureU8NoneStripWgs84BE(),
+  'synthetic-bigtiff-u8-none-strip-wgs84.tif': fixtureBigTiffU8NoneStripWgs84(),
   'synthetic-f32-deflate-fp-strip-wgs84.tif': fixtureF32DeflateFpStripWgs84(),
   'synthetic-f32-deflate-fp-tile-utm15n.tif': fixtureF32DeflateFpTileUtm15N(),
   'synthetic-f32-deflate-fp-tile-sinusoidal.tif': fixtureF32DeflateFpTileSinusoidal(),

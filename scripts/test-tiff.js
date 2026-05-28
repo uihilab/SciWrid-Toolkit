@@ -352,5 +352,15 @@ await test('big-endian TIFF: scan + extract', async () => {
   assertEq(r.value, 3);
 });
 
+await test('BigTIFF (magic 43) scan + extract', async () => {
+  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-bigtiff-u8-none-strip-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.format, 'tiff');
+  assertEq(meta.width, 8);
+  const r = await extract(buf, { variable: 'band_1', lat: 23.5, lon: 10.5 });
+  assertEq(r.value, 3);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
