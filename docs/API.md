@@ -143,6 +143,42 @@ Each variable in `variables[]` also carries format-specific fields:
 { index: 0, name: 'temperature', supported: true, shape: [12, 721, 1440], chunks: [1, 721, 1440], dtype: '<f4', compressor: 'zlib' }
 ```
 
+### Time metadata
+
+If the file has a time axis, `scan()` decodes it into ISO-8601 strings using
+the file's CF `units` and `calendar` attributes:
+
+```js
+const meta = await scan(file);
+
+// If every multi-dim variable shares the same time axis, it's surfaced at
+// the top level:
+meta.times;
+// {
+//   values:   ['2024-01-01T00:00:00Z', '2024-01-01T03:00:00Z', '2024-01-01T06:00:00Z', ...],
+//   unitsRaw: 'hours since 2024-01-01',
+//   calendar: 'standard',
+// }
+
+// Otherwise each variable carries its own:
+meta.variables[0].times;
+```
+
+Supported calendars: `standard` (a.k.a. `gregorian`, `proleptic_gregorian`),
+`noleap` (a.k.a. `365_day`), and `360_day`. Unsupported calendars degrade
+gracefully — `times` is omitted and a warning is added to the affected
+variable's `warnings[]`.
+
+Per-format support today:
+
+| Format    | Time decoding                                                                       |
+| --------- | ----------------------------------------------------------------------------------- |
+| GRIB2     | Per-message `valid_time` already exposed by the WASM engine, grouped by variable    |
+| Zarr v2   | Reads the time coord array + `.zattrs` (`units`, `calendar`); Float64 precision     |
+| NetCDF4   | Reads the time variable's HDF5 attrs via h5wasm                                     |
+| NetCDF3   | Currently extract-only — a `wp_nc3_get_time_units_json` C accessor is needed to surface times in `scan()`. Tracked as a follow-up. |
+| TIFF      | No time axis. `DateTime` tag (306) surfacing is a follow-up.                        |
+
 ---
 
 ## `extract(source, options)`
