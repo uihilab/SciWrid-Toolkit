@@ -270,6 +270,22 @@ await test('temperature metadata: dtype, shape, _ARRAY_DIMENSIONS', async () => 
     'coord_source should be "explicit", got: ' + v.coord_source);
 });
 
+await test('scan() decodes time axis to ISO-8601 strings', async () => {
+  const v = meta.variables.find(x => x.name === 'temperature');
+  assert(v.times, 'temperature.times missing');
+  assert(Array.isArray(v.times.values), 'times.values not array');
+  assert(v.times.values.length === 2, 'expected 2 time values');
+  // Fixture time array: [0, 3600] seconds since 1970 → [1970-01-01T00:00:00Z, 1970-01-01T01:00:00Z]
+  assert(v.times.values[0] === '1970-01-01T00:00:00Z',
+    `expected 1970-01-01T00:00:00Z, got ${v.times.values[0]}`);
+  assert(v.times.values[1] === '1970-01-01T01:00:00Z',
+    `expected 1970-01-01T01:00:00Z, got ${v.times.values[1]}`);
+  assert(v.times.unitsRaw === 'seconds since 1970-01-01',
+    `unitsRaw mismatch: ${v.times.unitsRaw}`);
+  assert(v.times.calendar === 'standard',
+    `calendar mismatch: ${v.times.calendar}`);
+});
+
 await test('CRS attrs flow through scan() into meta.variables[*].attrs', async () => {
   const v = meta.variables.find(x => x.name === 'temperature');
   assert(typeof v.attrs.crs_wkt === 'string', 'crs_wkt missing from attrs');
