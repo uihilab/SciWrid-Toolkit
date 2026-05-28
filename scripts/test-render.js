@@ -99,5 +99,31 @@ await test('gridToImageData is exported from the public API', async () => {
   assert(typeof api.gridToImageData === 'function', 'gridToImageData should be a public export');
 });
 
+console.log('\n[gridToPNG]');
+await test('gridToPNG starts with the PNG signature', async () => {
+  const { gridToPNG } = await import('../lib/render/index.js');
+  const grid = { data: new Float32Array([0, 1, 2, 3]), width: 2, height: 2 };
+  const png = await gridToPNG(grid, { ramp: 'viridis' });
+  const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  for (let i = 0; i < 8; i++) assertEq(png[i], sig[i], `byte ${i}`);
+});
+
+await test('gridToPNG round-trips a 4×4 grid through a PNG decoder', async () => {
+  // Use a known-good Node PNG decoder for verification. The decoder is a
+  // dev dependency only — production stays zero-dep. (Skips if not installed.)
+  let PNG;
+  try { ({ PNG } = await import('pngjs')); } catch { return 'skip'; }
+  const { gridToPNG } = await import('../lib/render/index.js');
+  const grid = { data: new Float32Array(16).map((_, i) => i), width: 4, height: 4 };
+  const bytes = await gridToPNG(grid, { ramp: 'grayscale' });
+  const decoded = PNG.sync.read(Buffer.from(bytes));
+  assertEq(decoded.width, 4); assertEq(decoded.height, 4);
+});
+
+await test('gridToPNG is exported from the public API', async () => {
+  const api = await import('../index.js');
+  assert(typeof api.gridToPNG === 'function', 'gridToPNG should be a public export');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

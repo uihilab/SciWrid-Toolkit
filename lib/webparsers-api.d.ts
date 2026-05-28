@@ -168,7 +168,7 @@ export function extractOutput(
 export function extractGrid(source: Source, options: ExtractGridOptions): Promise<ExtractGridResult>;
 
 /** Output format for `extractGridOutput()`. */
-export type GridOutputFormat = 'json' | 'geotiff' | 'tif' | 'tiff';
+export type GridOutputFormat = 'json' | 'geotiff' | 'tif' | 'tiff' | 'imagedata' | 'png';
 
 /** Run `extractGrid()` and serialize the result. */
 export function extractGridOutput(
@@ -176,6 +176,16 @@ export function extractGridOutput(
   options: ExtractGridOptions & { pretty?: boolean },
   format?: 'json'
 ): Promise<string>;
+export function extractGridOutput(
+  source: Source,
+  options: ExtractGridOptions & RenderOptions,
+  format: 'imagedata'
+): Promise<GridImageData>;
+export function extractGridOutput(
+  source: Source,
+  options: ExtractGridOptions & RenderOptions,
+  format: 'png'
+): Promise<Uint8Array>;
 export function extractGridOutput(
   source: Source,
   options: ExtractGridOptions,
@@ -237,6 +247,9 @@ export function sampleRamp(ramp: Ramp, t: number): RGB;
 /** Color an ExtractGridResult into RGBA bytes for a canvas / ImageSource. */
 export function gridToImageData(grid: ExtractGridResult, opts?: RenderOptions): GridImageData;
 
+/** Encode an ExtractGridResult as an 8-bit RGBA PNG (Node + browser). */
+export function gridToPNG(grid: ExtractGridResult, opts?: RenderOptions): Promise<Uint8Array>;
+
 /* =========================================================================
  * slim — same-format file trimming
  * ======================================================================= */
@@ -281,6 +294,7 @@ declare const _default: {
   gridToJSON: typeof gridToJSON;
   gridToGeoTIFF: typeof gridToGeoTIFF;
   gridToImageData: typeof gridToImageData;
+  gridToPNG: typeof gridToPNG;
   slim: typeof slim;
   WebparsersError: typeof WebparsersError;
   UnsupportedFormatError: typeof UnsupportedFormatError;
