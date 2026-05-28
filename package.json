@@ -91,7 +91,8 @@
     "test:slim": "node scripts/test-slim.js",
     "test:tiff": "node scripts/test-tiff.js",
     "test:tiff-range": "node scripts/test-tiff-range.js",
-    "test:time": "node scripts/test-time.js"
+    "test:time": "node scripts/test-time.js",
+    "test:render": "node scripts/test-render.js"
   },
   "engines": {
     "node": ">=18"
