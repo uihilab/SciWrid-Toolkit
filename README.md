@@ -1,6 +1,6 @@
 # webparsers
 
-JavaScript / TypeScript library for parsing meteorological data formats — **GRIB2**, **NetCDF3**, **NetCDF4 / HDF5**, and **Zarr v2** — in the browser, Web Workers, and Node 18+. Powered by a pure-C engine compiled to WebAssembly via Emscripten.
+JavaScript / TypeScript library for parsing meteorological and geospatial data formats — **GRIB2**, **NetCDF3**, **NetCDF4 / HDF5**, **Zarr v2**, and **TIFF / GeoTIFF (including Cloud-Optimized GeoTIFFs)** — in the browser, Web Workers, and Node 18+. Powered by a pure-C engine compiled to WebAssembly via Emscripten.
 
 ## Install
 
@@ -20,6 +20,7 @@ End users do **not** need to install peer compression libraries — `h5wasm` (Ne
 | NetCDF3 Classic | `.nc3` | Full CF coordinate support |
 | NetCDF4 / HDF5 | `.nc`, `.nc4` | Loads `h5wasm` from CDN on first use |
 | Zarr v2 (zip) | `.zip`, `.zarr` | Compressors: `null`, `gzip`, `zlib`, `blosc`, `zstd`, `lz4`. Filters (`fixedscaleoffset`, `delta`, …) not yet supported. |
+| TIFF / GeoTIFF | `.tif`, `.tiff` | UInt8/UInt16/Int16/Float32; LZW + Deflate; horizontal + floating-point predictors; WGS84 / UTM / sinusoidal; strip + tile; **COG over HTTP Range** (scan/extract only read the IFD + needed tile). |
 
 ## Quick start
 

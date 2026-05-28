@@ -3,9 +3,9 @@
 A WebAssembly-powered library for parsing meteorological data formats.
 Three calls cover the common cases:
 
-| Function        | Returns                                                      | Use for                      |
-| --------------- | ------------------------------------------------------------ | ---------------------------- |
-| `detectFormat`  | `'grib2' \| 'netcdf3' \| 'netcdf4' \| 'zarr' \| null`      | Sniff a file's format        |
+| Function        | Returns                                                              | Use for                      |
+| --------------- | -------------------------------------------------------------------- | ---------------------------- |
+| `detectFormat`  | `'grib2' \| 'netcdf3' \| 'netcdf4' \| 'zarr' \| 'tiff' \| null`     | Sniff a file's format        |
 | `scan`          | metadata + variable list                                     | List what's in the file      |
 | `extract`       | structured object                                            | Pull values for a variable   |
 | `extractOutput` | `string` (JSON or CSV)                                       | Same, ready to write to disk |
@@ -19,6 +19,7 @@ Supported formats:
 | **NetCDF3 Classic**     | `.nc3`                | Full CF coordinate support                                   |
 | **NetCDF4 / HDF5**      | `.nc`, `.nc4`         | Uses `h5wasm` under the hood; requires Node 18+ / browser    |
 | **Zarr v2** *(zip)*     | `.zarr.zip`, `.zip`   | null / gzip / zlib compressors; synthetic axes (see below)   |
+| **TIFF / GeoTIFF**      | `.tif`, `.tiff`       | UInt8/16/Int16/Float32; LZW/Deflate; horizontal/FP predictor; WGS84/UTM/sinusoidal; tile + strip; COG over HTTP Range |
 
 ---
 
@@ -92,12 +93,13 @@ await detectFormat(zarrZip);                     // 'zarr'
 await detectFormat(new Uint8Array([0,1,2,3]));   // null
 ```
 
-| Magic bytes          | Detected as  |
-| -------------------- | ------------ |
-| `GRIB` (0x47525942) | `'grib2'`    |
-| `CDF\x01` / `CDF\x02` | `'netcdf3'` |
-| `\x89HDF\r\n\x1a\n` | `'netcdf4'`  |
-| `PK\x03\x04` (ZIP)  | `'zarr'`     |
+| Magic bytes              | Detected as  |
+| ------------------------ | ------------ |
+| `GRIB` (0x47525942)      | `'grib2'`    |
+| `CDF\x01` / `CDF\x02`    | `'netcdf3'`  |
+| `\x89HDF\r\n\x1a\n`      | `'netcdf4'`  |
+| `PK\x03\x04` (ZIP)       | `'zarr'`     |
+| `II*\x00` (little-endian TIFF) | `'tiff'` |
 
 ---
 
@@ -323,6 +325,71 @@ individually), and NetCDF4 (h5wasm hyperslab) all give exact ranges.
   coordinate (e.g. `lat`), the existing extract heuristic may mis-assign
   dims. The slimmed bytes are correct — verify with a direct h5wasm read.
 
+## GeoTIFF (`.tif` / `.tiff`)
+
+`scan`, `extract`, and `extractGrid` all accept TIFF and GeoTIFF files.
+
+### Supported in v1
+
+| Aspect           | What's covered                                                                |
+| ---------------- | ----------------------------------------------------------------------------- |
+| **Byte order**   | Little-endian classic TIFF (`II*\x00`); big-endian and BigTIFF rejected       |
+| **Sample types** | `uint8`, `uint16`, `int16`, `float32` (chunky `PlanarConfiguration=1`)        |
+| **Compression**  | None, Deflate (raw inflate via `DecompressionStream`), LZW (TIFF Tech Note 2) |
+| **Predictors**   | 1 (none), 2 (horizontal), 3 (floating-point — `float32` only)                 |
+| **Layout**       | Strip and tile; `extractGrid` caches decoded blocks across pixels             |
+| **CRS**          | Geographic EPSG:4326, UTM north/south (32601–32660, 32701–32760), Sinusoidal (MODIS-style) |
+| **Multi-band**   | `SamplesPerPixel ≥ 1`; band names taken from `GDAL_METADATA` `<Item name="DESCRIPTION" sample="N">…</Item>` (fallback: `band_1`, `band_2`, …) |
+| **COG over URL** | `scan` and `extract` issue HTTP Range requests for the IFD + only the needed tile/strip — the whole file is never downloaded |
+
+### Band naming
+
+```js
+const meta = await scan(geoTiffBuf);
+meta.variable_names;        // ['B04_red', 'B03_green', 'B02_blue']  (from GDAL_METADATA)
+// or ['band_1', 'band_2', 'band_3'] if no GDAL_METADATA tag is present
+
+await extract(geoTiffBuf, { variable: 'B04_red', lat: 23.5, lon: 10.5 });
+```
+
+### COG over HTTP Range
+
+```js
+const meta = await scan('https://example.com/sentinel.tif');
+// Server sees: 1 small Range request for the magic bytes (16 B) + 1 Range
+// request for the IFD prefix (a few KB) — not a full-file GET.
+
+const point = await extract('https://example.com/sentinel.tif',
+  { variable: 'band_1', lat: 35.0, lon: -95.0 });
+// One additional Range request for the tile/strip containing that pixel.
+```
+
+The Range source falls back to a full-body GET if the server responds 200 to `Range:` (no Range support).
+
+### Unsupported CRS
+
+```js
+import { UnsupportedCRSError } from 'webparsers';
+
+try { await scan(polarStereoTiff); }
+catch (e) {
+  if (e instanceof UnsupportedCRSError) {
+    console.log(e.epsg, e.crsName);      // e.g. 3413, 'unknown projected'
+  }
+}
+```
+
+### v2+ expansion list (not in this release)
+
+- Big-endian TIFF, BigTIFF (`magic === 43`)
+- COG overview IFDs surfaced as separate resolutions (today: full-res only, with a warning)
+- Additional compression: JPEG, JPEG 2000, WebP, PackBits
+- Additional projections: Lambert Conformal Conic, polar stereographic, Albers
+- `PlanarConfiguration=2` (separate planes)
+- `slim()` support for TIFF (v1 throws `UnsupportedFormatError`)
+
+---
+
 ## Class-based API (`WebParsers`)
 
 For cases where you need to reuse a single loaded file across multiple queries:
@@ -369,6 +436,7 @@ try {
 | Error                    | When thrown                                           |
 | ------------------------ | ----------------------------------------------------- |
 | `UnsupportedFormatError` | Magic bytes don't match any supported format          |
+| `UnsupportedCRSError`    | TIFF/GeoTIFF uses a CRS outside the v1 set (`epsg`, `crsName` fields surfaced) |
 | `VariableNotFoundError`  | Named variable absent or not `supported: true`        |
 | `SourceError`            | URL fetch failed, unsupported source type             |
 | `ExtractError`           | Decoder failed for a variable the library knows about |
