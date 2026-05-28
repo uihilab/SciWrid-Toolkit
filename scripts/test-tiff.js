@@ -144,5 +144,33 @@ await test('lzw decoder handles a 4 KiB repeating pattern (covers width bump)', 
   for (let i = 0; i < input.length; i++) assertEq(out[i], input[i], `out[${i}]`);
 });
 
+console.log('\n[predictors]');
+await test('horizontal predictor (uint8) inverts row deltas', async () => {
+  const { unpredict } = await import('../lib/tiff/predictors.js');
+  // 1 row × 4 cols, samplesPerPixel=1, uint8
+  // original: [10, 20, 30, 35] → encoded: [10, 10, 10, 5]
+  const enc = new Uint8Array([10, 10, 10, 5]);
+  unpredict(enc, { predictor: 2, width: 4, height: 1, samplesPerPixel: 1, dtype: 'uint8' });
+  const dec = enc;
+  assertEq(dec[0], 10); assertEq(dec[1], 20); assertEq(dec[2], 30); assertEq(dec[3], 35);
+});
+
+await test('floating-point predictor (float32) reverses byte-shuffle deltas', async () => {
+  const { unpredict } = await import('../lib/tiff/predictors.js');
+  // Build a tiny 1×2 float32 row: [1.0, 2.0]
+  const W = 2, H = 1;
+  // Encoder side: byte-shuffle row, then per-byte horizontal-diff.
+  // 1.0 LE bytes: [00, 00, 80, 3F]; 2.0 LE bytes: [00, 00, 00, 40]
+  // After shuffle (group by byte index across samples):
+  //   [00, 00, 00, 00, 80, 00, 3F, 40]
+  // After per-byte horizontal diff:
+  //   [00, 00, 00, 00, 80, 80, 3F, 01]
+  const enc = new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x80, 0x80, 0x3F, 0x01]);
+  unpredict(enc, { predictor: 3, width: W, height: H, samplesPerPixel: 1, dtype: 'float32' });
+  const dec = new Float32Array(enc.buffer, enc.byteOffset, W * H);
+  assert(Math.abs(dec[0] - 1.0) < 1e-6, `dec[0]=${dec[0]}`);
+  assert(Math.abs(dec[1] - 2.0) < 1e-6, `dec[1]=${dec[1]}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
