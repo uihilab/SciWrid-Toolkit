@@ -379,7 +379,7 @@ await test('gridToGeoTIFF emits valid TIFF magic for zarr-sourced grid', async (
     ...wf, variable: 'temperature',
     bbox: [-100, 30, -90, 40], width: 3, height: 3, time: 0, workers: 0,
   });
-  const buf = gridToGeoTIFF(g);
+  const buf = await gridToGeoTIFF(g);
   assert(buf instanceof Uint8Array, 'output is not Uint8Array');
   /* TIFF magic: little-endian 'II' + 42 */
   assert(buf[0] === 0x49 && buf[1] === 0x49, 'missing II header');
