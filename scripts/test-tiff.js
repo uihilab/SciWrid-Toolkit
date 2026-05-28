@@ -34,5 +34,30 @@ await test('parses header + first IFD on u8-none-strip fixture', async () => {
   assertEq(t.get(33922).values.length, 6, 'ModelTiepoint has 6 doubles');
 });
 
+console.log('\n[scan]');
+await test('detectFormat returns "tiff" for LE TIFF', async () => {
+  const { detectFormat } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-wgs84.tif')));
+  assertEq(await detectFormat(buf), 'tiff');
+});
+
+await test('scan returns metadata for u8-none-strip fixture', async () => {
+  const { scan } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.format, 'tiff');
+  assertEq(meta.width, 8);
+  assertEq(meta.height, 4);
+  assertEq(meta.dtype, 'uint8');
+  assertEq(meta.compression, 'none');
+  assertEq(meta.layout, 'strip');
+  assertEq(meta.crs.epsg, 4326);
+  assert(Array.isArray(meta.variable_names) && meta.variable_names.length === 1);
+  assertEq(meta.variable_names[0], 'band_1');
+  // bbox in WGS84
+  assertEq(meta.bbox[0], 10);   // minLon
+  assertEq(meta.bbox[3], 24);   // maxLat
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
