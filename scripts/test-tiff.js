@@ -190,5 +190,21 @@ await test('extract out-of-bounds returns null', async () => {
   assertEq(r.value, null);
 });
 
+console.log('\n[f32+deflate+fp]');
+await test('extract float32+deflate+fp at known pixel returns expected value', async () => {
+  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-strip-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.dtype, 'float32');
+  assertEq(meta.compression, 'deflate');
+  // f32[(r*W)+c] = (i%7)*0.5 + 1.25 where i = r*W+c (row 0 = top, north-up)
+  // pixel (row=0, col=0) → lon ∈ [10,11), lat ∈ [23,24) → choose lat=23.5, lon=10.5
+  const r = await extract(buf, { variable: 'band_1', lat: 23.5, lon: 10.5 });
+  assert(Math.abs(r.value - 1.25) < 1e-5, `got ${r.value}`);
+  // pixel (row=1, col=3) → lat=22.5, lon=13.5 → i=11 → (11%7)*0.5 + 1.25 = 2 + 1.25 = 3.25
+  const r2 = await extract(buf, { variable: 'band_1', lat: 22.5, lon: 13.5 });
+  assert(Math.abs(r2.value - 3.25) < 1e-5, `got ${r2.value}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
