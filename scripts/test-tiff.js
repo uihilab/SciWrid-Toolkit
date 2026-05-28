@@ -301,5 +301,30 @@ await test('UInt8 tile: extract returns correct value from tile (1,1)', async ()
   assertEq(r.value, 236);
 });
 
+console.log('\n[multiband]');
+await test('multiband fixture: scan reports 3 bands with GDAL names', async () => {
+  const { scan } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-multiband-u16-lzw-h-strip-wgs84.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.variable_names.length, 3);
+  assertEq(meta.variable_names[0], 'B04_red');
+  assertEq(meta.variable_names[1], 'B03_green');
+  assertEq(meta.variable_names[2], 'B02_blue');
+  assertEq(meta.dtype, 'uint16');
+  assertEq(meta.compression, 'lzw');
+});
+
+await test('multiband fixture: extract returns distinct values per band', async () => {
+  const { extract } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-multiband-u16-lzw-h-strip-wgs84.tif')));
+  // pixel (r=0, c=0): band 0 = 0, band 1 = 5, band 2 = 11
+  const r = await extract(buf, { variable: 'B04_red',   lat: 23.5, lon: 10.5 });
+  const g = await extract(buf, { variable: 'B03_green', lat: 23.5, lon: 10.5 });
+  const b = await extract(buf, { variable: 'B02_blue',  lat: 23.5, lon: 10.5 });
+  assertEq(r.value, 0);
+  assertEq(g.value, 5);
+  assertEq(b.value, 11);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
