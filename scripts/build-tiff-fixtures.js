@@ -594,6 +594,37 @@ function fixtureMultibandU16LzwHorizStripWgs84() {
   return { bytes: buildTiff(tags, strips), expected: { W, H, SPP, pixels } };
 }
 
+// ── Fixture 9: synthetic-unsupported-crs.tif ─────────────────────────────
+// Tiny 2×2 Float32 strip with ProjectedCSTypeGeoKey=3413 (NSIDC polar
+// stereographic) so the v1 reader throws UnsupportedCRSError.
+function fixtureUnsupportedCrs() {
+  const W = 2, H = 2;
+  const buf = new Uint8Array(W * H * 4);
+  const dv  = new DataView(buf.buffer);
+  for (let i = 0; i < W * H; i++) dv.setFloat32(i * 4, i + 0.5, true);
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [32] },
+    { tag: 259, type: T_SHORT, values: [1] },
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 273, type: T_LONG,  values: [0] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 278, type: T_SHORT, values: [H] },
+    { tag: 279, type: T_LONG,  values: [0] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 339, type: T_SHORT, values: [3] },
+    { tag: 33550, type: T_DOUBLE, values: [1000, 1000, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 0, 0, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 1 },        // projected
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 3072, tiffTag: 0, count: 1, valueOrOffset: 3413 },     // NSIDC polar stereographic
+    ]),
+  ];
+  return { bytes: buildTiff(tags, [buf]) };
+}
+
 // ── main: write every fixture ─────────────────────────────────────────────
 mkdirSync(outDir, { recursive: true });
 const fixtures = {
@@ -605,6 +636,7 @@ const fixtures = {
   'synthetic-u8-none-tile-wgs84.tif':  fixtureU8NoneTileWgs84(),
   'synthetic-f32-none-tile-cog-wgs84.tif': fixtureCogF32NoneTileWgs84(),
   'synthetic-multiband-u16-lzw-h-strip-wgs84.tif': fixtureMultibandU16LzwHorizStripWgs84(),
+  'synthetic-unsupported-crs.tif': fixtureUnsupportedCrs(),
 };
 for (const [name, { bytes }] of Object.entries(fixtures)) {
   const out = resolve(outDir, name);
