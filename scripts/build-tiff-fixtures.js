@@ -799,6 +799,54 @@ function fixtureU8PackbitsStripWgs84() {
   return { bytes: buildTiff(tags, strips), expected: { W, H, pixels } };
 }
 
+// ── Fixture (v2): synthetic-u8-jpeg-strip-wgs84.tif (RGB JPEG strip) ─────
+// Builds a tiny 16×16 RGB JPEG via the optional jpeg-js dep. Skipped at
+// build time if jpeg-js isn't available — the test detects the missing
+// fixture and skips itself.
+async function fixtureU8JpegStripWgs84() {
+  let jpeg;
+  try { jpeg = (await import('jpeg-js')).default; }
+  catch { return null; }   // skip fixture build if dep not installed
+
+  const W = 16, H = 16;
+  // Build a smooth RGB ramp so JPEG lossy compression doesn't move pixels far
+  // from a predictable value. We test a CENTER pixel where JPEG block edges
+  // don't matter much.
+  const rgba = new Uint8Array(W * H * 4);
+  for (let r = 0; r < H; r++) {
+    for (let c = 0; c < W; c++) {
+      const i = (r * W + c) * 4;
+      rgba[i]     = (c * 16) & 0xff;   // R from column
+      rgba[i + 1] = (r * 16) & 0xff;   // G from row
+      rgba[i + 2] = ((r + c) * 8) & 0xff;
+      rgba[i + 3] = 255;
+    }
+  }
+  const jpegBytes = jpeg.encode({ data: rgba, width: W, height: H }, 95).data;
+
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [8, 8, 8] },             // 8 bps × 3
+    { tag: 259, type: T_SHORT, values: [7] },                   // JPEG
+    { tag: 262, type: T_SHORT, values: [2] },                   // RGB
+    { tag: 273, type: T_LONG,  values: [0] },
+    { tag: 277, type: T_SHORT, values: [3] },
+    { tag: 278, type: T_SHORT, values: [H] },                   // 1 strip
+    { tag: 279, type: T_LONG,  values: [0] },
+    { tag: 284, type: T_SHORT, values: [1] },                   // chunky
+    { tag: 339, type: T_SHORT, values: [1, 1, 1] },
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 10, 24, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+  ];
+  return { bytes: buildTiff(tags, [new Uint8Array(jpegBytes)]), expected: { W, H } };
+}
+
 // ── Fixture (v2): big-endian classic TIFF — same content as the LE u8 fixture
 function fixtureU8NoneStripWgs84BE() {
   const lhs = fixtureU8NoneStripWgs84();
@@ -849,6 +897,11 @@ const fixtures = {
   'synthetic-multiband-u16-lzw-h-strip-wgs84.tif': fixtureMultibandU16LzwHorizStripWgs84(),
   'synthetic-unsupported-crs.tif': fixtureUnsupportedCrs(),
 };
+// Async fixtures (load optional deps lazily; skip if dep unavailable).
+const jpegFixture = await fixtureU8JpegStripWgs84();
+if (jpegFixture) fixtures['synthetic-u8-jpeg-strip-wgs84.tif'] = jpegFixture;
+else console.log('skip synthetic-u8-jpeg-strip-wgs84.tif (jpeg-js not installed)');
+
 for (const [name, { bytes }] of Object.entries(fixtures)) {
   const out = resolve(outDir, name);
   writeFileSync(out, bytes);
