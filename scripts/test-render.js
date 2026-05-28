@@ -65,5 +65,39 @@ await test('autoRange handles flat grids without divide-by-zero', async () => {
   assert(r.vmax > r.vmin, 'vmax > vmin even on flat input');
 });
 
+console.log('\n[gridToImageData]');
+await test('gridToImageData produces width×height×4 bytes', async () => {
+  const { gridToImageData } = await import('../lib/render/index.js');
+  const grid = {
+    data: new Float32Array([0, 0.5, 1.0, NaN]),
+    width: 2, height: 2,
+  };
+  const img = gridToImageData(grid, { ramp: 'viridis' });
+  assertEq(img.width, 2); assertEq(img.height, 2);
+  assertEq(img.data.length, 16);
+  // NaN pixel is transparent by default
+  assertEq(img.data[15], 0); // alpha of pixel 3 (NaN)
+});
+
+await test('explicit vmin/vmax overrides autoRange', async () => {
+  const { gridToImageData } = await import('../lib/render/index.js');
+  const grid = { data: new Float32Array([0, 100]), width: 2, height: 1 };
+  const img = gridToImageData(grid, { ramp: 'grayscale', vmin: 0, vmax: 1000 });
+  // 100 of 1000 → t = 0.1 → ~grayscale 26
+  assert(Math.abs(img.data[4] - 26) <= 1, `grayscale ramp at t=0.1 → got ${img.data[4]}`);
+});
+
+await test('all-NaN grid fills with nodataColor', async () => {
+  const { gridToImageData } = await import('../lib/render/index.js');
+  const grid = { data: new Float32Array([NaN, NaN, NaN, NaN]), width: 2, height: 2 };
+  const img = gridToImageData(grid, { ramp: 'viridis', nodataColor: [9, 9, 9, 99] });
+  assertEq(img.data[0], 9); assertEq(img.data[3], 99);
+});
+
+await test('gridToImageData is exported from the public API', async () => {
+  const api = await import('../index.js');
+  assert(typeof api.gridToImageData === 'function', 'gridToImageData should be a public export');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

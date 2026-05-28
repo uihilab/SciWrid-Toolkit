@@ -189,6 +189,55 @@ export function gridToJSON(grid: ExtractGridResult, opts?: { pretty?: boolean })
 export function gridToGeoTIFF(grid: ExtractGridResult): Uint8Array;
 
 /* =========================================================================
+ * Map rendering — Float32 grid → colored RGBA / PNG
+ * ======================================================================= */
+
+/** An RGB triplet, each component 0..255. */
+export type RGB = [r: number, g: number, b: number];
+
+/** An RGBA quadruplet, each component 0..255. */
+export type RGBA = [r: number, g: number, b: number, a: number];
+
+/** A color-ramp stop: position t ∈ [0,1] paired with an RGB color. */
+export type RampStop = [t: number, color: RGB];
+
+/** A color ramp: an array of stops sorted by t. */
+export type Ramp = RampStop[];
+
+/** Names of the built-in color ramps. */
+export type RampName = 'viridis' | 'plasma' | 'grayscale' | 'RdBu';
+
+export interface RenderOptions {
+  /** Built-in ramp name or a custom ramp array. Defaults to 'viridis'. */
+  ramp?: RampName | Ramp;
+  /** Lower bound of the value range. Defaults to the grid's finite minimum. */
+  vmin?: number;
+  /** Upper bound of the value range. Defaults to the grid's finite maximum. */
+  vmax?: number;
+  /** RGBA color for NaN / missing cells. Defaults to transparent [0,0,0,0]. */
+  nodataColor?: RGBA;
+}
+
+/** RGBA image — wrap `data` in `new ImageData(data, width, height)` in a browser. */
+export interface GridImageData {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+}
+
+/** Built-in color ramps, keyed by name. */
+export const RAMPS: Record<RampName, Ramp>;
+
+/** Resolve a ramp name or custom array to a normalized ramp. */
+export function resolveRamp(ramp: RampName | Ramp): Ramp;
+
+/** Sample a ramp at t ∈ [0,1]. Non-finite t returns black [0,0,0]. */
+export function sampleRamp(ramp: Ramp, t: number): RGB;
+
+/** Color an ExtractGridResult into RGBA bytes for a canvas / ImageSource. */
+export function gridToImageData(grid: ExtractGridResult, opts?: RenderOptions): GridImageData;
+
+/* =========================================================================
  * slim — same-format file trimming
  * ======================================================================= */
 
@@ -231,6 +280,7 @@ declare const _default: {
   extractGridOutput: typeof extractGridOutput;
   gridToJSON: typeof gridToJSON;
   gridToGeoTIFF: typeof gridToGeoTIFF;
+  gridToImageData: typeof gridToImageData;
   slim: typeof slim;
   WebparsersError: typeof WebparsersError;
   UnsupportedFormatError: typeof UnsupportedFormatError;
