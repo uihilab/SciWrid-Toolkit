@@ -76,7 +76,8 @@
     "test:grid": "node scripts/test-grid.js",
     "test:zarr": "node scripts/test-zarr.js",
     "test:kerchunk": "node scripts/test-kerchunk.js",
-    "test:slim": "node scripts/test-slim.js"
+    "test:slim": "node scripts/test-slim.js",
+    "test:tiff": "node scripts/test-tiff.js"
   },
   "engines": {
     "node": ">=18"
