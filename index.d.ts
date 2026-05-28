@@ -9,6 +9,7 @@ export type {
   CommonOptions,
   VariableInfo,
   ScanResult,
+  CFTimes,
   ExtractOptions,
   ExtractResult,
   TimeseriesPoint,
