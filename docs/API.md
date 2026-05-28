@@ -365,18 +365,21 @@ individually), and NetCDF4 (h5wasm hyperslab) all give exact ranges.
 
 `scan`, `extract`, and `extractGrid` all accept TIFF and GeoTIFF files.
 
-### Supported in v1
+### Supported
 
 | Aspect           | What's covered                                                                |
 | ---------------- | ----------------------------------------------------------------------------- |
-| **Byte order**   | Little-endian classic TIFF (`II*\x00`); big-endian and BigTIFF rejected       |
-| **Sample types** | `uint8`, `uint16`, `int16`, `float32` (chunky `PlanarConfiguration=1`)        |
-| **Compression**  | None, Deflate (raw inflate via `DecompressionStream`), LZW (TIFF Tech Note 2) |
+| **Byte order**   | Little-endian (`II*\x00`), big-endian (`MM\x00*`), and BigTIFF (`magic === 43`, 64-bit offsets) |
+| **Sample types** | `uint8`, `uint16`, `int16`, `float32` (chunky `PlanarConfiguration=1` AND separate planes `=2`) |
+| **Compression**  | None, Deflate, LZW, PackBits, JPEG (`jpeg-js` optional dep), WebP (browser only) |
 | **Predictors**   | 1 (none), 2 (horizontal), 3 (floating-point — `float32` only)                 |
-| **Layout**       | Strip and tile; `extractGrid` caches decoded blocks across pixels             |
-| **CRS**          | Geographic EPSG:4326, UTM north/south (32601–32660, 32701–32760), Sinusoidal (MODIS-style) |
+| **Layout**       | Strip and tile; `extractGrid` caches decoded blocks + nearest-neighbour resamples to the requested output size |
+| **CRS**          | Geographic EPSG:4326, UTM north/south, Sinusoidal (MODIS), Lambert Conformal Conic (NOAA HRRR/RAP/NAM), Polar Stereographic (NSIDC 3413/3031), Albers Equal Area (USDA NASS/USGS) |
 | **Multi-band**   | `SamplesPerPixel ≥ 1`; band names taken from `GDAL_METADATA` `<Item name="DESCRIPTION" sample="N">…</Item>` (fallback: `band_1`, `band_2`, …) |
+| **COG**          | Overview IFDs surfaced in `scan().overviews`; `extractGrid` auto-selects the smallest overview that meets the requested output size |
 | **COG over URL** | `scan` and `extract` issue HTTP Range requests for the IFD + only the needed tile/strip — the whole file is never downloaded |
+| **slim()**       | Band selection + spatial bbox (snaps to block grid with a widening warning); `PlanarConfiguration=2` slim is byte-copy (no decode) |
+| **Writer**       | `gridToGeoTIFF(grid, opts)` — multi-band, dtype (`float32`/`uint8`/`uint16`/`int16`), compression (`none`/`deflate`), predictor (1/2/3), CRS (any supported kind) |
 
 ### Band naming
 
@@ -415,14 +418,13 @@ catch (e) {
 }
 ```
 
-### v2+ expansion list (not in this release)
+### v3+ expansion list (not in this release)
 
-- Big-endian TIFF, BigTIFF (`magic === 43`)
-- COG overview IFDs surfaced as separate resolutions (today: full-res only, with a warning)
-- Additional compression: JPEG, JPEG 2000, WebP, PackBits
-- Additional projections: Lambert Conformal Conic, polar stereographic, Albers
-- `PlanarConfiguration=2` (separate planes)
-- `slim()` support for TIFF (v1 throws `UnsupportedFormatError`)
+- Additional compression: JPEG 2000 (libopenjp2 in WASM, follow-up sprint)
+- COG overview tile pyramid auto-build in `gridToGeoTIFF` (today: single-IFD writer)
+- Cross-format `slim()` bbox for GRIB2 + NetCDF3 (needs C-side accessor + WASM rebuild)
+- TIFF `DateTime` tag (306) surfaced as `meta.times` (single-snapshot timestamp)
+- Tiled GeoTIFF writer (today: single-strip)
 
 ---
 
