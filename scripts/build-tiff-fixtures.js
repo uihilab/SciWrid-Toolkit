@@ -1172,6 +1172,58 @@ function fixtureCogF32NoneTile2IFD() {
            expected: { MW, MH, OW, OH, f32, f32o } };
 }
 
+// ── Fixture (v2): synthetic-multiband-u16-planar2-strip-wgs84.tif ───────
+function fixtureMultibandU16Planar2StripWgs84() {
+  // 3-band UInt16 planar=2 (separate planes). Each band gets its own strip
+  // group, no compression, no predictor. Strip-per-row layout.
+  const W = 8, H = 4, SPP = 3;
+  // Per-band pixel values — distinct so the slim test can verify band identity.
+  const bands = [];
+  for (let band = 0; band < SPP; band++) {
+    const arr = new Uint16Array(W * H);
+    for (let i = 0; i < arr.length; i++) {
+      arr[i] = ((band + 1) * 100 + i) & 0xffff;     // band 0: 100..131, band 1: 200..231, band 2: 300..331
+    }
+    bands.push(arr);
+  }
+  // Strip layout (one row per strip): emit band 0's H strips, then band 1's, then band 2's.
+  const strips = [];
+  for (let band = 0; band < SPP; band++) {
+    const buf = new Uint8Array(bands[band].buffer);
+    for (let r = 0; r < H; r++)
+      strips.push(buf.subarray(r * W * 2, (r + 1) * W * 2));
+  }
+  const xml =
+    '<GDALMetadata>\n' +
+    '  <Item name="DESCRIPTION" sample="0">red</Item>\n' +
+    '  <Item name="DESCRIPTION" sample="1">green</Item>\n' +
+    '  <Item name="DESCRIPTION" sample="2">blue</Item>\n' +
+    '</GDALMetadata>\0';
+  const xmlBytes = Array.from(xml, ch => ch.charCodeAt(0));
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [16, 16, 16] },
+    { tag: 259, type: T_SHORT, values: [1] },                  // none
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 273, type: T_LONG,  values: [0] },                  // patched
+    { tag: 277, type: T_SHORT, values: [SPP] },
+    { tag: 278, type: T_SHORT, values: [1] },                  // 1 row per strip
+    { tag: 279, type: T_LONG,  values: [0] },
+    { tag: 284, type: T_SHORT, values: [2] },                  // planar = separate planes
+    { tag: 339, type: T_SHORT, values: [1, 1, 1] },
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 10, 24, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+    { tag: 42112, type: T_ASCII, values: xmlBytes },
+  ];
+  return { bytes: buildTiff(tags, strips), expected: { W, H, SPP, bands } };
+}
+
 // ── Fixture (v2): big-endian classic TIFF — same content as the LE u8 fixture
 function fixtureU8NoneStripWgs84BE() {
   const lhs = fixtureU8NoneStripWgs84();
@@ -1217,6 +1269,7 @@ const fixtures = {
   'synthetic-f32-deflate-fp-tile-polarstereo-3413.tif': fixtureF32DeflateFpTilePolarStereo3413(),
   'synthetic-f32-deflate-fp-tile-albers.tif': fixtureF32DeflateFpTileAlbers(),
   'synthetic-f32-none-tile-cog-2ifd-wgs84.tif': fixtureCogF32NoneTile2IFD(),
+  'synthetic-multiband-u16-planar2-strip-wgs84.tif': fixtureMultibandU16Planar2StripWgs84(),
   'synthetic-f32-deflate-fp-strip-wgs84.tif': fixtureF32DeflateFpStripWgs84(),
   'synthetic-f32-deflate-fp-tile-utm15n.tif': fixtureF32DeflateFpTileUtm15N(),
   'synthetic-f32-deflate-fp-tile-sinusoidal.tif': fixtureF32DeflateFpTileSinusoidal(),
