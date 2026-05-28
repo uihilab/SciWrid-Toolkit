@@ -258,5 +258,26 @@ await test('sinusoidal tile fixture: extract at known lat/lon', async () => {
   assert(Math.abs(r.value - 7) < 1e-5, `got ${r.value}`);
 });
 
+console.log('\n[extractGrid]');
+await test('extractGrid full image returns Float32Array of expected shape', async () => {
+  const { extractGrid } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-strip-wgs84.tif')));
+  const g = await extractGrid(buf, { variable: 'band_1' });
+  assertEq(g.width, 8); assertEq(g.height, 4);
+  assertEq(g.data.constructor, Float32Array);
+  // pixel (row=0, col=0) → f32[0] = (0%7)*0.5 + 1.25 = 1.25
+  assert(Math.abs(g.data[0] - 1.25) < 1e-5);
+  // pixel (row=3, col=7) → i=31 → (31%7)*0.5 + 1.25 = (3)*0.5 + 1.25 = 2.75
+  assert(Math.abs(g.data[3 * 8 + 7] - 2.75) < 1e-5);
+});
+
+await test('extractGrid with bbox clips correctly', async () => {
+  const { extractGrid } = await import('../lib/webparsers-api.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-strip-wgs84.tif')));
+  // Fixture bbox [10,20,18,24]. Ask for [12,21,15,23] → 3 cols × 2 rows
+  const g = await extractGrid(buf, { variable: 'band_1', bbox: [12, 21, 15, 23] });
+  assertEq(g.width, 3); assertEq(g.height, 2);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
