@@ -247,6 +247,79 @@ function fixtureF32DeflateFpStripWgs84() {
   return { bytes: buildTiff(tags, strips), expected: { W, H, f32 } };
 }
 
+// ── buildCogTiff: a real 2-IFD TIFF (full-res main + half-res overview) ─
+//
+// Layout:
+//   [ header 8B ]
+//   [ main IFD bytes (with nextIFD pointing at overview start) ]
+//   [ main externals + main tile data ]
+//   [ overview IFD bytes (nextIFD = 0) ]
+//   [ overview externals + overview tile data ]
+//
+// Builds each IFD via buildTiffWithTiles separately, then concatenates and
+// patches the main IFD's nextIFD pointer.
+function buildCogTiff(mainTags, mainTiles, overviewTags, overviewTiles) {
+  const mainBytes     = buildTiffWithTiles(mainTags, mainTiles);
+  const overviewBytes = buildTiffWithTiles(overviewTags, overviewTiles);
+
+  // Overview's internal pointers (tile offsets, external values, nextIFD)
+  // were computed as if the overview started at offset 0. After we paste it
+  // starting at `mainBytes.length`, every absolute offset inside the
+  // overview must shift by `mainBytes.length`. Walk the overview's IFD and
+  // patch tile offsets + external value offsets.
+  const shift = mainBytes.length;
+  const out = new Uint8Array(mainBytes.length + overviewBytes.length);
+  out.set(mainBytes, 0);
+  out.set(overviewBytes, mainBytes.length);
+
+  // ── Patch main's nextIFD pointer (last 4B of its IFD region) ───────────
+  // The IFD lives at offset 8 in the main file. numTags is at offset 8,
+  // then 12 bytes per tag entry, then 4-byte next-IFD pointer.
+  const dvMain = new DataView(out.buffer);
+  const mainNumTags = dvMain.getUint16(8, true);
+  const mainNextIFDOff = 10 + mainNumTags * 12;
+  dvMain.setUint32(mainNextIFDOff, mainBytes.length + 8, true);   // overview IFD starts at offset 8 in its own bytes
+
+  // ── Patch the overview's tile/external offsets to be file-absolute ────
+  // Each tag's valueOrOffset is at IFD_off + 2 + 12*i + 8 (= 10 + 12*i + 8).
+  // The overview's IFD lives at (mainBytes.length + 8) in `out`.
+  const ovIFDOff = mainBytes.length + 8;
+  const ovNumTags = dvMain.getUint16(ovIFDOff, true);
+  // For each tag, if its sz > 4, its valueOrOffset is an absolute offset.
+  // We need to shift it by `shift` so it points to the right slot in `out`.
+  for (let i = 0; i < ovNumTags; i++) {
+    const p = ovIFDOff + 2 + i * 12;
+    const type  = dvMain.getUint16(p + 2, true);
+    const count = dvMain.getUint32(p + 4, true);
+    const sz    = (TYPE_SIZE[type] || 0) * count;
+    const tag   = dvMain.getUint16(p, true);
+    if (sz > 4) {
+      const old = dvMain.getUint32(p + 8, true);
+      dvMain.setUint32(p + 8, old + shift, true);
+      // For TileOffsets (tag 324) and StripOffsets (tag 273), the VALUES
+      // themselves are file-absolute offsets — also need shifting.
+      if (tag === 324 || tag === 273) {
+        const newOff = old + shift;
+        for (let k = 0; k < count; k++) {
+          const v = dvMain.getUint32(newOff + k * 4, true);
+          dvMain.setUint32(newOff + k * 4, v + shift, true);
+        }
+      }
+    } else if (tag === 324 || tag === 273) {
+      // Single inline tile offset (rare): patch the 4-byte slot.
+      const v = dvMain.getUint32(p + 8, true);
+      dvMain.setUint32(p + 8, v + shift, true);
+    }
+  }
+
+  // Patch the overview's own nextIFD pointer to 0 (it's already 0 — but the
+  // pointer LIVES at ovIFDOff + 2 + 12*ovNumTags, so explicitly zero it for
+  // clarity in case the overview originally pointed somewhere).
+  dvMain.setUint32(ovIFDOff + 2 + ovNumTags * 12, 0, true);
+
+  return out;
+}
+
 // ── buildTiffWithTiles: like buildTiff but patches tile-offset tags ─────
 //
 // Trick: temporarily rename 324/325 → 273/279 so buildTiff treats them as
@@ -1018,6 +1091,87 @@ function fixtureF32DeflateFpTileAlbers() {
   return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, f32 } };
 }
 
+// ── Fixture (v2): real 2-IFD COG (main 16×16 + overview 8×8) ────────────
+function fixtureCogF32NoneTile2IFD() {
+  // Main: 16×16 with 8×8 tiles, uncompressed Float32.
+  const MW = 16, MH = 16, TW = 8, TL = 8;
+  const f32 = new Float32Array(MW * MH);
+  for (let i = 0; i < f32.length; i++) f32[i] = i * 0.5;
+  const tilesAcrossM = Math.ceil(MW / TW), tilesDownM = Math.ceil(MH / TL);
+  const mainTiles = [];
+  for (let ty = 0; ty < tilesDownM; ty++) {
+    for (let tx = 0; tx < tilesAcrossM; tx++) {
+      const tile = new Uint8Array(TW * TL * 4);
+      const dv = new DataView(tile.buffer);
+      for (let r = 0; r < TL; r++)
+        for (let c = 0; c < TW; c++)
+          dv.setFloat32((r * TW + c) * 4, f32[(ty * TL + r) * MW + (tx * TW + c)], true);
+      mainTiles.push(tile);
+    }
+  }
+  const mainTags = [
+    { tag: 254, type: T_LONG,  values: [0] },               // NewSubfileType = 0 (full res)
+    { tag: 256, type: T_SHORT, values: [MW] },
+    { tag: 257, type: T_SHORT, values: [MH] },
+    { tag: 258, type: T_SHORT, values: [32] },
+    { tag: 259, type: T_SHORT, values: [1] },
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 322, type: T_SHORT, values: [TW] },
+    { tag: 323, type: T_SHORT, values: [TL] },
+    { tag: 324, type: T_LONG,  values: mainTiles.map(() => 0) },
+    { tag: 325, type: T_LONG,  values: mainTiles.map(() => 0) },
+    { tag: 339, type: T_SHORT, values: [3] },
+    { tag: 33550, type: T_DOUBLE, values: [1, 1, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 0, 16, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+  ];
+
+  // Overview: 8×8 with one 8×8 tile (half resolution of main).
+  const OW = 8, OH = 8;
+  const f32o = new Float32Array(OW * OH);
+  for (let r = 0; r < OH; r++)
+    for (let c = 0; c < OW; c++)
+      // Simple 2×2 box average (would be done by the writer in real life)
+      f32o[r * OW + c] = (
+        f32[(r*2)   * MW + (c*2)]   + f32[(r*2)   * MW + (c*2+1)] +
+        f32[(r*2+1) * MW + (c*2)]   + f32[(r*2+1) * MW + (c*2+1)]) / 4;
+  const ovTile = new Uint8Array(OW * OH * 4);
+  const ovDv = new DataView(ovTile.buffer);
+  for (let i = 0; i < OW * OH; i++) ovDv.setFloat32(i * 4, f32o[i], true);
+  const overviewTiles = [ovTile];
+  const overviewTags = [
+    { tag: 254, type: T_LONG,  values: [1] },               // NewSubfileType = 1 (reduced-resolution)
+    { tag: 256, type: T_SHORT, values: [OW] },
+    { tag: 257, type: T_SHORT, values: [OH] },
+    { tag: 258, type: T_SHORT, values: [32] },
+    { tag: 259, type: T_SHORT, values: [1] },
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 322, type: T_SHORT, values: [OW] },
+    { tag: 323, type: T_SHORT, values: [OH] },
+    { tag: 324, type: T_LONG,  values: [0] },
+    { tag: 325, type: T_LONG,  values: [0] },
+    { tag: 339, type: T_SHORT, values: [3] },
+    { tag: 33550, type: T_DOUBLE, values: [2, 2, 0] },                  // 2× pixel scale (half res)
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 0, 16, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 2 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 2048, tiffTag: 0, count: 1, valueOrOffset: 4326 },
+    ]),
+  ];
+
+  return { bytes: buildCogTiff(mainTags, mainTiles, overviewTags, overviewTiles),
+           expected: { MW, MH, OW, OH, f32, f32o } };
+}
+
 // ── Fixture (v2): big-endian classic TIFF — same content as the LE u8 fixture
 function fixtureU8NoneStripWgs84BE() {
   const lhs = fixtureU8NoneStripWgs84();
@@ -1062,6 +1216,7 @@ const fixtures = {
   'synthetic-f32-deflate-fp-tile-lcc.tif': fixtureF32DeflateFpTileLcc(),
   'synthetic-f32-deflate-fp-tile-polarstereo-3413.tif': fixtureF32DeflateFpTilePolarStereo3413(),
   'synthetic-f32-deflate-fp-tile-albers.tif': fixtureF32DeflateFpTileAlbers(),
+  'synthetic-f32-none-tile-cog-2ifd-wgs84.tif': fixtureCogF32NoneTile2IFD(),
   'synthetic-f32-deflate-fp-strip-wgs84.tif': fixtureF32DeflateFpStripWgs84(),
   'synthetic-f32-deflate-fp-tile-utm15n.tif': fixtureF32DeflateFpTileUtm15N(),
   'synthetic-f32-deflate-fp-tile-sinusoidal.tif': fixtureF32DeflateFpTileSinusoidal(),
