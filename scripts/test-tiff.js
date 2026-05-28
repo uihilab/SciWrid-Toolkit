@@ -515,5 +515,32 @@ await test('Polar stereographic 3413 fixture: extract at known pixel', async () 
   assert(Math.abs(r.value - 1.0) < 1e-5, `got ${r.value}`);
 });
 
+console.log('\n[albers]');
+await test('Albers projection round-trip is accurate to <1e-6 deg', async () => {
+  const { latLonToNative, nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const geo = { kind: 'albers', sp1: 29.5, sp2: 45.5, lat0: 23, lon0: -96,
+                falseEasting: 0, falseNorthing: 0, epsg: 32767 };
+  for (const [lat, lon] of [[35, -100], [42, -90], [30, -95]]) {
+    const xy = latLonToNative({ lat, lon }, geo);
+    const back = nativeToLatLon(xy, geo);
+    assert(Math.abs(back.lat - lat) < 1e-6, `lat drift ${back.lat - lat}`);
+    assert(Math.abs(back.lon - lon) < 1e-6, `lon drift ${back.lon - lon}`);
+  }
+});
+
+await test('Albers fixture: extract at native (0,0) returns pixel (0,0) value', async () => {
+  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-albers.tif')));
+  const meta = await scan(buf);
+  assert(/Albers/i.test(meta.crs.name), 'CRS name should mention Albers');
+  // Pixel (0,0) center at native (15, -15), pixel scale 30m.
+  const geo = { kind: 'albers', sp1: 29.5, sp2: 45.5, lat0: 23, lon0: -96,
+                falseEasting: 0, falseNorthing: 0, epsg: 32767 };
+  const ll = nativeToLatLon({ x: 15, y: -15 }, geo);
+  const r = await extract(buf, { variable: 'band_1', lat: ll.lat, lon: ll.lon });
+  assert(Math.abs(r.value - 1.0) < 1e-5, `got ${r.value}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
