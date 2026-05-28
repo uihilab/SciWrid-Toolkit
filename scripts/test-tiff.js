@@ -206,5 +206,29 @@ await test('extract float32+deflate+fp at known pixel returns expected value', a
   assert(Math.abs(r2.value - 3.25) < 1e-5, `got ${r2.value}`);
 });
 
+console.log('\n[projections]');
+await test('UTM 15N round-trip is accurate to <1e-7 deg', async () => {
+  const { latLonToNative, nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const geo = { kind: 'utm', zone: 15, hemisphere: 'N', epsg: 32615 };
+  for (const [lat, lon] of [[30, -93], [45, -89], [40, -95]]) {
+    const xy = latLonToNative({ lat, lon }, geo);
+    const back = nativeToLatLon(xy, geo);
+    assert(Math.abs(back.lat - lat) < 1e-7, `lat drift ${back.lat - lat}`);
+    assert(Math.abs(back.lon - lon) < 1e-7, `lon drift ${back.lon - lon}`);
+  }
+});
+
+await test('sinusoidal round-trip near equator', async () => {
+  const { latLonToNative, nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const geo = { kind: 'sinusoidal', centralMeridianDeg: 0, falseEasting: 0,
+                falseNorthing: 0, earthRadiusM: 6371007.181, epsg: 32767 };
+  for (const [lat, lon] of [[0, 0], [10, 5], [-20, 30]]) {
+    const xy = latLonToNative({ lat, lon }, geo);
+    const back = nativeToLatLon(xy, geo);
+    assert(Math.abs(back.lat - lat) < 1e-6, `lat`);
+    assert(Math.abs(back.lon - lon) < 1e-6, `lon`);
+  }
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
