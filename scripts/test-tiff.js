@@ -327,7 +327,7 @@ await test('multiband fixture: extract returns distinct values per band', async 
 });
 
 console.log('\n[unsupported-crs]');
-await test('polar stereographic fixture throws UnsupportedCRSError with EPSG', async () => {
+await test('unsupported EPSG: scan throws UnsupportedCRSError with the EPSG', async () => {
   const { scan, UnsupportedCRSError } = await import('../lib/webparsers-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-unsupported-crs.tif')));
   let caught;
@@ -336,7 +336,7 @@ await test('polar stereographic fixture throws UnsupportedCRSError with EPSG', a
   if (!caught) throw new Error('expected scan() to throw');
   if (!(caught instanceof UnsupportedCRSError))
     throw new Error(`wrong error type: ${caught.constructor.name} ${caught.message}`);
-  assertEq(caught.epsg, 3413);
+  assertEq(caught.epsg, 5489);
 });
 
 console.log('\n[big-endian]');
@@ -467,6 +467,49 @@ await test('LCC tile fixture: extract at native (0,0) returns pixel (0,0) value'
   const geo = { kind: 'lcc', sp1: 38.5, sp2: 38.5, lat0: 38.5, lon0: -97.5,
                 falseEasting: 0, falseNorthing: 0, epsg: 32767 };
   const ll = nativeToLatLon({ x: 1500, y: -1500 }, geo);
+  const r = await extract(buf, { variable: 'band_1', lat: ll.lat, lon: ll.lon });
+  // f32[0] = 0 * 0.5 + 1.0 = 1.0
+  assert(Math.abs(r.value - 1.0) < 1e-5, `got ${r.value}`);
+});
+
+console.log('\n[polar-stereo]');
+await test('Polar stereographic round-trip (EPSG 3413, north)', async () => {
+  const { latLonToNative, nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const geo = { kind: 'polar-stereo', hemisphere: 'N', trueScaleLat: 70, lon0: -45,
+                falseEasting: 0, falseNorthing: 0, epsg: 3413 };
+  for (const [lat, lon] of [[75, -45], [80, 0], [70, 90], [85, 180]]) {
+    const xy = latLonToNative({ lat, lon }, geo);
+    const back = nativeToLatLon(xy, geo);
+    assert(Math.abs(back.lat - lat) < 1e-6, `lat drift ${back.lat - lat}`);
+    // lon wrap: ±180 collapse
+    const dLon = Math.abs(((back.lon - lon + 540) % 360) - 180);
+    assert(dLon < 1e-6, `lon drift ${dLon} (got ${back.lon}, want ${lon})`);
+  }
+});
+
+await test('Polar stereographic (south, EPSG 3031) round-trip', async () => {
+  const { latLonToNative, nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const geo = { kind: 'polar-stereo', hemisphere: 'S', trueScaleLat: -71, lon0: 0,
+                falseEasting: 0, falseNorthing: 0, epsg: 3031 };
+  for (const [lat, lon] of [[-75, 0], [-80, 90], [-71, -45]]) {
+    const xy = latLonToNative({ lat, lon }, geo);
+    const back = nativeToLatLon(xy, geo);
+    assert(Math.abs(back.lat - lat) < 1e-6, `lat drift ${back.lat - lat}`);
+    const dLon = Math.abs(((back.lon - lon + 540) % 360) - 180);
+    assert(dLon < 1e-6, `lon drift ${dLon}`);
+  }
+});
+
+await test('Polar stereographic 3413 fixture: extract at known pixel', async () => {
+  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-polarstereo-3413.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.crs.epsg, 3413);
+  // Pixel (0,0) center is at native (6250, -6250).
+  const geo = { kind: 'polar-stereo', hemisphere: 'N', trueScaleLat: 70, lon0: -45,
+                falseEasting: 0, falseNorthing: 0, epsg: 3413 };
+  const ll = nativeToLatLon({ x: 6250, y: -6250 }, geo);
   const r = await extract(buf, { variable: 'band_1', lat: ll.lat, lon: ll.lon });
   // f32[0] = 0 * 0.5 + 1.0 = 1.0
   assert(Math.abs(r.value - 1.0) < 1e-5, `got ${r.value}`);

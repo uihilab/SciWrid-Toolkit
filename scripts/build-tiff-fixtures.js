@@ -620,7 +620,7 @@ function fixtureUnsupportedCrs() {
     geoKeyDirectoryTag([
       { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 1 },        // projected
       { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
-      { keyId: 3072, tiffTag: 0, count: 1, valueOrOffset: 3413 },     // NSIDC polar stereographic
+      { keyId: 3072, tiffTag: 0, count: 1, valueOrOffset: 5489 },     // unsupported projected CRS
     ]),
   ];
   return { bytes: buildTiff(tags, [buf]) };
@@ -911,6 +911,55 @@ function fixtureF32DeflateFpTileLcc() {
   return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, f32 } };
 }
 
+// ── Fixture (v2): NSIDC polar stereographic (EPSG 3413) tile fixture ────
+function fixtureF32DeflateFpTilePolarStereo3413() {
+  const W = 8, H = 8, TW = 4, TL = 4;
+  const f32 = new Float32Array(W * H);
+  for (let i = 0; i < f32.length; i++) f32[i] = i * 0.5 + 1.0;
+  const tilesAcross = Math.ceil(W / TW), tilesDown = Math.ceil(H / TL);
+  const tiles = [];
+  for (let ty = 0; ty < tilesDown; ty++) {
+    for (let tx = 0; tx < tilesAcross; tx++) {
+      const tileBytes = new Uint8Array(TW * TL * 4);
+      const dv = new DataView(tileBytes.buffer);
+      for (let r = 0; r < TL; r++) {
+        for (let c = 0; c < TW; c++) {
+          const gr = ty * TL + r, gc = tx * TW + c;
+          dv.setFloat32((r * TW + c) * 4, f32[gr * W + gc], true);
+        }
+      }
+      applyFloatingPointPredictor(tileBytes, { width: TW, height: TL, samplesPerPixel: 1, bps: 4 });
+      tiles.push(new Uint8Array(deflateRawSync(tileBytes)));
+    }
+  }
+  // 12.5 km pixel — close to the standard 12.5 km sea-ice grid resolution.
+  // Tiepoint native (0, 0) corresponds to the pole area; pick a small image
+  // around the origin so test extraction lat/lons stay >70N (in the polar grid).
+  const tags = [
+    { tag: 256, type: T_SHORT, values: [W] },
+    { tag: 257, type: T_SHORT, values: [H] },
+    { tag: 258, type: T_SHORT, values: [32] },
+    { tag: 259, type: T_SHORT, values: [8] },
+    { tag: 262, type: T_SHORT, values: [1] },
+    { tag: 277, type: T_SHORT, values: [1] },
+    { tag: 284, type: T_SHORT, values: [1] },
+    { tag: 317, type: T_SHORT, values: [3] },
+    { tag: 322, type: T_SHORT, values: [TW] },
+    { tag: 323, type: T_SHORT, values: [TL] },
+    { tag: 324, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 325, type: T_LONG,  values: tiles.map(() => 0) },
+    { tag: 339, type: T_SHORT, values: [3] },
+    { tag: 33550, type: T_DOUBLE, values: [12500, 12500, 0] },
+    { tag: 33922, type: T_DOUBLE, values: [0, 0, 0, 0, 0, 0] },
+    geoKeyDirectoryTag([
+      { keyId: 1024, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 1025, tiffTag: 0, count: 1, valueOrOffset: 1 },
+      { keyId: 3072, tiffTag: 0, count: 1, valueOrOffset: 3413 },   // NSIDC north
+    ]),
+  ];
+  return { bytes: buildTiffWithTiles(tags, tiles), expected: { W, H, f32 } };
+}
+
 // ── Fixture (v2): big-endian classic TIFF — same content as the LE u8 fixture
 function fixtureU8NoneStripWgs84BE() {
   const lhs = fixtureU8NoneStripWgs84();
@@ -953,6 +1002,7 @@ const fixtures = {
   'synthetic-bigtiff-u8-none-strip-wgs84.tif': fixtureBigTiffU8NoneStripWgs84(),
   'synthetic-u8-packbits-strip-wgs84.tif': fixtureU8PackbitsStripWgs84(),
   'synthetic-f32-deflate-fp-tile-lcc.tif': fixtureF32DeflateFpTileLcc(),
+  'synthetic-f32-deflate-fp-tile-polarstereo-3413.tif': fixtureF32DeflateFpTilePolarStereo3413(),
   'synthetic-f32-deflate-fp-strip-wgs84.tif': fixtureF32DeflateFpStripWgs84(),
   'synthetic-f32-deflate-fp-tile-utm15n.tif': fixtureF32DeflateFpTileUtm15N(),
   'synthetic-f32-deflate-fp-tile-sinusoidal.tif': fixtureF32DeflateFpTileSinusoidal(),
