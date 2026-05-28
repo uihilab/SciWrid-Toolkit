@@ -442,5 +442,35 @@ await test('WebP decoder throws UnsupportedFormatError in Node', async () => {
     throw new Error(`expected "browser" in message: ${caught.message}`);
 });
 
+console.log('\n[lcc]');
+await test('LCC projection round-trip is accurate to <1e-7 deg', async () => {
+  const { latLonToNative, nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const geo = { kind: 'lcc', sp1: 38.5, sp2: 38.5, lat0: 38.5, lon0: -97.5,
+                falseEasting: 0, falseNorthing: 0, epsg: 32767 };
+  for (const [lat, lon] of [[35, -100], [42, -90], [38.5, -97.5]]) {
+    const xy = latLonToNative({ lat, lon }, geo);
+    const back = nativeToLatLon(xy, geo);
+    assert(Math.abs(back.lat - lat) < 1e-7, `lat drift ${back.lat - lat}`);
+    assert(Math.abs(back.lon - lon) < 1e-7, `lon drift ${back.lon - lon}`);
+  }
+});
+
+await test('LCC tile fixture: extract at native (0,0) returns pixel (0,0) value', async () => {
+  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { nativeToLatLon } = await import('../lib/tiff/projections.js');
+  const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-lcc.tif')));
+  const meta = await scan(buf);
+  assertEq(meta.crs.epsg, 32767);
+  assert(/Lambert/i.test(meta.crs.name), 'CRS name should mention Lambert');
+  // Pixel (0, 0) is at tiepoint native (0, 0) and pixel scale 3000m, so the
+  // pixel CENTER (0.5, 0.5) is at native (1500, -1500). Convert to lat/lon.
+  const geo = { kind: 'lcc', sp1: 38.5, sp2: 38.5, lat0: 38.5, lon0: -97.5,
+                falseEasting: 0, falseNorthing: 0, epsg: 32767 };
+  const ll = nativeToLatLon({ x: 1500, y: -1500 }, geo);
+  const r = await extract(buf, { variable: 'band_1', lat: ll.lat, lon: ll.lon });
+  // f32[0] = 0 * 0.5 + 1.0 = 1.0
+  assert(Math.abs(r.value - 1.0) < 1e-5, `got ${r.value}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
