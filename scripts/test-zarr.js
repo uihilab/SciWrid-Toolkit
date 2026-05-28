@@ -270,20 +270,25 @@ await test('temperature metadata: dtype, shape, _ARRAY_DIMENSIONS', async () => 
     'coord_source should be "explicit", got: ' + v.coord_source);
 });
 
-await test('scan() decodes time axis to ISO-8601 strings', async () => {
-  const v = meta.variables.find(x => x.name === 'temperature');
-  assert(v.times, 'temperature.times missing');
-  assert(Array.isArray(v.times.values), 'times.values not array');
-  assert(v.times.values.length === 2, 'expected 2 time values');
+await test('scan() decodes time axis to ISO-8601 strings (hoisted to top-level)', async () => {
+  // The Zarr fixture has only one multi-dim variable (`temperature`), so its
+  // time axis is uniform across the file — the dispatcher should hoist it to
+  // meta.times and strip the per-variable copy.
+  assert(meta.times, 'meta.times missing (hoist should have fired)');
+  assert(Array.isArray(meta.times.values), 'meta.times.values not array');
+  assert(meta.times.values.length === 2, 'expected 2 time values');
   // Fixture time array: [0, 3600] seconds since 1970 → [1970-01-01T00:00:00Z, 1970-01-01T01:00:00Z]
-  assert(v.times.values[0] === '1970-01-01T00:00:00Z',
-    `expected 1970-01-01T00:00:00Z, got ${v.times.values[0]}`);
-  assert(v.times.values[1] === '1970-01-01T01:00:00Z',
-    `expected 1970-01-01T01:00:00Z, got ${v.times.values[1]}`);
-  assert(v.times.unitsRaw === 'seconds since 1970-01-01',
-    `unitsRaw mismatch: ${v.times.unitsRaw}`);
-  assert(v.times.calendar === 'standard',
-    `calendar mismatch: ${v.times.calendar}`);
+  assert(meta.times.values[0] === '1970-01-01T00:00:00Z',
+    `expected 1970-01-01T00:00:00Z, got ${meta.times.values[0]}`);
+  assert(meta.times.values[1] === '1970-01-01T01:00:00Z',
+    `expected 1970-01-01T01:00:00Z, got ${meta.times.values[1]}`);
+  assert(meta.times.unitsRaw === 'seconds since 1970-01-01',
+    `unitsRaw mismatch: ${meta.times.unitsRaw}`);
+  assert(meta.times.calendar === 'standard',
+    `calendar mismatch: ${meta.times.calendar}`);
+  // After hoist, the variable should NOT still carry .times.
+  const t = meta.variables.find(x => x.name === 'temperature');
+  assert(!t.times, 'temperature.times should be stripped after hoist');
 });
 
 await test('CRS attrs flow through scan() into meta.variables[*].attrs', async () => {

@@ -20,10 +20,28 @@ export interface CommonOptions {
   h5wasmUrl?: string;
 }
 
+/**
+ * CF-decoded time axis. Surfaced at top-level `ScanResult.times` when every
+ * variable in the file shares the same axis; otherwise on each `VariableInfo`.
+ */
+export interface CFTimes {
+  /** ISO-8601 timestamps, one per timestep. */
+  values: string[];
+  /** Original CF `units` attribute (e.g. `"hours since 2024-01-01"`). */
+  unitsRaw: string;
+  /** Normalised calendar identifier. */
+  calendar: 'standard' | 'noleap' | '360_day';
+}
+
 export interface VariableInfo {
   index: number;
   name: string;
   supported: boolean;
+  /** Per-variable time axis. Present only when this variable's axis differs
+   *  from the file-level `ScanResult.times`, or when uniform-hoisting fails. */
+  times?: CFTimes | null;
+  /** Warnings produced while decoding this variable (e.g., unsupported calendar). */
+  warnings?: string[];
   /* GRIB2 fields */
   cat?: number;
   num?: number;
@@ -44,6 +62,8 @@ export interface ScanResult {
   total_variables: number;
   supported_variables: number;
   variable_names: string[];
+  /** File-level time axis. Present only when every multi-dim variable shares it. */
+  times?: CFTimes;
   /* GRIB2-specific */
   grid_templates?: number[];
   data_templates?: number[];

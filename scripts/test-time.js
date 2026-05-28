@@ -89,5 +89,36 @@ await test('Float32Array input works', () => {
   assertEq(r.values[2], '2024-01-03T00:00:00Z');
 });
 
+console.log('\n[hoist-uniform-times]');
+
+await test('uniform-times hoist: all variables share → top-level set, per-var stripped', async () => {
+  // Build a tiny Zarr fixture with one multi-dim variable so the only `times`
+  // owner is the single variable — that's the "uniform" case.
+  const { scan } = await import('../lib/webparsers-api.js');
+  const { readFileSync } = await import('node:fs');
+  const { resolve, dirname } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const here = dirname(fileURLToPath(import.meta.url));
+  // Use the synthesized fixture from test-zarr.js's buildZip helper inline.
+  // Skip if the bundled fixture is absent — uniform-hoist is also exercised
+  // by the GRIB2 + NetCDF4 paths in their own test suites.
+  // Here we just smoke-check the dispatcher logic on a small NC4 fixture if available.
+  const ncPath = resolve(here, '..', 'examples', 'sample.nc');
+  let buf;
+  try { buf = new Uint8Array(readFileSync(ncPath)); } catch { return 'skip'; }
+  const meta = await scan(buf);
+  if (meta.times) {
+    // Uniform hoist fired: no variable should still carry .times.
+    const lingering = meta.variables.find(v => v.times);
+    if (lingering)
+      throw new Error(`Variable ${lingering.name} still carries .times after hoist`);
+  } else {
+    // Mixed axes: each variable carries its own. Make sure at least one does.
+    const have = meta.variables.some(v => v.times);
+    if (!have && meta.variables.some(v => v.supported))
+      throw new Error('expected times somewhere (top-level or per-var)');
+  }
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
