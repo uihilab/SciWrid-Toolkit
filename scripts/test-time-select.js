@@ -154,5 +154,51 @@ await test('extractGridOutput({ date }) equals extractGridOutput({ time })', asy
   assert(g1 === gd, 'extractGridOutput date/index disagree');
 });
 
+console.log('\n[date-only range bounds]');
+await test('toEpochMsBound expands date-only to day edges', async () => {
+  const { toEpochMsBound } = await import('../lib/time-select.js');
+  assertEq(toEpochMsBound('1990-01-01', 'start'), Date.parse('1990-01-01T00:00:00Z'));
+  assertEq(toEpochMsBound('1990-01-01', 'end'),   Date.parse('1990-01-01T00:00:00Z') + 86400000 - 1);
+});
+
+await test('toEpochMsBound leaves full timestamps untouched', async () => {
+  const { toEpochMsBound } = await import('../lib/time-select.js');
+  assertEq(toEpochMsBound('1990-01-01T06:00:00Z', 'start'), Date.parse('1990-01-01T06:00:00Z'));
+});
+
+await test('resolveRangeIndices keeps every step in the window', async () => {
+  const { resolveRangeIndices } = await import('../lib/time-select.js');
+  // 3 steps across one day (06,09,12) + 1 step the next day
+  const d0 = Date.parse('2026-04-14T00:00:00Z');
+  const axis = [d0 + 6*3600e3, d0 + 9*3600e3, d0 + 12*3600e3, d0 + 86400e3 + 6*3600e3];
+  const r = resolveRangeIndices(axis, d0, d0 + 86400000 - 1); // all of 2026-04-14
+  assertEq(r.t1, 0); assertEq(r.t2, 2);
+});
+
+await test('resolveRangeIndices falls back to nearest when window is empty', async () => {
+  const { resolveRangeIndices } = await import('../lib/time-select.js');
+  const axis = [100, 200, 300];
+  const r = resolveRangeIndices(axis, 1000, 2000); // after all steps
+  assertEq(r.t1, 2); assertEq(r.t2, 2);
+});
+
+await test('extract({ dateRange: [day, day] }) covers all that-day steps', async () => {
+  if (!existsSync(gfsPath)) return 'skip';
+  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const bytes = new Uint8Array(readFileSync(gfsPath));
+  const variable = 'Pressure reduced to MSL';
+  const meta = await scan(bytes);
+  const times = (meta.times?.values) || meta.variables.find(v => v.name === variable)?.times?.values;
+  if (!times || times.length < 2) return 'skip';
+  const day = times[0].slice(0, 10); // YYYY-MM-DD of the first timestep
+  // indices on that day, from the display axis
+  let last = 0;
+  for (let i = 0; i < times.length; i++) if (times[i].slice(0, 10) === day) last = i;
+  const byRange = await extract(bytes, { variable, dateRange: [day, day] });
+  const byIdx   = await extract(bytes, { variable, t1: 0, t2: last });
+  assert(JSON.stringify(byRange) === JSON.stringify(byIdx),
+    `date-only range disagrees with t1:0,t2:${last}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

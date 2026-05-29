@@ -223,8 +223,12 @@ await extract(file, { variable: 'TMP', dateRange: ['2026-04-14T06:00:00Z', '2026
 await extractGrid(file, { variable: 'TMP', bbox, width: 256, height: 256, date: '2026-04-14T12:00:00Z' });
 ```
 
-Matching is **nearest** against the file's decoded time axis. Mixing a date
-option with an integer index for the same axis throws `WebparsersError`. For
+Matching is **nearest** against the file's decoded time axis. A `dateRange`
+bound given as a **date only** (`YYYY-MM-DD`, no time) expands to the whole UTC
+day — start → `00:00:00.000`, end → `23:59:59.999` — and every timestep inside
+the window is kept. So `dateRange: ['1990-01-01', '1990-01-01']` selects all
+timesteps on that day, no need to spell out the time. Mixing a date option with
+an integer index for the same axis throws `WebparsersError`. For
 Zarr arrays without CF time metadata the synthetic axis is `step t = t days`
 (`t·86400 s`), so a date is matched against that. Files with a single timestep
 (or no time axis) resolve any date to index 0. `slim` remains index-only.
