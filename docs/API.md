@@ -15,7 +15,7 @@ Supported formats:
 
 | Format                  | Extension(s)          | Notes                                                        |
 | ----------------------- | --------------------- | ------------------------------------------------------------ |
-| **GRIB2**               | `.grb2`, `.grib2`     | Grid templates 0, 30, 40, 101                                |
+| **GRIB2**               | `.grb2`, `.grib2`     | Grid templates 0, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → `NaN`) |
 | **NetCDF3 Classic**     | `.nc3`                | Full CF coordinate support                                   |
 | **NetCDF4 / HDF5**      | `.nc`, `.nc4`         | Uses `h5wasm` under the hood; requires Node 18+ / browser    |
 | **Zarr v2** *(zip)*     | `.zarr.zip`, `.zip`   | null / gzip / zlib compressors; synthetic axes (see below)   |
@@ -425,6 +425,9 @@ catch (e) {
 - Cross-format `slim()` bbox for GRIB2 + NetCDF3 (needs C-side accessor + WASM rebuild)
 - TIFF `DateTime` tag (306) surfaced as `meta.times` (single-snapshot timestamp)
 - Tiled GeoTIFF writer (today: single-strip)
+- GRIB2 pre-defined / previously-defined Section-6 bitmaps (indicator 1–254); only an
+  included bitmap (indicator 0) and "no bitmap" (255) decode today. Fields with a
+  bitmap return masked grid points as `NaN`.
 
 ---
 

@@ -16,7 +16,7 @@ End users do **not** need to install peer compression libraries — `h5wasm` (Ne
 
 | Format | Extensions | Notes |
 |---|---|---|
-| GRIB2 | `.grb2`, `.grib2` | Grid templates 0, 30, 40, 101 |
+| GRIB2 | `.grb2`, `.grib2` | Grid templates 0, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → `NaN`) |
 | NetCDF3 Classic | `.nc3` | Full CF coordinate support |
 | NetCDF4 / HDF5 | `.nc`, `.nc4` | Loads `h5wasm` from CDN on first use |
 | Zarr v2 (zip) | `.zip`, `.zarr` | Compressors: `null`, `gzip`, `zlib`, `blosc`, `zstd`, `lz4`. Filters (`fixedscaleoffset`, `delta`, …) not yet supported. |
