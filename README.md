@@ -36,6 +36,9 @@ const point = await extract(file, {
   variable: 'TMP', lat: 40.7, lon: -74.0, t1: 0, t2: 0,
 });
 
+// 2b. Select a timestep by date instead of index (nearest match):
+const atNoon = await extract(file, { variable: 'TMP', date: '2026-04-14T12:00:00Z' });
+
 // 3. Bounding-box grid (parallel workers, abortable, with progress)
 const grid = await extractGrid(file, {
   variable: 'TMP',
