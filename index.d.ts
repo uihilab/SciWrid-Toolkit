@@ -18,6 +18,7 @@ export type {
   ExtractGridOptions,
   ExtractGridResult,
   ExtractGridProgress,
+  DateInput,
   GridOutputFormat,
   RGB,
   RGBA,
