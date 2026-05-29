@@ -91,6 +91,10 @@ function populateVariablePicker(names) {
 function populateTimePicker(meta, variable) {
   const sel = $('time');
   sel.innerHTML = '';
+  // File-level date coverage (meta.timeRange spans all axes; present whenever
+  // the file has a time axis).
+  const tr = meta.timeRange;
+  $('time-range').textContent = tr ? `Coverage: ${tr.start} → ${tr.end}` : '';
   const v = (meta.variables || []).find(x => x.name === variable);
   const values = v?.times?.values || meta.times?.values || null;
   if (values && values.length) {
