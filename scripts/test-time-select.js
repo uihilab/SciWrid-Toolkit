@@ -77,5 +77,55 @@ await test('no time axis → kind "none"', async () => {
   assertEq(axis.kind, 'none');
 });
 
+console.log('\n[api integration: GFS fixture]');
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const gfsPath = resolve(__dirname, '..', 'examples', 'timeseries', 'gfs_timeseries.grb2');
+
+await test('extract({ date }) equals extract({ t1, t2 }) for the same step', async () => {
+  if (!existsSync(gfsPath)) return 'skip';
+  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const bytes = new Uint8Array(readFileSync(gfsPath));
+  const variable = 'Pressure reduced to MSL';
+  const meta = await scan(bytes);
+  const times = (meta.times?.values) || meta.variables.find(v => v.name === variable)?.times?.values;
+  if (!times || times.length < 2) return 'skip';
+  const byIdx  = await extract(bytes, { variable, t1: 1, t2: 1 });
+  const byDate = await extract(bytes, { variable, date: times[1] });
+  assert(JSON.stringify(byDate) === JSON.stringify(byIdx),
+    `date and index disagree:\n  date: ${JSON.stringify(byDate)}\n  idx:  ${JSON.stringify(byIdx)}`);
+});
+
+await test('extract throws when date and t1 are both given', async () => {
+  if (!existsSync(gfsPath)) return 'skip';
+  const { extract, WebparsersError } = await import('../lib/webparsers-api.js');
+  const bytes = new Uint8Array(readFileSync(gfsPath));
+  let err = null;
+  try { await extract(bytes, { variable: 'Pressure reduced to MSL', date: '2026-04-14T06:00:00Z', t1: 0 }); }
+  catch (e) { err = e; }
+  assert(err instanceof WebparsersError, `wrong/no error: ${err}`);
+});
+
+await test('extractGrid({ date }) equals extractGrid({ time }) for the same step', async () => {
+  if (!existsSync(gfsPath)) return 'skip';
+  const { scan, extractGrid } = await import('../lib/webparsers-api.js');
+  const bytes = new Uint8Array(readFileSync(gfsPath));
+  const variable = 'Pressure reduced to MSL';
+  const meta = await scan(bytes);
+  const times = (meta.times?.values) || meta.variables.find(v => v.name === variable)?.times?.values;
+  if (!times || times.length < 2) return 'skip';
+  const opts = { variable, bbox: [-100, 30, -80, 45], width: 8, height: 8 };
+  const g1 = await extractGrid(bytes, { ...opts, time: 1 });
+  const gd = await extractGrid(bytes, { ...opts, date: times[1] });
+  let same = g1.data.length === gd.data.length;
+  for (let i = 0; same && i < g1.data.length; i++) {
+    const a = g1.data[i], b = gd.data[i];
+    if (!(a === b || (Number.isNaN(a) && Number.isNaN(b)))) same = false;
+  }
+  assert(same, 'date-selected grid differs from index-selected grid');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
