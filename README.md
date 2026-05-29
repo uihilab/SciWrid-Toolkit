@@ -25,7 +25,7 @@ End users do **not** need to install peer compression libraries — `h5wasm` (Ne
 ## Quick start
 
 ```js
-import { scan, extract, extractGrid, gridToGeoTIFF, slim } from 'webparsers';
+import { scan, extract, extractGrid, gridToGeoTIFF, gridToImageData, slim } from 'webparsers';
 
 // 1. Inspect a file
 const meta = await scan(file);          // file: Uint8Array | Blob | File | URL | string
@@ -49,6 +49,17 @@ const grid = await extractGrid(file, {
 // 4. Save as Float32 WGS84 GeoTIFF
 const tiff = gridToGeoTIFF(grid);    // Uint8Array
 
+// 4b. Render it for a web map — Float32 grid → colored RGBA, ready for a
+//     <canvas> or a MapLibre ImageSource (zero-dependency, Node + browser)
+const img = gridToImageData(grid, { ramp: 'viridis' });   // { width, height, data }
+const canvas = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+canvas.getContext('2d').putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
+map.addSource('data', { type: 'image', url: canvas.toDataURL('image/png'),
+  coordinates: [[bbox[0], bbox[3]], [bbox[2], bbox[3]], [bbox[2], bbox[1]], [bbox[0], bbox[1]]] });
+map.addLayer({ id: 'data', type: 'raster', source: 'data' });
+// Need a PNG instead (server-side, <img> src)? `await gridToPNG(grid, { ramp })`.
+// Full drop-a-file MapLibre demo: examples/map-demo.html (npm run demo:web)
+
 // 5. Slim a huge file in-place — keep only what you need, same format out
 const trimmed = await slim(file, {
   variables: ['TMP', 'UGRD'],     // names from scan().variable_names
@@ -69,6 +80,8 @@ import {
   // Functional API (recommended)
   detectFormat, scan, extract, extractOutput,
   extractGrid, extractGridOutput, gridToJSON, gridToGeoTIFF,
+  gridToImageData, gridToPNG,        // map rendering: Float32 grid → RGBA / PNG
+  RAMPS, resolveRamp, sampleRamp,    // color ramps (viridis/plasma/grayscale/RdBu)
   slim,
 
   // Class API (advanced — reuse one instance across many extracts)

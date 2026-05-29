@@ -295,6 +295,9 @@ declare const _default: {
   gridToGeoTIFF: typeof gridToGeoTIFF;
   gridToImageData: typeof gridToImageData;
   gridToPNG: typeof gridToPNG;
+  RAMPS: typeof RAMPS;
+  resolveRamp: typeof resolveRamp;
+  sampleRamp: typeof sampleRamp;
   slim: typeof slim;
   WebparsersError: typeof WebparsersError;
   UnsupportedFormatError: typeof UnsupportedFormatError;

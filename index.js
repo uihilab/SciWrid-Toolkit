@@ -53,6 +53,9 @@ export {
   gridToGeoTIFF,
   gridToImageData,
   gridToPNG,
+  RAMPS,
+  resolveRamp,
+  sampleRamp,
   detectFormat,
   slim,
 } from './lib/webparsers-api.js';
