@@ -73,6 +73,9 @@ export interface ScanResult {
   variables: VariableInfo[];
 }
 
+/** A date/time accepted by `date` / `dateRange`: ISO-8601 string, Date, or epoch ms. */
+export type DateInput = string | number | Date;
+
 export interface ExtractOptions extends CommonOptions {
   /** Variable name, or array of names. If omitted, all supported vars are extracted. */
   variable?: string | string[];
@@ -81,6 +84,10 @@ export interface ExtractOptions extends CommonOptions {
   /** Time index range (inclusive). */
   t1?: number;
   t2?: number;
+  /** Select a single timestep by date (nearest match). Mutually exclusive with t1/t2. */
+  date?: DateInput;
+  /** Select a timestep range [start, end] by date (nearest match). Mutually exclusive with t1/t2. */
+  dateRange?: [DateInput, DateInput];
 }
 
 export interface TimeseriesPoint {
@@ -121,6 +128,8 @@ export interface ExtractGridOptions extends CommonOptions {
   height: number;
   /** Time index; defaults to 0. */
   time?: number;
+  /** Select the timestep by date (nearest match). Mutually exclusive with `time`. */
+  date?: DateInput;
   /** Worker pool size; defaults to 5. Pass 0 to force inline (single-threaded) extraction. */
   workers?: number;
   /** Optional abort signal. Aborting mid-flight rejects with AbortError. */
