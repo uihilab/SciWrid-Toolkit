@@ -127,5 +127,32 @@ await test('extractGrid({ date }) equals extractGrid({ time }) for the same step
   assert(same, 'date-selected grid differs from index-selected grid');
 });
 
+await test('extractOutput({ date }) equals extractOutput({ t1, t2 })', async () => {
+  if (!existsSync(gfsPath)) return 'skip';
+  const { scan, extractOutput } = await import('../lib/webparsers-api.js');
+  const bytes = new Uint8Array(readFileSync(gfsPath));
+  const variable = 'Pressure reduced to MSL';
+  const meta = await scan(bytes);
+  const times = (meta.times?.values) || meta.variables.find(v => v.name === variable)?.times?.values;
+  if (!times || times.length < 2) return 'skip';
+  const byIdx  = await extractOutput(bytes, { variable, t1: 1, t2: 1 }, 'json');
+  const byDate = await extractOutput(bytes, { variable, date: times[1] }, 'json');
+  assert(byDate === byIdx, 'extractOutput date/index disagree');
+});
+
+await test('extractGridOutput({ date }) equals extractGridOutput({ time })', async () => {
+  if (!existsSync(gfsPath)) return 'skip';
+  const { scan, extractGridOutput } = await import('../lib/webparsers-api.js');
+  const bytes = new Uint8Array(readFileSync(gfsPath));
+  const variable = 'Pressure reduced to MSL';
+  const meta = await scan(bytes);
+  const times = (meta.times?.values) || meta.variables.find(v => v.name === variable)?.times?.values;
+  if (!times || times.length < 2) return 'skip';
+  const opts = { variable, bbox: [-100, 30, -80, 45], width: 8, height: 8 };
+  const g1 = await extractGridOutput(bytes, { ...opts, time: 1 }, 'json');
+  const gd = await extractGridOutput(bytes, { ...opts, date: times[1] }, 'json');
+  assert(g1 === gd, 'extractGridOutput date/index disagree');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
