@@ -41,5 +41,41 @@ await test('ties resolve to the lower index', async () => {
   assertEq(resolveTimeIndex([0, 10], 5), 0, 'tie → lower');
 });
 
+console.log('\n[axisFromMeta]');
+await test('real CF times from variable.times.values', async () => {
+  const { axisFromMeta } = await import('../lib/time-select.js');
+  const meta = { format: 'grib2', variables: [
+    { name: 'TMP', times: { values: ['2026-04-14T06:00:00Z', '2026-04-14T12:00:00Z'] } },
+  ]};
+  const axis = axisFromMeta(meta, 'TMP');
+  assertEq(axis.kind, 'real');
+  assertEq(axis.ms.length, 2);
+  assertEq(axis.ms[0], Date.parse('2026-04-14T06:00:00Z'));
+});
+
+await test('file-level meta.times used when variable has none', async () => {
+  const { axisFromMeta } = await import('../lib/time-select.js');
+  const meta = { format: 'netcdf4', times: { values: ['2020-01-01T00:00:00Z'] },
+    variables: [{ name: 'x' }] };
+  const axis = axisFromMeta(meta, 'x');
+  assertEq(axis.kind, 'real'); assertEq(axis.ms.length, 1);
+});
+
+await test('synthetic Zarr axis = t*86400*1000 ms from shape[0]', async () => {
+  const { axisFromMeta } = await import('../lib/time-select.js');
+  const meta = { format: 'zarr', variables: [{ name: 'z', shape: [3, 4, 5] }] };
+  const axis = axisFromMeta(meta, 'z');
+  assertEq(axis.kind, 'synthetic');
+  assertEq(axis.ms.length, 3);
+  assertEq(axis.ms[2], 2 * 86400 * 1000); // 2 days
+});
+
+await test('no time axis → kind "none"', async () => {
+  const { axisFromMeta } = await import('../lib/time-select.js');
+  const meta = { format: 'tiff', variables: [{ name: 'band_1' }] };
+  const axis = axisFromMeta(meta, 'band_1');
+  assertEq(axis.kind, 'none');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
