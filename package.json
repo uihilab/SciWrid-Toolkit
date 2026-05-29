@@ -98,7 +98,8 @@
     "test:tiff": "node scripts/test-tiff.js",
     "test:tiff-range": "node scripts/test-tiff-range.js",
     "test:time": "node scripts/test-time.js",
-    "test:render": "node scripts/test-render.js"
+    "test:render": "node scripts/test-render.js",
+    "test:time-select": "node scripts/test-time-select.js"
   },
   "engines": {
     "node": ">=18"
