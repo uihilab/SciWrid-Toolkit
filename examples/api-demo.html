@@ -60,6 +60,11 @@
       <label>Lat: <input type="number" id="ex-lat" step="0.1" value="40.7" style="width:90px;"></label>
       <label>Lon: <input type="number" id="ex-lon" step="0.1" value="-74.0" style="width:90px;"></label>
     </div>
+    <div class="row">
+      <label>Date (optional, overrides time index):
+        <input type="text" id="ex-date" placeholder="e.g. 2026-04-14T12:00:00Z" style="width:230px;"></label>
+      <span class="muted">ISO-8601, nearest match. Leave blank to extract all timesteps.</span>
+    </div>
     <button id="btn-extract">extract()</button>
     <button id="btn-csv">extractOutput("csv")</button>
     <button id="btn-json">extractOutput("json")</button>
@@ -74,6 +79,7 @@
     <div class="row">
       <label>Variable: <input type="text" id="g-var" placeholder="(auto: first supported)" style="width:200px;"></label>
       <label>Time idx: <input type="number" id="g-time" step="1" min="0" value="0" style="width:70px;"></label>
+      <label>or Date: <input type="text" id="g-date" placeholder="(ISO, overrides idx)" style="width:200px;"></label>
       <label>Workers: <input type="number" id="g-workers" step="1" min="0" value="5" style="width:60px;"></label>
     </div>
     <div class="row">
@@ -204,11 +210,14 @@
       const variable = $('ex-var').value.trim()
         || (lastScan?.variables.find(v => v.supported)?.name);
       if (!variable) throw new WebparsersError('Run scan() first or type a variable name.');
-      return {
+      const opts = {
         variable,
         lat: parseFloat($('ex-lat').value),
         lon: parseFloat($('ex-lon').value),
       };
+      const date = $('ex-date').value.trim();
+      if (date !== '') opts.date = date;   // nearest timestep; overrides time index
+      return opts;
     }
 
     $('btn-extract').addEventListener('click', async () => {
@@ -271,9 +280,12 @@
         ],
         width:   parseInt($('g-width').value, 10),
         height:  parseInt($('g-height').value, 10),
-        time:    parseInt($('g-time').value, 10) || 0,
         workers: parseInt($('g-workers').value, 10),
       };
+      // Date overrides the time index (the API throws if both are passed).
+      const gDate = $('g-date').value.trim();
+      if (gDate !== '') opts.date = gDate;
+      else opts.time = parseInt($('g-time').value, 10) || 0;
       if (!(opts.bbox[2] > opts.bbox[0]) || !(opts.bbox[3] > opts.bbox[1]))
         throw new WebparsersError('bbox: max must be greater than min');
       if (!Number.isFinite(opts.width)  || opts.width  <= 0) throw new WebparsersError('width must be > 0');
