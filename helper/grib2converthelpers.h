@@ -138,6 +138,19 @@ typedef struct {
     uint8_t  extra_octets;
 } packing_t;
 
+/*
+ * Section 6 bit-map.
+ *   indicator: 0   = bit map included here (bits/nbytes valid)
+ *              255 = no bit map (all grid points present)
+ *              1-254 = pre-defined / previously-defined (unsupported)
+ * Bits are MSB-first, one per grid point, 1 = value present.
+ */
+typedef struct {
+    uint8_t        indicator;
+    const uint8_t* bits;    /* NULL unless indicator == 0 */
+    uint32_t       nbytes;  /* number of bitmap bytes available */
+} bitmap_t;
+
 /* =========================================================================
  * Function declarations
  * ======================================================================= */
@@ -164,6 +177,13 @@ int     parse_sec3_unstructured(const uint8_t* sec, uint32_t sec_len,
 int64_t parse_sec1_reftime(const uint8_t* sec, uint32_t sec_len);
 int64_t parse_sec4_forecast_offset(const uint8_t* sec, uint32_t sec_len);
 int     parse_sec5(const uint8_t* sec, uint32_t sec_len, packing_t* pk);
+
+/* Section 6 bit-map. Returns 0 on success (bm populated), -1 on malformed input. */
+int      parse_sec6(const uint8_t* sec, uint32_t sec_len, bitmap_t* bm);
+/* Test grid point i in a bit map (MSB-first). Returns 1 if present, else 0. */
+int      bitmap_get(const bitmap_t* bm, uint32_t i);
+/* Count present points over the first n grid points of a bit map. */
+uint32_t bitmap_popcount(const bitmap_t* bm, uint32_t n);
 
 /* Lambert conformal projection: compute lat/lon arrays for all grid points.
  * Caller must allocate lats[ny*nx] and lons[ny*nx]. */

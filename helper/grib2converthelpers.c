@@ -436,6 +436,50 @@ int parse_sec5(const uint8_t* sec, uint32_t sec_len, packing_t* pk) {
 }
 
 /* =========================================================================
+ * Section 6 – Bit map
+ *
+ * Layout (0-indexed from section start):
+ *   [0..3] section length   [4] section number (=6)
+ *   [5]    bit-map indicator
+ *   [6..]  bit map (1 bit per grid point, MSB-first, 1 = present)
+ *
+ * indicator: 0 = bit map included here; 255 = no bit map present;
+ *            1-254 = pre-defined / previously-defined (we don't support those).
+ * ======================================================================= */
+
+int parse_sec6(const uint8_t* sec, uint32_t sec_len, bitmap_t* bm) {
+    if (!bm) return -1;
+    bm->indicator = 255;
+    bm->bits      = NULL;
+    bm->nbytes    = 0;
+    if (sec_len < 6) return -1;           /* need length + section# + indicator */
+    bm->indicator = sec[5];
+    if (bm->indicator == 0) {
+        bm->bits   = sec + 6;
+        bm->nbytes = sec_len - 6;
+    }
+    return 0;
+}
+
+/* Test grid point i (MSB-first). Returns 1 if present, 0 otherwise. */
+int bitmap_get(const bitmap_t* bm, uint32_t i) {
+    if (!bm || !bm->bits) return 0;
+    uint32_t byte_idx = i >> 3;
+    if (byte_idx >= bm->nbytes) return 0;
+    int bit_in_byte = 7 - (int)(i & 7u);  /* MSB-first */
+    return (bm->bits[byte_idx] >> bit_in_byte) & 1u;
+}
+
+/* Count present points over the first n grid points. */
+uint32_t bitmap_popcount(const bitmap_t* bm, uint32_t n) {
+    if (!bm || !bm->bits) return 0;
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < n; i++)
+        if (bitmap_get(bm, i)) count++;
+    return count;
+}
+
+/* =========================================================================
  * parse_message – collect section offsets for one GRIB2 message.
  * msg_start..msg_end is the byte range of this message in `data`.
  * ======================================================================= */
