@@ -27,6 +27,14 @@
     #status.error { color: #ff6b6b; }
     #status.busy  { color: #ffd166; }
     #status.ok    { color: #51cf66; }
+    #sidebar button {
+      padding: 7px 10px; background: #0f3460; color: #fff; border: 1px solid #00d4ff;
+      border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;
+    }
+    #sidebar button:hover { background: #00d4ff; color: #16213e; }
+    #query { margin-top: 1rem; }
+    #q-result.ok { color: #51cf66; }
+    #q-result.error { color: #ff6b6b; }
     #legend { margin-top: 1rem; }
     #legend canvas { width: 100%; height: 14px; border: 1px solid #335; border-radius: 3px; display: block; }
     #legend .ticks { display: flex; justify-content: space-between; font-size: 10px; color: #8aa; margin-top: 2px; }
@@ -62,6 +70,21 @@
         <label>Legend</label>
         <canvas id="legend-canvas" width="256" height="14"></canvas>
         <div class="ticks"><span id="legend-min">–</span><span id="legend-max">–</span></div>
+      </div>
+
+      <div id="query" hidden>
+        <label>Point query</label>
+        <div class="muted" id="q-bounds">–</div>
+        <div style="display:flex; gap:.4rem; margin-top:.3rem;">
+          <label style="flex:1; margin:.2rem 0;">Lat (Y)
+            <input type="number" id="q-lat" step="any" style="width:100%;">
+          </label>
+          <label style="flex:1; margin:.2rem 0;">Lon (X)
+            <input type="number" id="q-lon" step="any" style="width:100%;">
+          </label>
+        </div>
+        <button id="q-btn">Query value</button>
+        <div id="q-result" class="muted" style="margin-top:.4rem;">–</div>
       </div>
 
       <div id="status" class="muted">Pick a file to begin.</div>
