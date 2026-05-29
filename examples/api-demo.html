@@ -193,10 +193,22 @@
         const tail = meta.variables.length > 21
           ? `\n\n…and ${meta.variables.length - 21} more.` : '';
         const lines = head.map(v => `  [${String(v.index).padStart(2)}] ${JSON.stringify(v)}`);
+        // Time coverage: the shared axis is hoisted to meta.times (and per-var
+        // `times` removed); meta.timeRange spans the whole file.
+        let timeBlock = '';
+        if (meta.timeRange) {
+          const n = meta.times?.values?.length;
+          timeBlock =
+            `Time range:          ${meta.timeRange.start}  →  ${meta.timeRange.end}\n` +
+            (n ? `Timesteps:           ${n}` +
+                 (meta.times.unitsRaw ? `  (${meta.times.unitsRaw})` : '') + `\n` : '') +
+            `\n`;
+        }
         out.textContent =
           `Format:              ${meta.format}\n` +
           `Total variables:     ${meta.total_variables}\n` +
-          `Supported variables: ${meta.supported_variables}\n\n` +
+          `Supported variables: ${meta.supported_variables}\n` +
+          timeBlock + `\n` +
           `Variables [0]..[${Math.min(20, meta.variables.length - 1)}]:\n\n` +
           lines.join('\n') + tail;
       } catch (e) {
