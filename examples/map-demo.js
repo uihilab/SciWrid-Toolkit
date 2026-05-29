@@ -13,6 +13,7 @@ const $ = (id) => document.getElementById(id);
 let map;
 let lastScan   = null;
 let lastSource = null;
+let boundsAssumed = false; // true when the file exposes no real bbox (GRIB2/NetCDF/Zarr)
 let renderToken = 0;   // bumped each refresh; stale worker responses are discarded
 
 /* ── render worker ──────────────────────────────────────────────────────── */
@@ -174,11 +175,14 @@ $('file').addEventListener('change', async (e) => {
   setStatus('Scanning…', 'busy');
   try {
     lastScan = await scan(file);
-    if (!lastScan.bbox) {
-      // Some readers expose bbox on variables; fall back to a sensible default.
-      lastScan.bbox = lastScan.bbox || [-180, -90, 180, 90];
-    }
+    // TIFF exposes a real bbox from the file's geokeys. GRIB2/NetCDF/Zarr do
+    // not surface geographic bounds to JS, so we fall back to global and flag
+    // the bounds as assumed.
+    const hasBbox = Array.isArray(lastScan.bbox) && lastScan.bbox.length === 4;
+    boundsAssumed = !hasBbox;
+    if (!hasBbox) lastScan.bbox = [-180, -90, 180, 90];
     populateVariablePicker(lastScan.variable_names || []);
+    updateQueryUI();
     fitMapToBbox(lastScan.bbox);
     await refreshLayer();
   } catch (err) {
@@ -187,8 +191,73 @@ $('file').addEventListener('change', async (e) => {
   }
 });
 
-$('variable').addEventListener('change', refreshLayer);
+$('variable').addEventListener('change', () => { updateQueryUI(); refreshLayer(); });
 $('ramp').addEventListener('change', refreshLayer);
+
+/* ── point query (lat/lon inputs bounded by the variable's extent) ──────── */
+// bbox is [minLon, minLat, maxLon, maxLat]. For TIFF these are real file
+// bounds (in the file CRS); for other formats they're the assumed global box.
+function variableBounds() {
+  const b = lastScan?.bbox ?? [-180, -90, 180, 90];
+  return { minLon: b[0], minLat: b[1], maxLon: b[2], maxLat: b[3], assumed: boundsAssumed };
+}
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// Populate the bounds readout and constrain the lat/lon inputs to the extent.
+function updateQueryUI() {
+  if (!lastScan) return;
+  const { minLon, minLat, maxLon, maxLat, assumed } = variableBounds();
+  $('query').hidden = false;
+  $('q-bounds').textContent =
+    `Lat ${fmtNum(minLat)} … ${fmtNum(maxLat)}  ·  Lon ${fmtNum(minLon)} … ${fmtNum(maxLon)}` +
+    (assumed ? '  (assumed — file exposes no bounds)' : '');
+  const latIn = $('q-lat'), lonIn = $('q-lon');
+  latIn.min = minLat; latIn.max = maxLat;
+  lonIn.min = minLon; lonIn.max = maxLon;
+  // Default to the center of the extent if empty / now out of range.
+  if (latIn.value === '' || +latIn.value < minLat || +latIn.value > maxLat)
+    latIn.value = ((minLat + maxLat) / 2).toFixed(3);
+  if (lonIn.value === '' || +lonIn.value < minLon || +lonIn.value > maxLon)
+    lonIn.value = ((minLon + maxLon) / 2).toFixed(3);
+  $('q-result').textContent = '–';
+  $('q-result').className = 'muted';
+}
+
+// Run a point query and show the value in the sidebar (+ optional map popup).
+async function doPointQuery(lat, lon, { popup = false } = {}) {
+  const variable = $('variable').value;
+  if (!lastSource || !variable) return;
+  const b = variableBounds();
+  lat = clamp(lat, b.minLat, b.maxLat);
+  lon = clamp(lon, b.minLon, b.maxLon);
+  $('q-lat').value = lat; $('q-lon').value = lon;
+  const res = $('q-result');
+  res.textContent = 'Querying…'; res.className = 'muted';
+  try {
+    const r = await extract(lastSource, { variable, lat, lon });
+    const { value, when } = pickValue(r);
+    if (value == null) {
+      res.textContent = 'no data at this location'; res.className = 'muted';
+    } else {
+      res.textContent = `${variable} = ${fmtNum(value)}` + (when ? `  @ ${when}` : '');
+      res.className = 'ok';
+    }
+    if (popup) {
+      const body = value == null ? 'no data here'
+        : `${fmtNum(value)}${when ? `<br><span style="opacity:.7;font-size:11px">@ ${when}</span>` : ''}`;
+      new maplibregl.Popup().setLngLat([lon, lat])
+        .setHTML(`<strong>${variable}</strong><br>${body}`).addTo(map);
+    }
+  } catch (err) {
+    res.textContent = 'Error: ' + err.message; res.className = 'error';
+    console.error(err);
+  }
+}
+
+$('q-btn').addEventListener('click', () => {
+  doPointQuery(parseFloat($('q-lat').value), parseFloat($('q-lon').value), { popup: true });
+});
 
 /* Normalize an extract() result to a single representative value.
  * Point queries return a top-level `value`; multi-timestep files return a
@@ -204,25 +273,9 @@ function pickValue(r) {
 }
 
 /* ── click-to-query ─────────────────────────────────────────────────────── */
+// Clicking the map fills the lat/lon inputs and runs the same point query.
 function attachClickQuery() {
-  map.on('click', async (e) => {
-    if (!lastSource) return;
-    const variable = $('variable').value;
-    if (!variable) return;
-    try {
-      const r = await extract(lastSource, { variable, lat: e.lngLat.lat, lon: e.lngLat.lng });
-      const { value, when } = pickValue(r);
-      const body = value == null
-        ? 'no data at this location'
-        : `${fmtNum(value)}${when ? `<br><span style="opacity:.7;font-size:11px">@ ${when}</span>` : ''}`;
-      new maplibregl.Popup()
-        .setLngLat(e.lngLat)
-        .setHTML(`<strong>${variable}</strong><br>${body}`)
-        .addTo(map);
-    } catch (err) {
-      console.error(err);
-    }
-  });
+  map.on('click', (e) => doPointQuery(e.lngLat.lat, e.lngLat.lng, { popup: true }));
 }
 
 /* ── boot ───────────────────────────────────────────────────────────────── */
