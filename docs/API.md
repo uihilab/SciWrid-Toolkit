@@ -428,6 +428,89 @@ catch (e) {
 
 ---
 
+## Map rendering
+
+Turn a `Float32` grid from `extractGrid` into something a web map can draw: a
+colored RGBA buffer or a PNG. Both helpers are **zero-dependency** and work in
+Node and the browser. They are format-agnostic — every reader produces the same
+`ExtractGridResult`, so the same render path covers GRIB2, NetCDF3/4, Zarr, and
+TIFF/COG.
+
+### Color ramps
+
+Built-in ramps: `viridis`, `plasma`, `grayscale`, and `RdBu` (diverging, for
+anomalies / temperatures). Pass a built-in name **or** a custom array of
+`[t, [r, g, b]]` stops (`t ∈ [0, 1]`, RGB are 0..255). Interpolation is linear
+in RGB.
+
+```js
+import { RAMPS, resolveRamp, sampleRamp } from 'webparsers';
+
+sampleRamp(resolveRamp('viridis'), 0.5);          // → [38, 130, 142]
+const custom = [[0, [0, 0, 0]], [1, [255, 0, 0]]]; // black → red
+sampleRamp(custom, 0.5);                           // → [128, 0, 0]
+```
+
+### `gridToImageData(grid, opts?)`
+
+Float32 grid → RGBA bytes ready for a `<canvas>` or a MapLibre `ImageSource`.
+
+```js
+gridToImageData(grid, {
+  ramp: 'viridis',          // built-in name or custom Ramp array (default 'viridis')
+  vmin, vmax,               // optional — defaults to the grid's finite min/max
+  nodataColor: [0, 0, 0, 0],// RGBA for NaN cells (default: transparent)
+});
+// → { width, height, data: Uint8ClampedArray }
+```
+
+The value range is auto-computed from the finite values (NaN/Infinity ignored).
+NaN cells are painted with `nodataColor`. In a browser, wrap the result:
+`new ImageData(data, width, height)`.
+
+### `gridToPNG(grid, opts?)`
+
+Same options as `gridToImageData`, but returns a PNG (`Promise<Uint8Array>`) —
+8-bit RGBA, no interlace. Uses `node:zlib` in Node and `CompressionStream` in
+the browser, with no extra dependency.
+
+```js
+import { extractGrid, gridToPNG } from 'webparsers';
+import { writeFileSync } from 'node:fs';
+
+const grid = await extractGrid(file, { variable: '2t', bbox, width: 512, height: 512 });
+writeFileSync('temp.png', await gridToPNG(grid, { ramp: 'RdBu' }));
+```
+
+`extractGridOutput(source, options, format)` also accepts `'imagedata'` and
+`'png'` in addition to `'json'` and `'geotiff'`.
+
+### Full pipeline → MapLibre `ImageSource`
+
+```js
+import { extractGrid, gridToImageData } from 'webparsers';
+
+const grid = await extractGrid(file, { variable, bbox, width: 1024, height: 1024 });
+const img  = gridToImageData(grid, { ramp: 'viridis' });
+
+const canvas = document.createElement('canvas');
+canvas.width = img.width; canvas.height = img.height;
+canvas.getContext('2d').putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
+
+map.addSource('data', {
+  type: 'image',
+  url: canvas.toDataURL('image/png'),
+  coordinates: [[bbox[0], bbox[3]], [bbox[2], bbox[3]], [bbox[2], bbox[1]], [bbox[0], bbox[1]]],
+});
+map.addLayer({ id: 'data', type: 'raster', source: 'data', paint: { 'raster-opacity': 0.75 } });
+```
+
+A complete drop-a-file demo (basemap, variable picker, click-to-query, Web
+Worker offload) lives at [`examples/map-demo.html`](../examples/map-demo.html).
+Run it with `npm run demo:web`.
+
+---
+
 ## Class-based API (`WebParsers`)
 
 For cases where you need to reuse a single loaded file across multiple queries:
