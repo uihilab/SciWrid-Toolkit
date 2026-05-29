@@ -86,7 +86,9 @@ export interface ExtractOptions extends CommonOptions {
   t2?: number;
   /** Select a single timestep by date (nearest match). Mutually exclusive with t1/t2. */
   date?: DateInput;
-  /** Select a timestep range [start, end] by date (nearest match). Mutually exclusive with t1/t2. */
+  /** Select a timestep range [start, end] by date. A date-only bound
+   *  (`YYYY-MM-DD`) expands to the whole UTC day, keeping every step inside the
+   *  window. Mutually exclusive with t1/t2. */
   dateRange?: [DateInput, DateInput];
 }
 
