@@ -348,7 +348,12 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
             continue;
         uint32_t npts = (msgs[i].sec5_len >= 9)
                         ? be32(data + msgs[i].sec5_off + 5) : 0;
-        if (npts == ref_npts)
+        /* Full field: Section-5 point count == grid size. Bitmapped field:
+         * the count is the number of *present* (unmasked) points (< grid), so
+         * accept when a Section 6 bitmap is present and let the per-step decode
+         * validate it against the bitmap. */
+        int has_bitmap = (msgs[i].sec6_off != 0);
+        if (npts == ref_npts || has_bitmap)
             sel[sel_cnt++] = i;
     }
 
@@ -434,14 +439,61 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
             return NULL;
         }
 
-        if (pk.num_pts != n_pts) {
-            free(sel); free(lats); free(lons); free(times);
-            free(all_data); free(chunk);
-            return NULL;
+        /* Section 6 bit map (if present in the stream) tells us which grid
+         * points carry a value; the rest are missing → NaN. */
+        bitmap_t bm;
+        bm.indicator = 255; bm.bits = NULL; bm.nbytes = 0;
+        if (m->sec6_off != 0) {
+            uint32_t sec6_len = be32(data + m->sec6_off);
+            parse_sec6(data + m->sec6_off, sec6_len, &bm);
         }
 
-        if (decode_sec7(data + m->sec7_off, (uint32_t)m->sec7_len,
-                        &pk, chunk) != 0) {
+        if (bm.indicator == 255) {
+            /* No bit map: every grid point is present. */
+            if (pk.num_pts != n_pts) {
+                free(sel); free(lats); free(lons); free(times);
+                free(all_data); free(chunk);
+                return NULL;
+            }
+            if (decode_sec7(data + m->sec7_off, (uint32_t)m->sec7_len,
+                            &pk, chunk) != 0) {
+                free(sel); free(lats); free(lons); free(times);
+                free(all_data); free(chunk);
+                return NULL;
+            }
+        } else if (bm.indicator == 0) {
+            /* Bit map present: decode only the present points, then scatter
+             * them onto the full grid with NaN in the masked cells. */
+            uint32_t present = bitmap_popcount(&bm, n_pts);
+            if (pk.num_pts != present) {
+                free(sel); free(lats); free(lons); free(times);
+                free(all_data); free(chunk);
+                return NULL;
+            }
+            if (present == 0) {
+                for (uint32_t i = 0; i < n_pts; i++) chunk[i] = NAN;
+            } else {
+                float* present_vals = (float*)malloc((size_t)present * sizeof(float));
+                if (!present_vals) {
+                    free(sel); free(lats); free(lons); free(times);
+                    free(all_data); free(chunk);
+                    return NULL;
+                }
+                if (decode_sec7(data + m->sec7_off, (uint32_t)m->sec7_len,
+                                &pk, present_vals) != 0) {
+                    free(present_vals);
+                    free(sel); free(lats); free(lons); free(times);
+                    free(all_data); free(chunk);
+                    return NULL;
+                }
+                uint32_t next = 0;
+                for (uint32_t i = 0; i < n_pts; i++)
+                    chunk[i] = bitmap_get(&bm, i) ? present_vals[next++] : NAN;
+                free(present_vals);
+            }
+        } else {
+            /* Pre-defined / previously-defined bit map (indicator 1-254):
+             * not supported. */
             free(sel); free(lats); free(lons); free(times);
             free(all_data); free(chunk);
             return NULL;
