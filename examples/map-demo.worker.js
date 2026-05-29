@@ -13,9 +13,9 @@ import { extractGrid, gridToImageData } from '../index.js';
 import { autoRange } from '../lib/render/index.js';
 
 self.onmessage = async (e) => {
-  const { requestId, source, variable, bbox, width, height, ramp } = e.data;
+  const { requestId, source, variable, bbox, width, height, ramp, time } = e.data;
   try {
-    const grid = await extractGrid(source, { variable, bbox, width, height, workers: 0 });
+    const grid = await extractGrid(source, { variable, bbox, width, height, workers: 0, time });
     const range = autoRange(grid.data);
     const image = gridToImageData(grid, { ramp });
     self.postMessage({ requestId, image, range }, [image.data.buffer]);

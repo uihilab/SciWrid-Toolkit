@@ -14,6 +14,7 @@ let map;
 let lastScan   = null;
 let lastSource = null;
 let boundsAssumed = false; // true when the file exposes no real bbox (GRIB2/NetCDF/Zarr)
+let timeAxis = null;   // { kind, values } for the active variable; values are display labels
 let renderToken = 0;   // bumped each refresh; stale worker responses are discarded
 
 /* ── render worker ──────────────────────────────────────────────────────── */
@@ -85,6 +86,35 @@ function populateVariablePicker(names) {
   sel.disabled = names.length === 0;
 }
 
+/* ── time picker ────────────────────────────────────────────────────────── */
+// Fill the time <select>. Real CF times → ISO labels; synthetic/none → indices.
+function populateTimePicker(meta, variable) {
+  const sel = $('time');
+  sel.innerHTML = '';
+  const v = (meta.variables || []).find(x => x.name === variable);
+  const values = v?.times?.values || meta.times?.values || null;
+  if (values && values.length) {
+    timeAxis = { kind: 'real', values };
+    values.forEach((iso, i) => {
+      const o = document.createElement('option'); o.value = String(i); o.textContent = iso;
+      sel.appendChild(o);
+    });
+    sel.disabled = values.length < 2;
+  } else {
+    // Synthetic/none: expose integer timesteps. Derive count from shape[0] if present.
+    const shape = Array.isArray(v?.shape) ? v.shape
+      : (typeof v?.shape === 'string' ? v.shape.split(/[,\sx]+/).filter(Boolean).map(Number) : null);
+    const nt = (shape && shape.length >= 3 && shape[0] > 0) ? shape[0] : 1;
+    timeAxis = { kind: 'index', values: null };
+    for (let i = 0; i < nt; i++) {
+      const o = document.createElement('option'); o.value = String(i); o.textContent = `step ${i}`;
+      sel.appendChild(o);
+    }
+    sel.disabled = nt < 2;
+  }
+  sel.value = '0';
+}
+
 /* ── legend ─────────────────────────────────────────────────────────────── */
 function drawLegend(rampName, vmin, vmax) {
   const wrap = $('legend');
@@ -141,8 +171,9 @@ async function refreshLayer() {
   }
   setStatus('Rendering…', 'busy');
   try {
+    const time = parseInt($('time').value, 10) || 0;
     const { image: img, range } = await renderInWorker(token, {
-      source: lastSource, variable, bbox, width: px, height: py, ramp,
+      source: lastSource, variable, bbox, width: px, height: py, ramp, time,
     });
     if (token !== renderToken) return; // a newer refresh superseded us
 
@@ -182,6 +213,7 @@ $('file').addEventListener('change', async (e) => {
     boundsAssumed = !hasBbox;
     if (!hasBbox) lastScan.bbox = [-180, -90, 180, 90];
     populateVariablePicker(lastScan.variable_names || []);
+    populateTimePicker(lastScan, $('variable').value);
     updateQueryUI();
     fitMapToBbox(lastScan.bbox);
     await refreshLayer();
@@ -191,7 +223,12 @@ $('file').addEventListener('change', async (e) => {
   }
 });
 
-$('variable').addEventListener('change', () => { updateQueryUI(); refreshLayer(); });
+$('variable').addEventListener('change', () => {
+  populateTimePicker(lastScan, $('variable').value);
+  updateQueryUI();
+  refreshLayer();
+});
+$('time').addEventListener('change', refreshLayer);
 $('ramp').addEventListener('change', refreshLayer);
 
 /* ── point query (lat/lon inputs bounded by the variable's extent) ──────── */
@@ -235,7 +272,8 @@ async function doPointQuery(lat, lon, { popup = false } = {}) {
   const res = $('q-result');
   res.textContent = 'Querying…'; res.className = 'muted';
   try {
-    const r = await extract(lastSource, { variable, lat, lon });
+    const time = parseInt($('time').value, 10) || 0;
+    const r = await extract(lastSource, { variable, lat, lon, t1: time, t2: time });
     const { value, when } = pickValue(r);
     if (value == null) {
       res.textContent = 'no data at this location'; res.className = 'muted';
