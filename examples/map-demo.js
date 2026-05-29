@@ -190,6 +190,19 @@ $('file').addEventListener('change', async (e) => {
 $('variable').addEventListener('change', refreshLayer);
 $('ramp').addEventListener('change', refreshLayer);
 
+/* Normalize an extract() result to a single representative value.
+ * Point queries return a top-level `value`; multi-timestep files return a
+ * `timeseries` array — we show time index 0 to match the rendered layer. */
+function pickValue(r) {
+  if (!r) return { value: null, when: '' };
+  if (r.value != null) return { value: r.value, when: '' };
+  if (Array.isArray(r.timeseries) && r.timeseries.length) {
+    const first = r.timeseries[0];
+    return { value: first.value, when: first.time ?? '' };
+  }
+  return { value: null, when: '' };
+}
+
 /* ── click-to-query ─────────────────────────────────────────────────────── */
 function attachClickQuery() {
   map.on('click', async (e) => {
@@ -198,10 +211,13 @@ function attachClickQuery() {
     if (!variable) return;
     try {
       const r = await extract(lastSource, { variable, lat: e.lngLat.lat, lon: e.lngLat.lng });
-      const val = r && r.value;
+      const { value, when } = pickValue(r);
+      const body = value == null
+        ? 'no data at this location'
+        : `${fmtNum(value)}${when ? `<br><span style="opacity:.7;font-size:11px">@ ${when}</span>` : ''}`;
       new maplibregl.Popup()
         .setLngLat(e.lngLat)
-        .setHTML(`<strong>${variable}</strong><br>${val == null ? 'out of bounds' : Number(val).toFixed(4)}`)
+        .setHTML(`<strong>${variable}</strong><br>${body}`)
         .addTo(map);
     } catch (err) {
       console.error(err);
