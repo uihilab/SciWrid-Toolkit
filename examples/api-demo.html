@@ -61,10 +61,12 @@
       <label>Lon: <input type="number" id="ex-lon" step="0.1" value="-74.0" style="width:90px;"></label>
     </div>
     <div class="row">
-      <label>Date (optional, overrides time index):
-        <input type="text" id="ex-date" placeholder="e.g. 2026-04-14T12:00:00Z" style="width:230px;"></label>
-      <span class="muted">ISO-8601, nearest match. Leave blank to extract all timesteps.</span>
+      <label>Start date: <input type="text" id="ex-start" placeholder="e.g. 2026-04-14 or …T12:00:00Z" style="width:210px;"></label>
+      <label>End date: <input type="text" id="ex-end" placeholder="(optional)" style="width:170px;"></label>
     </div>
+    <div class="row"><span class="muted">
+      ISO-8601 or <code>YYYY-MM-DD</code> (date-only covers the whole day). Both → range; one → nearest. Blank → all timesteps. Overrides time index.
+    </span></div>
     <button id="btn-extract">extract()</button>
     <button id="btn-csv">extractOutput("csv")</button>
     <button id="btn-json">extractOutput("json")</button>
@@ -227,8 +229,12 @@
         lat: parseFloat($('ex-lat').value),
         lon: parseFloat($('ex-lon').value),
       };
-      const date = $('ex-date').value.trim();
-      if (date !== '') opts.date = date;   // nearest timestep; overrides time index
+      const start = $('ex-start').value.trim();
+      const end   = $('ex-end').value.trim();
+      // Both → dateRange (day-expanded if date-only); one → nearest single date.
+      if (start && end) opts.dateRange = [start, end];
+      else if (start)   opts.date = start;
+      else if (end)     opts.date = end;
       return opts;
     }
 
