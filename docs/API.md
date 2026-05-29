@@ -190,6 +190,8 @@ Decode one or more variables. Returns a structured JS object.
 | `variable`   | `string \| string[]` | Name(s) from `scan`. Omit → all supported vars.   |
 | `lat`, `lon` | `number`             | Nearest-grid-point lookup. Omit for whole grid.   |
 | `t1`, `t2`   | `number`             | Time-index range (inclusive). Default: all.       |
+| `date`       | `string \| number \| Date` | Single timestep by date (nearest match). Mutually exclusive with `t1`/`t2`. |
+| `dateRange`  | `[start, end]`       | Timestep range by date (nearest start/end). Mutually exclusive with `t1`/`t2`. |
 
 ```js
 // Single variable, single point
@@ -206,6 +208,26 @@ const multi = await extract(file, {
   t1: 0, t2: 5,
 });
 ```
+
+### Selecting timesteps by date
+
+Instead of integer `t1`/`t2` (extract) or `time` (extractGrid), pass a date —
+an ISO-8601 string, a `Date`, or epoch milliseconds:
+
+```js
+// nearest timestep to a date
+await extract(file, { variable: 'TMP', date: '2026-04-14T12:00:00Z' });
+// a date range → nearest start/end indices
+await extract(file, { variable: 'TMP', dateRange: ['2026-04-14T06:00:00Z', '2026-04-14T18:00:00Z'] });
+// single timestep for a grid
+await extractGrid(file, { variable: 'TMP', bbox, width: 256, height: 256, date: '2026-04-14T12:00:00Z' });
+```
+
+Matching is **nearest** against the file's decoded time axis. Mixing a date
+option with an integer index for the same axis throws `WebparsersError`. For
+Zarr arrays without CF time metadata the synthetic axis is `step t = t days`
+(`t·86400 s`), so a date is matched against that. Files with a single timestep
+(or no time axis) resolve any date to index 0. `slim` remains index-only.
 
 ---
 
