@@ -27,6 +27,10 @@ export interface CommonOptions {
 export interface CFTimes {
   /** ISO-8601 timestamps, one per timestep. */
   values: string[];
+  /** First timestamp (= values[0]). Added by scan(). */
+  start?: string;
+  /** Last timestamp (= values[values.length - 1]). Added by scan(). */
+  end?: string;
   /** Original CF `units` attribute (e.g. `"hours since 2024-01-01"`). */
   unitsRaw: string;
   /** Normalised calendar identifier. */
@@ -64,6 +68,9 @@ export interface ScanResult {
   variable_names: string[];
   /** File-level time axis. Present only when every multi-dim variable shares it. */
   times?: CFTimes;
+  /** Overall time coverage across the whole file: earliest start, latest end
+   *  (ISO-8601). Present when the file has any time axis. */
+  timeRange?: { start: string; end: string };
   /* GRIB2-specific */
   grid_templates?: number[];
   data_templates?: number[];
