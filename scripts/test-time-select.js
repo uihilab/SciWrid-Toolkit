@@ -200,5 +200,21 @@ await test('extract({ dateRange: [day, day] }) covers all that-day steps', async
     `date-only range disagrees with t1:0,t2:${last}`);
 });
 
+console.log('\n[scan timeRange]');
+await test('scan() exposes timeRange + per-axis start/end', async () => {
+  if (!existsSync(gfsPath)) return 'skip';
+  const { scan } = await import('../lib/webparsers-api.js');
+  const meta = await scan(new Uint8Array(readFileSync(gfsPath)));
+  assert(meta.timeRange && meta.timeRange.start && meta.timeRange.end, 'timeRange missing');
+  assert(meta.timeRange.start <= meta.timeRange.end, 'start should be <= end');
+  // per-variable axes carry start/end matching their values bounds
+  const v = meta.variables.find(x => x.times && x.times.values?.length);
+  if (v) {
+    assertEq(v.times.start, v.times.values[0], 'axis start');
+    assertEq(v.times.end, v.times.values[v.times.values.length - 1], 'axis end');
+    assert(meta.timeRange.start <= v.times.start, 'file start ≤ any axis start');
+  }
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

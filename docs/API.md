@@ -164,6 +164,18 @@ meta.times;
 meta.variables[0].times;
 ```
 
+Each time axis also carries convenience `start` / `end` (first and last
+timestamp), and `scan()` adds a file-level **`timeRange`** spanning the whole
+file — the earliest start and latest end across every axis:
+
+```js
+meta.timeRange;          // { start: '2026-04-14T06:00:00Z', end: '2026-04-14T12:00:00Z' }
+meta.variables[0].times.start;  // first timestep of that variable
+```
+
+`timeRange` is present whenever the file has any time axis (even when times are
+per-variable rather than hoisted to `meta.times`).
+
 Supported calendars: `standard` (a.k.a. `gregorian`, `proleptic_gregorian`),
 `noleap` (a.k.a. `365_day`), and `360_day`. Unsupported calendars degrade
 gracefully — `times` is omitted and a warning is added to the affected
