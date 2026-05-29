@@ -318,6 +318,43 @@ await test('extractGrid throws VariableNotFoundError for bogus variable', async 
   assert(threw, 'expected VariableNotFoundError');
 });
 
+/* ---- Test 10: Section-6 bitmap support (bitmapped GRIB2 fields) ---- */
+// "Snowfall rate" in the GFS fixture is stored with a Section-6 bitmap (only
+// present points encoded, the rest masked). Before bitmap support, decode
+// returned null → ExtractError. After: present cells decode, masked → NaN.
+const BITMAP_VAR = 'Snowfall rate';
+const hasBitmapVar = fixture.format === 'grib2' &&
+  Array.isArray(meta?.variable_names) && meta.variable_names.includes(BITMAP_VAR);
+
+await test('bitmapped field (Snowfall rate) extracts without error', async () => {
+  if (!hasBitmapVar) return 'skip';
+  const r = await extract(bytes, { ...wf, variable: BITMAP_VAR, lat: 60, lon: 100 });
+  assert(r && (r.value != null || Array.isArray(r.timeseries)),
+    'expected a value or timeseries, got ' + JSON.stringify(r));
+});
+
+await test('bitmapped field grid has both finite and NaN cells', async () => {
+  if (!hasBitmapVar) return 'skip';
+  const g = await extractGrid(bytes, {
+    ...wf, variable: BITMAP_VAR, bbox: [-180, -90, 180, 90], width: 64, height: 32,
+  });
+  let finite = 0, nan = 0;
+  for (const v of g.data) { if (Number.isFinite(v)) finite++; else nan++; }
+  assert(finite > 0, 'expected some finite (present) cells, got none');
+  assert(nan > 0, 'expected some NaN (masked) cells, got none');
+});
+
+await test('non-bitmapped field (pressure) grid stays all-finite (regression)', async () => {
+  const PRESSURE = 'Pressure reduced to MSL';
+  if (fixture.format !== 'grib2' || !meta?.variable_names?.includes(PRESSURE)) return 'skip';
+  const g = await extractGrid(bytes, {
+    ...wf, variable: PRESSURE, bbox: [-180, -90, 180, 90], width: 64, height: 32,
+  });
+  let nan = 0;
+  for (const v of g.data) if (!Number.isFinite(v)) nan++;
+  assert(nan === 0, `pressure grid should be all-finite, found ${nan} NaN cells`);
+});
+
 /* ---- Summary ---- */
 console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped`);
 process.exit(failed > 0 ? 1 : 0);
