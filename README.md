@@ -19,7 +19,7 @@ End users do **not** need to install peer compression libraries — `h5wasm` (Ne
 | GRIB2 | `.grb2`, `.grib2` | Grid templates 0, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → `NaN`) |
 | NetCDF3 Classic | `.nc3` | Full CF coordinate support |
 | NetCDF4 / HDF5 | `.nc`, `.nc4` | Loads `h5wasm` from CDN on first use |
-| Zarr v2 (zip) | `.zip`, `.zarr` | Compressors: `null`, `gzip`, `zlib`, `blosc`, `zstd`, `lz4`. Filters (`fixedscaleoffset`, `delta`, …) not yet supported. |
+| Zarr v2 (zip) | `.zip`, `.zarr` | Compressors: `null`, `gzip`, `zlib`, `blosc`, `zstd`, `lz4`. Filters: `shuffle` only (`fixedscaleoffset`, `delta`, … not yet supported). |
 | TIFF / GeoTIFF | `.tif`, `.tiff` | UInt8/UInt16/Int16/Float32; LZW + Deflate; horizontal + floating-point predictors; WGS84 / UTM / sinusoidal; strip + tile; **COG over HTTP Range** (scan/extract only read the IFD + needed tile). |
 
 ## Quick start
@@ -92,7 +92,7 @@ import {
 
   // Typed errors (all extend WebparsersError)
   WebparsersError, UnsupportedFormatError, VariableNotFoundError,
-  SourceError, ExtractError, SlimError,
+  SourceError, ExtractError, SlimError, UnsupportedCRSError,
 } from 'webparsers';
 ```
 
@@ -108,32 +108,81 @@ webparsers/
 │   ├── webparsers-lib.js   class implementation
 │   ├── webparsers-api.js   functional API
 │   ├── webparsers-api.d.ts TypeScript types
-│   ├── zarr-helper.js      Zarr v2 reader
-│   └── grid-output.js      GeoTIFF / JSON serialisers
+│   ├── errors.js           typed error classes
+│   ├── grid-output.js      GeoTIFF / JSON serialisers
+│   ├── render/             color ramps + Float32 grid → RGBA / PNG
+│   ├── slim/               in-place file trimming (per-format)
+│   ├── tiff/               TIFF / GeoTIFF reader (+ COG over HTTP Range)
+│   ├── zarr/               Zarr v2 reader (zip, compressors, filters)
+│   ├── kerchunk/           Kerchunk / reference-store reader
+│   ├── time-decoder.js     CF time-axis decoding
+│   └── time-select.js      date → nearest timestep selection
 ├── wasm/               ← WASM artifacts + C build (internal)
-│   ├── webparsers.wasm     compiled C core (~91 KB)
+│   ├── webparsers.wasm     compiled C core (~193 KB)
 │   ├── webparsers.js       Emscripten loader
 │   ├── wasm_api.c          C bindings
 │   └── build.py            build script
 ├── worker/             ← Web Worker for parallel bbox extraction
-├── examples/           ← demoGrib2File.js, demoZarrFile.js, api-demo.html
-├── scripts/            ← test:api, test:grid, test:zarr, demo:web
+├── examples/           ← api-demo.html, map-demo.html, library-usage.html, testfile/
+├── scripts/            ← serve.js + test-*.js / demo-*.js runners
 ├── docs/               ← API.md
-└── formats/            ← C sources for the WASM build (GRIB2, NetCDF)
+└── formats/            ← C sources for the WASM build (GRIB2, NetCDF, Zarr, …)
 ```
 
 ## Run the demos
 
 ```bash
-npm run demo:web        # serves examples/api-demo.html on localhost
+npm run demo:web        # serves examples/ on localhost (api-demo, map-demo, library-usage)
 npm run demo:grib2      # CLI: scan + extract a sample GRIB2 file
+npm run demo:netcdf3    # CLI: scan + extract a sample NetCDF3 file
+npm run demo:netcdf4    # CLI: scan + extract a sample NetCDF4 file
 npm run demo:zarr       # CLI: scan + extract a sample Zarr file
-npm run test:zarr       # smoke tests for the Zarr path
-npm run test:grid       # smoke tests for extractGrid
-npm run test:slim       # smoke tests for slim() across all four formats
 ```
 
-The `demo:web` page lets you drop a `.grb2`, `.nc`, or `.zip`/`.zarr` file in directly and run `scan` / `extract` / `extractGrid` interactively (heat-map canvas, progress, abort, GeoTIFF / JSON download).
+CLI demo scripts live under `examples/testfile/`.
+
+Smoke tests:
+
+```bash
+npm run test:api        # functional API
+npm run test:grid       # extractGrid (parallel bbox)
+npm run test:zarr       # Zarr path
+npm run test:tiff       # TIFF / GeoTIFF
+npm run test:tiff-range # COG over HTTP Range
+npm run test:slim       # slim() across all formats
+npm run test:time       # CF time-axis decoding
+npm run test:time-select# date → nearest-timestep selection
+npm run test:render     # color ramps + gridToImageData / gridToPNG
+npm run test:kerchunk   # Kerchunk reference store
+```
+
+The `demo:web` server hosts several pages:
+- **`api-demo.html`** — drop a `.grb2` / `.nc` / `.zip`/`.zarr` / `.tif` file and run `scan` / `extract` / `extractGrid` interactively (heat-map canvas, progress, abort, GeoTIFF / JSON download).
+- **`map-demo.html`** — drop a file and render it on a MapLibre map (date coverage in the sidebar).
+- **`library-usage.html`** — minimal copy-paste usage example.
+
+## Current state
+
+### ✅ Working
+- **GRIB2** — grid templates 0, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → `NaN`).
+- **NetCDF3 Classic** — full CF coordinate support.
+- **NetCDF4 / HDF5** — via lazy-loaded `h5wasm`.
+- **Zarr v2 (zip)** — compressors `null`, `gzip`, `zlib`, `blosc`, `zstd`, `lz4`.
+- **TIFF / GeoTIFF** — UInt8/16, Int16, Float32; LZW + Deflate; horizontal + floating-point predictors; WGS84 / UTM / sinusoidal; strip + tile; **COG over HTTP Range**.
+- **Point + bbox extraction** — `extract`, `extractGrid` (parallel workers, abortable, progress).
+- **CF time axis** — decode timesteps; select a timestep by `date` (nearest match); `timeRange` / per-axis start–end exposed by `scan`.
+- **Output** — `gridToGeoTIFF`, `gridToJSON`, `gridToImageData` / `gridToPNG` (viridis / plasma / grayscale / RdBu ramps).
+- **`slim()`** — in-place file trimming across GRIB2 / NetCDF3 / NetCDF4 / Zarr.
+
+### ⚠️ Not yet supported
+- Zarr filters (`fixedscaleoffset`, `delta`, …).
+- Zarr v3.
+
+## Roadmap
+
+### Sprint 7 — `api-demo` UX + large-file testing
+1. **Improve the `api-demo` UX** so users can comfortably test the library end-to-end — clearer scan/extract flows, better feedback, and easier inspection of results.
+2. **Heavy testing on large files** — exercise the existing pipeline (streaming scan, COG HTTP Range reads, parallel `extractGrid`, `slim`) against big real-world inputs to validate performance and memory behavior.
 
 ## Building the WASM
 
