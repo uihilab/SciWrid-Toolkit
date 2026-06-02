@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>webparsers — map demo (drop any file, see it on a map)</title>
+
+  <!-- MapLibre GL JS via CDN — no npm install required for demo users. -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+  <style>
+    html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+    #app { display: flex; height: 100%; }
+    #sidebar {
+      width: 280px; flex: 0 0 280px; padding: 1rem; box-sizing: border-box;
+      background: #16213e; color: #e0e0e0; overflow-y: auto;
+    }
+    #sidebar h1 { font-size: 1.1rem; color: #00d4ff; margin: 0 0 .25rem; }
+    #sidebar .muted { color: #8aa; font-size: 11px; line-height: 1.4; }
+    #sidebar label { display: block; margin: .75rem 0 .2rem; font-size: 12px; color: #00d4ff; }
+    #sidebar select, #sidebar input[type=file] {
+      width: 100%; box-sizing: border-box; padding: 6px; background: #0f3460;
+      color: #fff; border: 1px solid #335; border-radius: 4px; font-family: inherit;
+    }
+    #status { margin-top: .75rem; font-size: 12px; min-height: 1.2em; }
+    #status.error { color: #ff6b6b; }
+    #status.busy  { color: #ffd166; }
+    #status.ok    { color: #51cf66; }
+    #sidebar button {
+      padding: 7px 10px; background: #0f3460; color: #fff; border: 1px solid #00d4ff;
+      border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;
+    }
+    #sidebar button:hover { background: #00d4ff; color: #16213e; }
+    #query { margin-top: 1rem; }
+    #q-result.ok { color: #51cf66; }
+    #q-result.error { color: #ff6b6b; }
+    #legend { margin-top: 1rem; }
+    #legend canvas { width: 100%; height: 14px; border: 1px solid #335; border-radius: 3px; display: block; }
+    #legend .ticks { display: flex; justify-content: space-between; font-size: 10px; color: #8aa; margin-top: 2px; }
+    #map { flex: 1; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <h1>webparsers map demo</h1>
+      <p class="muted">
+        Drop any supported file (GRIB2, NetCDF3/4, Zarr-zip, TIFF/COG), pick a
+        variable, and see it overlaid on a real basemap. Click the map to read
+        the underlying value.
+      </p>
+
+      <label for="file">File</label>
+      <input type="file" id="file"
+             accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
+
+      <label for="variable">Variable</label>
+      <select id="variable" disabled></select>
+
+      <label for="time">Time</label>
+      <select id="time" disabled></select>
+      <div id="time-range" class="muted"></div>
+
+      <label for="ramp">Color ramp</label>
+      <select id="ramp">
+        <option value="viridis">viridis</option>
+        <option value="plasma">plasma</option>
+        <option value="grayscale">grayscale</option>
+        <option value="RdBu">RdBu (diverging)</option>
+      </select>
+
+      <div id="legend" hidden>
+        <label>Legend</label>
+        <canvas id="legend-canvas" width="256" height="14"></canvas>
+        <div class="ticks"><span id="legend-min">–</span><span id="legend-max">–</span></div>
+      </div>
+
+      <div id="query" hidden>
+        <label>Point query</label>
+        <div class="muted" id="q-bounds">–</div>
+        <div style="display:flex; gap:.4rem; margin-top:.3rem;">
+          <label style="flex:1; margin:.2rem 0;">Lat (Y)
+            <input type="number" id="q-lat" step="any" style="width:100%;">
+          </label>
+          <label style="flex:1; margin:.2rem 0;">Lon (X)
+            <input type="number" id="q-lon" step="any" style="width:100%;">
+          </label>
+        </div>
+        <button id="q-btn">Query value</button>
+        <div id="q-result" class="muted" style="margin-top:.4rem;">–</div>
+      </div>
+
+      <div id="status" class="muted">Pick a file to begin.</div>
+    </aside>
+
+    <div id="map"></div>
+  </div>
+
+  <script type="module" src="./map-demo.js"></script>
+</body>
+</html>

@@ -21,6 +21,30 @@ const char* grib2_get_variable_name(uint16_t category, uint16_t number) {
     }
   }
   
+  /* Category 1: Moisture (WMO standard) */
+  if (category == 1) {
+    switch (number) {
+      case 0:  return "Specific humidity";
+      case 1:  return "Relative humidity";
+      case 2:  return "Humidity mixing ratio";
+      case 3:  return "Precipitable water";
+      case 4:  return "Vapor pressure";
+      case 7:  return "Precipitation rate";
+      case 8:  return "Total precipitation";
+      case 9:  return "Large scale precipitation";
+      case 10: return "Convective precipitation";
+      case 11: return "Snowfall rate";
+      case 12: return "Snow depth";
+      case 22: return "Precipitable water category";
+      case 23: return "Hail";
+      case 24: return "Graupel";
+      case 25: return "Freezing rain";
+      case 32: return "Percent frozen precipitation";
+      case 52: return "Total snowfall";
+      default: return "Moisture (unknown)";
+    }
+  }
+
   /* Category 2: Momentum */
   if (category == 2) {
     switch (number) {

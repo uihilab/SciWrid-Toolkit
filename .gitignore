@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# VS Code
+.vscode/
+
+# Claude Code / agent harness footprint — never commit
+.claude/
+
+# Build artifacts
+*.exe
+*.o
+*.obj
+
+# Normalized data output
+data/*.refs.json
+data/*.bin
+data/*.json
+data/*_query.json
+
+# Large example/test data
+examples/timeseries/*.grb2
