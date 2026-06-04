@@ -442,6 +442,39 @@ await test('NetCDF4: unknown variable → VariableNotFoundError', async () => {
   assert(err instanceof VariableNotFoundError);
 });
 
+await test('NetCDF4: data-var-only slim auto-keeps coords (re-scan + extract)', async () => {
+  if (!nc4) return 'skip';
+  /* Slim asking for ONLY the data variable - no coords. Before the fix this
+   * dropped lat/lon/time and the variable became unsupported on re-scan. */
+  const r = await slim(nc4.bytes, { variables: ['tas'] });
+  const m = await scan(r.bytes);
+  const v = m.variables.find(x => x.name === 'tas');
+  assert(v && v.supported === true,
+    'tas should be supported after slim, got ' + JSON.stringify(v));
+  assert(!!m.times, 'time axis should survive the slim');
+  /* Values must match the original extract exactly (no axis/index drift). */
+  const orig    = await extract(nc4.bytes, { variable: 'tas', lat: 35, lon: -95 });
+  const slimmed = await extract(r.bytes,   { variable: 'tas', lat: 35, lon: -95 });
+  const a = JSON.stringify(orig.timeseries?.map(p => p.value));
+  const b = JSON.stringify(slimmed.timeseries?.map(p => p.value));
+  assert(a === b, `slimmed values must match original: orig=${a} slim=${b}`);
+});
+
+await test('NetCDF4: auto-coord keep does not resurrect dropped data vars', async () => {
+  if (!nc4) return 'skip';
+  const r = await slim(nc4.bytes, { variables: ['tas'] });
+  const dbg = `_slim_dbg_${Date.now()}.nc`;
+  nc4.FS.writeFile(dbg, r.bytes);
+  const f = new nc4.h5.File(dbg, 'r');
+  const keys = f.keys();
+  assert(keys.includes('tas'), 'tas kept');
+  assert(keys.includes('lat') && keys.includes('lon') && keys.includes('time'),
+    'coords auto-kept; got keys: ' + JSON.stringify(keys));
+  assert(!keys.includes('height'),
+    'height (2-D data var, not requested) must stay dropped; got ' + JSON.stringify(keys));
+  f.close(); nc4.FS.unlink(dbg);
+});
+
 await test('NetCDF4: bbox clips lat/lon dims of data variables', async () => {
   if (!nc4) return 'skip';
   // Source lat = [30, 35, 40, 45] (NY=4), lon = [-100, -95, -90, -85, -80, -75] (NX=6).
