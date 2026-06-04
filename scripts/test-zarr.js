@@ -675,6 +675,38 @@ await test('parseDtype: <i8 / <u8 decode to numeric Float64 view', async () => {
   assert(uo[0] === 0 && uo[1] === 42, 'u8 decode wrong: ' + Array.from(uo).join(','));
 });
 
+await test('parseDtype: <U3 string dtype maps to synthetic numeric positions', async () => {
+  const { parseDtype } = await import('../lib/zarr/metadata.js');
+
+  const dt = parseDtype('<U3');
+  assert(dt.bytes === 12, 'U3 element size should be 12 bytes, got ' + dt.bytes);
+  assert(dt.stringLike === true, 'U3 should be marked stringLike');
+  const raw = new Uint8Array(2 * 12);
+  const out = dt.view(raw, 0, 2);
+  assert(out instanceof Float64Array, 'U3 view should be Float64Array');
+  assert(out[0] === 0 && out[1] === 1, 'U3 synthetic positions wrong: ' + Array.from(out).join(','));
+});
+
+await test('readArrayAsFloat32: <U3 string array returns synthetic index axis', async () => {
+  const { _readArrayAsFloat32 } = await import('../lib/zarr-helper.js');
+  const issue = {
+    name: 'issue',
+    meta: {
+      zarr_format: 2, shape: [4], chunks: [2], dtype: '<U3',
+      compressor: null, fill_value: null, order: 'C', filters: null,
+      dimension_separator: '.',
+    },
+    attrs: { _ARRAY_DIMENSIONS: ['issue'] },
+  };
+  const source = {
+    async getChunkBytes() { return new Uint8Array(2 * 12); },
+  };
+  const out = await _readArrayAsFloat32({ source, arrays: [issue] }, issue);
+  assert(out instanceof Float32Array, 'U3 reader should return Float32Array');
+  assert(Array.from(out).join(',') === '0,1,2,3',
+    'U3 synthetic axis wrong: ' + Array.from(out).join(','));
+});
+
 await test('scan() decodes an <i8 (int64) time axis', async () => {
   const i8Bytes = (arr) => {
     const u = new Uint8Array(arr.length * 8);
