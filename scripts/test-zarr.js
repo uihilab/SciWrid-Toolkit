@@ -653,5 +653,111 @@ await test('real-world Zarr slice: DiskChunkSource → readArrayAsFloat32 round-
   await scanFree(scanResult);
 });
 
+/* ---------------- int64 (i8/u8) dtype support ---------------- */
+
+await test('parseDtype: <i8 / <u8 decode to numeric Float64 view', async () => {
+  const { parseDtype } = await import('../lib/zarr/metadata.js');
+
+  const dtI = parseDtype('<i8');
+  assert(dtI.bytes === 8, 'i8 element size should be 8, got ' + dtI.bytes);
+  const iv = new Uint8Array(3 * 8);
+  new BigInt64Array(iv.buffer).set([0n, 1n, 7305n]);
+  const io = dtI.view(iv, 0, 3);
+  assert(io instanceof Float64Array, 'i8 view should be Float64Array, got ' + io.constructor.name);
+  assert(io[0] === 0 && io[1] === 1 && io[2] === 7305,
+    'i8 decode wrong: ' + Array.from(io).join(','));
+
+  const dtU = parseDtype('<u8');
+  const uv = new Uint8Array(2 * 8);
+  new BigUint64Array(uv.buffer).set([0n, 42n]);
+  const uo = dtU.view(uv, 0, 2);
+  assert(uo instanceof Float64Array, 'u8 view should be Float64Array');
+  assert(uo[0] === 0 && uo[1] === 42, 'u8 decode wrong: ' + Array.from(uo).join(','));
+});
+
+await test('scan() decodes an <i8 (int64) time axis', async () => {
+  const i8Bytes = (arr) => {
+    const u = new Uint8Array(arr.length * 8);
+    new BigInt64Array(u.buffer).set(arr.map((n) => BigInt(n)));
+    return u;
+  };
+  const entries = [
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 't2m/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [2, 1, 1], chunks: [2, 1, 1], dtype: '<f4',
+        compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.' }) },
+    { name: 't2m/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['time', 'lat', 'lon'], units: 'K' }) },
+    { name: 't2m/0.0.0', bytes: f32Bytes([280, 281]) },
+    { name: 'time/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [2], chunks: [2], dtype: '<i8',
+        compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.' }) },
+    { name: 'time/.zattrs', bytes: jsonBytes({
+        _ARRAY_DIMENSIONS: ['time'], units: 'days since 1990-01-01', calendar: 'proleptic_gregorian' }) },
+    { name: 'time/0', bytes: i8Bytes([0, 1]) },
+    { name: 'lat/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [1], chunks: [1], dtype: '<f4',
+        compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.' }) },
+    { name: 'lat/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lat'], units: 'degrees_north' }) },
+    { name: 'lat/0', bytes: f32Bytes([0]) },
+    { name: 'lon/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [1], chunks: [1], dtype: '<f4',
+        compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.' }) },
+    { name: 'lon/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lon'], units: 'degrees_east' }) },
+    { name: 'lon/0', bytes: f32Bytes([0]) },
+  ];
+  const m = await scan(buildZip(entries), wf);
+  assert(m.times && Array.isArray(m.times.values),
+    'meta.times missing - i8 time decode failed: ' + JSON.stringify(m.times));
+  assert(m.times.values[0] === '1990-01-01T00:00:00Z', 'day0 wrong: ' + m.times.values[0]);
+  assert(m.times.values[1] === '1990-01-02T00:00:00Z', 'day1 wrong: ' + m.times.values[1]);
+});
+
+/* ---------------- Resilient coords: unsupported coord dtype -> synthetic ----
+ * Mirrors the real sample-zarr store: data var [time, issue] is <i4, the
+ * time axis is <i8, and the issue axis is <U3 (UCS4 strings, unsupported).
+ * extract() must not crash - int64 time decodes, and the string axis falls
+ * back to an index axis. --------------------------------------------------- */
+await test('extract on int64-time + string-coord store does not crash', async () => {
+  const NT = 4, NI = 2;
+  const i4Bytes = (arr) => {
+    const u = new Uint8Array(arr.length * 4);
+    new Int32Array(u.buffer).set(arr);
+    return u;
+  };
+  const i8Bytes = (arr) => {
+    const u = new Uint8Array(arr.length * 8);
+    new BigInt64Array(u.buffer).set(arr.map((n) => BigInt(n)));
+    return u;
+  };
+
+  const entries = [
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 'AA/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [NT, NI], chunks: [NT, NI], dtype: '<i4',
+        compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.' }) },
+    { name: 'AA/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['time', 'issue'] }) },
+    { name: 'AA/0.0', bytes: i4Bytes([0, 1, 2, 3, 4, 5, 6, 7]) },
+    { name: 'time/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [NT], chunks: [NT], dtype: '<i8',
+        compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.' }) },
+    { name: 'time/.zattrs', bytes: jsonBytes({
+        _ARRAY_DIMENSIONS: ['time'], units: 'days since 1990-01-01', calendar: 'proleptic_gregorian' }) },
+    { name: 'time/0', bytes: i8Bytes([0, 1, 2, 3]) },
+    { name: 'issue/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [NI], chunks: [NI], dtype: '<U3',
+        compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.' }) },
+    { name: 'issue/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['issue'] }) },
+    { name: 'issue/0', bytes: new Uint8Array(NI * 3 * 4) },
+  ];
+
+  const zip = buildZip(entries);
+  let err, r;
+  try { r = await extract(zip, { ...wf, variable: 'AA', lat: 0, lon: 0, t1: 0, t2: 0 }); }
+  catch (e) { err = e; }
+  assert(!err, 'extract should not throw; got ' + (err && err.message));
+  const v = pickScalar(r);
+  assert(v != null, 'expected a numeric value, got ' + JSON.stringify(r).slice(0, 200));
+});
+
 console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped`);
 process.exit(failed > 0 ? 1 : 0);
