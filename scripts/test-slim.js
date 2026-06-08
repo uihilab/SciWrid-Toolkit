@@ -430,6 +430,38 @@ await test('Zarr (deflated): drop a var -> output re-reads via scan', async () =
   assert(!m.variable_names.includes('precip'), 'precip dropped');
 });
 
+await test('Zarr (deflated): bbox slice keeps a lat/lon window and re-reads', async () => {
+  const dataMeta = {
+    zarr_format: 2, shape: [2, 4, 4], chunks: [2, 2, 2],
+    dtype: '<f4', compressor: null, fill_value: null, order: 'C', filters: null,
+    dimension_separator: '.',
+  };
+  const coordMeta = (n) => ({
+    zarr_format: 2, shape: [n], chunks: [n], dtype: '<f4',
+    compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.',
+  });
+  const f32 = (vals) => { const u = new Uint8Array(vals.length * 4); new Float32Array(u.buffer).set(vals); return u; };
+  const chunk = (seed) => { const u = new Uint8Array(2*2*2*4); const a = new Float32Array(u.buffer); for (let k=0;k<a.length;k++) a[k]=seed+k; return u; };
+  const fx = buildZipDeflate([
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 'lat/.zarray', bytes: jsonBytes(coordMeta(4)) },
+    { name: 'lat/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lat'] }) },
+    { name: 'lat/0', bytes: f32([30, 10, -10, -30]) },
+    { name: 'lon/.zarray', bytes: jsonBytes(coordMeta(4)) },
+    { name: 'lon/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lon'] }) },
+    { name: 'lon/0', bytes: f32([0, 30, 60, 90]) },
+    { name: 'temperature/.zarray', bytes: jsonBytes(dataMeta) },
+    { name: 'temperature/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['time','lat','lon'] }) },
+    { name: 'temperature/0.0.0', bytes: chunk(0) },
+    { name: 'temperature/0.0.1', bytes: chunk(100) },
+    { name: 'temperature/0.1.0', bytes: chunk(200) },
+    { name: 'temperature/0.1.1', bytes: chunk(300) },
+  ]);
+  const r = await slim(fx, { variables: ['temperature'], bbox: [0, 0, 30, 30] });
+  const m = await scan(r.bytes);
+  assert(m.variable_names.includes('temperature'), 'temperature present after bbox slim');
+});
+
 await test('Zarr: unknown variable → VariableNotFoundError', async () => {
   const fx = buildZarrFixture();
   let err;
