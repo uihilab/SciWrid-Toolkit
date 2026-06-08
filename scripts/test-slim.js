@@ -189,7 +189,7 @@ async function buildNC4Fixture() {
 
   const tArr = new Float64Array(NT);
   for (let i=0;i<NT;i++) tArr[i] = i*3600;
-  const tds = f.create_dataset({ name:'time', data:tArr, shape:[NT], dtype:'<f8' });
+  const tds = f.create_dataset({ name:'time', data:tArr, shape:[NT], dtype:'<f8', chunks:[NT] });
   tds.create_attribute('units', 'seconds since 2025-01-01');
 
   const lat = new Float32Array(NY);
