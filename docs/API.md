@@ -325,6 +325,10 @@ Per-format strategy:
 | **Zarr** (zip) | Filter zip entries by var + chunk; re-zip         | No      |
 | **NetCDF4**  | Open with h5wasm; copy selected datasets to new file | Partial (HDF5 re-frames B-trees) |
 
+Zarr slim accepts both stored and DEFLATE-compressed `.zip` entries; the
+slimmed output is itself a valid Zarr zip that `scan`/`extract` can read back.
+Data chunks are passed through verbatim (no re-encode).
+
 ```js
 import { slim } from 'webparsers';
 
