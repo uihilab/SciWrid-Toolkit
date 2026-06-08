@@ -105,6 +105,7 @@
     "demo:web": "node scripts/serve.js",
     "build:wasm": "python wasm/build.py",
     "build:tiff-fixtures": "node scripts/build-tiff-fixtures.js",
+    "build:zarr-fixture": "node scripts/build-zarr-fixture.js",
     "test:api": "node scripts/test-api.js",
     "test:grid": "node scripts/test-grid.js",
     "test:zarr": "node scripts/test-zarr.js",

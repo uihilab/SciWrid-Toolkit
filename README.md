@@ -140,6 +140,8 @@ npm run demo:zarr       # CLI: scan + extract a sample Zarr file
 ```
 
 CLI demo scripts live under `examples/testfile/`.
+Use `npm run build:zarr-fixture` to regenerate the rich deflated Zarr fixture
+at `examples/testfile/sample-zarr-rich.zarr.zip`.
 
 Smoke tests:
 
