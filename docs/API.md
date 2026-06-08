@@ -328,6 +328,13 @@ Per-format strategy:
 Zarr slim accepts both stored and DEFLATE-compressed `.zip` entries; the
 slimmed output is itself a valid Zarr zip that `scan`/`extract` can read back.
 Data chunks are passed through verbatim (no re-encode).
+When `slim()` slices a Zarr store along time or a bbox, the matching 1-D
+coordinate arrays (`time`/`lat`/`lon`) are decoded and re-sliced to the same
+extent so the output's axes stay consistent and re-read correctly. Limitations:
+coordinate arrays that are multi-chunk or zarr-compressed are kept at full
+length (a warning is emitted); byte-cut slicing widens to chunk boundaries, so a
+store whose spatial chunks span the whole dimension will not shrink along
+lat/lon.
 
 ```js
 import { slim } from 'webparsers';
