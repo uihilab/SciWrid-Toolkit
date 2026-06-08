@@ -462,6 +462,71 @@ await test('Zarr (deflated): bbox slice keeps a lat/lon window and re-reads', as
   assert(m.variable_names.includes('temperature'), 'temperature present after bbox slim');
 });
 
+await test('Zarr (deflated): time slice shortens the time coord to match data', async () => {
+  const f64 = (vals) => { const u = new Uint8Array(vals.length*8); new Float64Array(u.buffer).set(vals); return u; };
+  const tMeta = {
+    zarr_format: 2, shape: [4, 2, 2], chunks: [2, 2, 2], dtype: '<f4',
+    compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.',
+  };
+  const timeMeta = {
+    zarr_format: 2, shape: [4], chunks: [4], dtype: '<f8',
+    compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.',
+  };
+  const c0 = (() => { const u=new Uint8Array(8*4); new Float32Array(u.buffer).set([1,2,3,4,5,6,7,8]); return u; })();
+  const c1 = (() => { const u=new Uint8Array(8*4); new Float32Array(u.buffer).set([9,10,11,12,13,14,15,16]); return u; })();
+  const fx = buildZipDeflate([
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 'time/.zarray', bytes: jsonBytes(timeMeta) },
+    { name: 'time/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['time'], units: 'seconds since 1970-01-01' }) },
+    { name: 'time/0', bytes: f64([100, 200, 300, 400]) },
+    { name: 'temperature/.zarray', bytes: jsonBytes(tMeta) },
+    { name: 'temperature/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['time','lat','lon'], units: 'K' }) },
+    { name: 'temperature/0.0.0', bytes: c0 },
+    { name: 'temperature/1.0.0', bytes: c1 },
+  ]);
+  const r = await slim(fx, { variables: ['temperature'], t1: 0, t2: 1 });
+  const m = await scan(r.bytes);
+  const tvar  = m.variables.find(v => v.name === 'temperature');
+  const tcoord = m.variables.find(v => v.name === 'time');
+  assert(tvar.shape[0] === 2, `temperature time dim should be 2, got ${tvar.shape[0]}`);
+  assert(tcoord.shape[0] === 2, `time coord should be re-sliced to 2, got ${tcoord.shape[0]}`);
+});
+
+await test('Zarr (deflated): bbox slice shortens lat/lon coords to match data', async () => {
+  const f32 = (vals) => { const u = new Uint8Array(vals.length*4); new Float32Array(u.buffer).set(vals); return u; };
+  const dMeta = {
+    zarr_format: 2, shape: [1, 4, 4], chunks: [1, 2, 2], dtype: '<f4',
+    compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.',
+  };
+  const cMeta = (n) => ({
+    zarr_format: 2, shape: [n], chunks: [n], dtype: '<f4',
+    compressor: null, fill_value: null, order: 'C', filters: null, dimension_separator: '.',
+  });
+  const chunk = (seed) => { const u = new Uint8Array(1*2*2*4); const a = new Float32Array(u.buffer); for (let k=0;k<a.length;k++) a[k]=seed+k; return u; };
+  const fx = buildZipDeflate([
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 'lat/.zarray', bytes: jsonBytes(cMeta(4)) },
+    { name: 'lat/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lat'], units: 'degrees_north' }) },
+    { name: 'lat/0', bytes: f32([30, 10, -10, -30]) },
+    { name: 'lon/.zarray', bytes: jsonBytes(cMeta(4)) },
+    { name: 'lon/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lon'], units: 'degrees_east' }) },
+    { name: 'lon/0', bytes: f32([0, 30, 60, 90]) },
+    { name: 'temperature/.zarray', bytes: jsonBytes(dMeta) },
+    { name: 'temperature/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['time','lat','lon'] }) },
+    { name: 'temperature/0.0.0', bytes: chunk(0) },
+    { name: 'temperature/0.0.1', bytes: chunk(100) },
+    { name: 'temperature/0.1.0', bytes: chunk(200) },
+    { name: 'temperature/0.1.1', bytes: chunk(300) },
+  ]);
+  const r = await slim(fx, { variables: ['temperature'], bbox: [0, 0, 30, 30] });
+  const m = await scan(r.bytes);
+  const tvar = m.variables.find(v => v.name === 'temperature');
+  const lat  = m.variables.find(v => v.name === 'lat');
+  const lon  = m.variables.find(v => v.name === 'lon');
+  assert(lat.shape[0] === tvar.shape[1], `lat (${lat.shape[0]}) must match temperature lat dim (${tvar.shape[1]})`);
+  assert(lon.shape[0] === tvar.shape[2], `lon (${lon.shape[0]}) must match temperature lon dim (${tvar.shape[2]})`);
+});
+
 await test('Zarr: unknown variable → VariableNotFoundError', async () => {
   const fx = buildZarrFixture();
   let err;
