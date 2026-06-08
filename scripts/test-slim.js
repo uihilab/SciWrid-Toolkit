@@ -22,6 +22,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { deflateRawSync } from 'node:zlib';
 
 import {
   scan, extract, slim,
@@ -130,6 +131,39 @@ function buildZip(entries) {
     cdv.setUint16(28, nb.length, true); cdv.setUint32(42, off, true); cd.set(nb, 46);
     cdParts.push(cd);
     off += lh.length + bytes.length;
+  }
+  const cdSize = cdParts.reduce((s, c) => s + c.length, 0);
+  const eocd = new Uint8Array(22); const edv = new DataView(eocd.buffer);
+  edv.setUint32(0, 0x06054b50, true); edv.setUint16(8, entries.length, true);
+  edv.setUint16(10, entries.length, true); edv.setUint32(12, cdSize, true);
+  edv.setUint32(16, off, true);
+  const out = new Uint8Array(off + cdSize + 22); let p = 0;
+  for (const x of localParts) { out.set(x, p); p += x.length; }
+  for (const x of cdParts)    { out.set(x, p); p += x.length; }
+  out.set(eocd, p);
+  return out;
+}
+
+/* Like buildZip but DEFLATEs every entry (ZIP method 8), mirroring common
+ * Zarr ZipStore / zip -r / Compress-Archive output. */
+function buildZipDeflate(entries) {
+  const localParts = [], cdParts = [];
+  let off = 0;
+  for (const { name, bytes } of entries) {
+    const nb   = enc.encode(name);
+    const comp = deflateRawSync(bytes);
+    const lh = new Uint8Array(30 + nb.length); const dv = new DataView(lh.buffer);
+    dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true); dv.setUint16(8, 8, true);
+    dv.setUint32(18, comp.length, true); dv.setUint32(22, bytes.length, true);
+    dv.setUint16(26, nb.length, true); lh.set(nb, 30);
+    localParts.push(lh, comp);
+    const cd = new Uint8Array(46 + nb.length); const cdv = new DataView(cd.buffer);
+    cdv.setUint32(0, 0x02014b50, true); cdv.setUint16(4, 20, true); cdv.setUint16(6, 20, true);
+    cdv.setUint16(10, 8, true);
+    cdv.setUint32(20, comp.length, true); cdv.setUint32(24, bytes.length, true);
+    cdv.setUint16(28, nb.length, true); cdv.setUint32(42, off, true); cd.set(nb, 46);
+    cdParts.push(cd);
+    off += lh.length + comp.length;
   }
   const cdSize = cdParts.reduce((s, c) => s + c.length, 0);
   const eocd = new Uint8Array(22); const edv = new DataView(eocd.buffer);
@@ -369,6 +403,31 @@ await test('Zarr: bbox without lat/lon coord arrays throws clearly', async () =>
   catch (e) { err = e; }
   assert(err instanceof SlimError, `wrong error: ${err && err.constructor.name}: ${err && err.message}`);
   assert(/lat\/lon/i.test(err.message), `expected lat/lon in message: ${err.message}`);
+});
+
+await test('Zarr (deflated): drop a var -> output re-reads via scan', async () => {
+  const zarrayMeta = {
+    zarr_format: 2, shape: [4, 2, 2], chunks: [2, 2, 2],
+    dtype: '<f4', compressor: null, fill_value: null, order: 'C', filters: null,
+    dimension_separator: '.',
+  };
+  const c0 = (() => { const u=new Uint8Array(8*4); new Float32Array(u.buffer).set([1,2,3,4,5,6,7,8]); return u; })();
+  const c1 = (() => { const u=new Uint8Array(8*4); new Float32Array(u.buffer).set([9,10,11,12,13,14,15,16]); return u; })();
+  const fx = buildZipDeflate([
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 'temperature/.zarray', bytes: jsonBytes(zarrayMeta) },
+    { name: 'temperature/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['time','lat','lon'], units: 'K' }) },
+    { name: 'temperature/0.0.0', bytes: c0 },
+    { name: 'temperature/1.0.0', bytes: c1 },
+    { name: 'precip/.zarray',  bytes: jsonBytes(zarrayMeta) },
+    { name: 'precip/.zattrs',  bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['time','lat','lon'], units: 'mm' }) },
+    { name: 'precip/0.0.0',    bytes: c0 },
+    { name: 'precip/1.0.0',    bytes: c1 },
+  ]);
+  const r = await slim(fx, { variables: ['temperature'] });
+  const m = await scan(r.bytes);
+  assert(m.variable_names.includes('temperature'), 'temperature kept');
+  assert(!m.variable_names.includes('precip'), 'precip dropped');
 });
 
 await test('Zarr: unknown variable → VariableNotFoundError', async () => {
