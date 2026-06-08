@@ -1,13 +1,13 @@
 /**
  * webparsers — front-facing entry point
  *
- * Parses meteorological data formats (GRIB2, NetCDF3, NetCDF4/HDF5) in the
- * browser, Web Workers, and Node.js 18+. Powered by a C core compiled to
- * WebAssembly via Emscripten.
+ * Parses meteorological and geospatial data formats (GRIB2, NetCDF3,
+ * NetCDF4/HDF5, Zarr v2, TIFF/GeoTIFF) in the browser, Web Workers, and
+ * Node.js 18+. Powered by a C core compiled to WebAssembly via Emscripten.
  *
  * ── Quick-start (functional API) ────────────────────────────────────────────
  *
- *   import { scan, extract, extractOutput, detectFormat } from 'webparsers';
+ *   import { scan, extract, extractGrid, slim, detectFormat } from 'webparsers';
  *
  *   // Scan a file — returns metadata + variable list
  *   const meta = await scan('https://example.com/forecast.grb2');
@@ -16,8 +16,11 @@
  *   // Extract data at a point
  *   const result = await extract(fileBytes, { variable: 'TMP', lat: 40.7, lon: -74.0 });
  *
- *   // Serialise to JSON or CSV string
- *   const csv = await extractOutput(fileBytes, { variable: 'TMP' }, 'csv');
+ *   // Extract a bounding-box grid (parallel workers, abortable, progress)
+ *   const grid = await extractGrid(fileBytes, { variable: 'TMP', bbox, width: 256, height: 256 });
+ *
+ *   // Trim a huge file in place — keep only what you need, same format out
+ *   const { bytes } = await slim(fileBytes, { variables: ['TMP'], t1: 0, t2: 23 });
  *
  * ── Class-based API (advanced) ───────────────────────────────────────────────
  *
@@ -33,13 +36,15 @@
  *   Uint8Array | ArrayBuffer | File | Blob | URL | string (URL)
  *
  * ── Supported formats ────────────────────────────────────────────────────────
- *   GRIB2     (.grb2, .grib2)
- *   NetCDF3   (.nc3)
- *   NetCDF4   (.nc, .nc4)   — uses h5wasm under the hood
+ *   GRIB2             (.grb2, .grib2)
+ *   NetCDF3 Classic   (.nc3)
+ *   NetCDF4 / HDF5    (.nc, .nc4)        — uses h5wasm under the hood
+ *   Zarr v2 (zip)     (.zip, .zarr)      — null/gzip/zlib/blosc/zstd/lz4
+ *   TIFF / GeoTIFF    (.tif, .tiff)      — incl. Cloud-Optimized GeoTIFF over HTTP Range
  *
- * ── Error types ──────────────────────────────────────────────────────────────
+ * ── Error types (all extend WebparsersError) ─────────────────────────────────
  *   WebparsersError, UnsupportedFormatError, VariableNotFoundError,
- *   SourceError, ExtractError
+ *   SourceError, ExtractError, SlimError, UnsupportedCRSError
  */
 
 // ── Functional API (recommended) ─────────────────────────────────────────────

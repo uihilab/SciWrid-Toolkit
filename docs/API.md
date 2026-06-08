@@ -18,7 +18,7 @@ Supported formats:
 | **GRIB2**               | `.grb2`, `.grib2`     | Grid templates 0, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → `NaN`) |
 | **NetCDF3 Classic**     | `.nc3`                | Full CF coordinate support                                   |
 | **NetCDF4 / HDF5**      | `.nc`, `.nc4`         | Uses `h5wasm` under the hood; requires Node 18+ / browser    |
-| **Zarr v2** *(zip)*     | `.zarr.zip`, `.zip`   | null / gzip / zlib compressors; synthetic axes (see below)   |
+| **Zarr v2** *(zip)*     | `.zarr.zip`, `.zip`   | Compressors `null`/`gzip`/`zlib` (built-in) + `blosc`/`zstd`/`lz4` (via numcodecs); synthetic axes (see below) |
 | **TIFF / GeoTIFF**      | `.tif`, `.tiff`       | UInt8/16/Int16/Float32; LZW/Deflate; horizontal/FP predictor; WGS84/UTM/sinusoidal; tile + strip; COG over HTTP Range |
 
 ---
@@ -273,8 +273,11 @@ writeFileSync('result.json', json);
 Zarr v2 files must be **zipped** (`.zarr.zip` or `.zip`) — directory-format Zarr is not supported.
 The library reads the ZIP, finds all `.zarray` metadata entries, and treats each top-level array as a variable.
 
-**Supported compressors:** `null` (no compression), `gzip`, `zlib`.
-**Unsupported compressors:** `blosc`, `zstd`, `lz4` — these throw a clear `UnsupportedFormatError`.
+**Supported compressors:**
+- Built-in (no extra dependency, via the platform `DecompressionStream`): `null` (no compression), `gzip`, `zlib`.
+- Lazy-loaded via `numcodecs` (fetched from npm in Node / jsdelivr in the browser on first use): `blosc`, `zstd`, `lz4`.
+
+Any other compressor id throws a clear error. **Filters** other than `shuffle` (e.g. `fixedscaleoffset`, `delta`) are not yet supported.
 
 **Synthetic axes:** Zarr v2 arrays don't carry CF coordinate metadata, so the library assigns
 synthetic axes for the query engine:

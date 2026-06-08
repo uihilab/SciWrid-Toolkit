@@ -4,56 +4,391 @@
   <meta charset="UTF-8">
   <title>webparsers/api — functional demo</title>
   <style>
-    body { font-family: monospace; margin: 2rem; background: #1a1a2e; color: #e0e0e0; max-width: 1100px; }
-    h1, h2 { color: #00d4ff; margin: 0 0 .5rem; }
-    .section { margin: 1rem 0; padding: 1rem; background: #16213e; border-radius: 8px; }
-    button { padding: 8px 16px; margin: 4px; background: #0f3460; color: white;
-             border: 1px solid #00d4ff; border-radius: 4px; cursor: pointer; font-family: inherit; }
-    button:hover:not(:disabled) { background: #00d4ff; color: #1a1a2e; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-    pre { background: #0f0f23; padding: 1rem; border-radius: 4px; overflow: auto;
-          max-height: 480px; font-size: 12px; line-height: 1.5; margin: 0; }
-    input, label { font-family: inherit; }
-    input[type=number], input[type=text] {
-      padding: 6px; margin: 4px; background: #0f3460; color: white;
-      border: 1px solid #444; border-radius: 4px;
+    :root {
+      --radius: 0.625rem;
+      --background: oklch(1 0 0);
+      --foreground: oklch(0.141 0.005 285.823);
+      --card: oklch(1 0 0);
+      --card-foreground: oklch(0.141 0.005 285.823);
+      --primary: oklch(0.21 0.006 285.885);
+      --primary-foreground: oklch(0.985 0 0);
+      --secondary: oklch(0.967 0.001 286.375);
+      --secondary-foreground: oklch(0.21 0.006 285.885);
+      --muted: oklch(0.967 0.001 286.375);
+      --muted-foreground: oklch(0.552 0.016 285.938);
+      --accent: oklch(0.967 0.001 286.375);
+      --accent-foreground: oklch(0.21 0.006 285.885);
+      --destructive: oklch(0.637 0.237 25.331);
+      --border: oklch(0.92 0.004 286.32);
+      --input: oklch(0.871 0.006 286.286);
+      --ring: oklch(0.871 0.006 286.286);
+      --success: oklch(0.6 0.13 160);
+      --warn: oklch(0.68 0.15 70);
+      --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, "Cascadia Code", "Consolas", "Courier New", monospace;
     }
-    .label   { color: #00d4ff; font-weight: bold; }
-    .success { color: #44ff44; }
-    .error   { color: #ff4444; }
-    .warn    { color: #ffaa00; }
-    .muted   { color: #888; font-size: 11px; }
-    code     { background: #0f0f23; padding: 2px 6px; border-radius: 3px; color: #ffaa00; }
+    .dark {
+      --background: oklch(0.141 0.005 285.823);
+      --foreground: oklch(0.985 0 0);
+      --card: oklch(0.141 0.005 285.823);
+      --card-foreground: oklch(0.985 0 0);
+      --primary: oklch(0.985 0 0);
+      --primary-foreground: oklch(0.21 0.006 285.885);
+      --secondary: oklch(0.274 0.006 286.033);
+      --secondary-foreground: oklch(0.985 0 0);
+      --muted: oklch(0.21 0.006 285.885);
+      --muted-foreground: oklch(0.65 0.01 286);
+      --accent: oklch(0.21 0.006 285.885);
+      --accent-foreground: oklch(0.985 0 0);
+      --destructive: oklch(0.396 0.141 25.723);
+      --border: oklch(0.274 0.006 286.033);
+      --input: oklch(0.274 0.006 286.033);
+      --ring: oklch(0.442 0.017 285.786);
+      --success: oklch(0.72 0.15 160);
+      --warn: oklch(0.78 0.15 75);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-sans);
+      margin: 0;
+      background: var(--background);
+      color: var(--foreground);
+      line-height: 1.5;
+    }
+
+    h1, h2 { color: var(--foreground); margin: 0 0 .5rem; font-weight: 600; letter-spacing: -0.01em; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.15rem; }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: oklch(from var(--background) l c h / 0.92);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+    }
+
+    .site-header-inner {
+      width: min(1100px, calc(100% - 2rem));
+      margin: 0 auto;
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: .75rem;
+      min-width: max-content;
+    }
+
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      display: inline-grid;
+      place-items: center;
+      background: var(--primary);
+      color: var(--primary-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 14px;
+      line-height: 1.1;
+    }
+
+    .brand span:last-child span {
+      display: block;
+      color: var(--muted-foreground);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .site-nav {
+      display: flex;
+      align-items: center;
+      gap: .25rem;
+      margin-left: auto;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .site-nav::-webkit-scrollbar { display: none; }
+
+    .site-nav a {
+      padding: 6px 10px;
+      color: var(--muted-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .site-nav a:hover,
+    .site-nav a:focus-visible {
+      background: var(--accent);
+      color: var(--accent-foreground);
+      outline: none;
+    }
+
+    .page {
+      width: min(1100px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 1.5rem 0 2rem;
+    }
+
+    .hero {
+      padding: 1.5rem 0 .5rem;
+    }
+
+    .hero p {
+      max-width: 760px;
+      margin: .25rem 0 0;
+    }
+
+    .kicker {
+      color: var(--muted-foreground);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      margin: 0 0 .35rem;
+    }
+
+    .section {
+      margin: 1rem 0;
+      padding: 1.25rem;
+      background: var(--card);
+      color: var(--card-foreground);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 1px 2px oklch(0 0 0 / 0.05);
+      scroll-margin-top: 88px;
+    }
+
+    .section > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin: -1.25rem -1.25rem 1rem;
+      padding: 1rem 1.25rem;
+      cursor: pointer;
+      list-style: none;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section > summary::-webkit-details-marker { display: none; }
+
+    .section > summary::after {
+      content: "⌄";
+      color: var(--muted-foreground);
+      font-size: 16px;
+      line-height: 1;
+      transition: transform .15s ease;
+    }
+
+    .section:not([open]) {
+      padding-bottom: 0;
+    }
+
+    .section:not([open]) > summary {
+      margin-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .section:not([open]) > summary::after {
+      transform: rotate(-90deg);
+    }
+
+    button {
+      padding: 8px 16px;
+      margin: 4px 4px 4px 0;
+      background: var(--primary);
+      color: var(--primary-foreground);
+      border: 1px solid transparent;
+      border-radius: calc(var(--radius) - 2px);
+      cursor: pointer;
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 500;
+      transition: opacity .15s ease, background .15s ease;
+    }
+    button:hover:not(:disabled) { opacity: .9; }
+    button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
+    input, label { font-family: var(--font-sans); }
+
+    input[type=number], input[type=text] {
+      padding: 6px 8px;
+      margin: 4px;
+      background: var(--background);
+      color: var(--foreground);
+      border: 1px solid var(--input);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 13px;
+    }
+    input[type=number]:focus-visible, input[type=text]:focus-visible {
+      outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--ring);
+    }
+
+    input[type=file] {
+      padding: 6px;
+      background: var(--background);
+      color: var(--foreground);
+      border: 1px solid var(--input);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 13px;
+    }
+    input[type=file]::file-selector-button {
+      margin-right: 10px;
+      padding: 6px 12px;
+      background: var(--secondary);
+      color: var(--secondary-foreground);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) - 2px);
+      cursor: pointer;
+      font-family: var(--font-sans);
+      font-size: 13px;
+    }
+
+    pre {
+      background: var(--muted);
+      color: var(--foreground);
+      border: 1px solid var(--border);
+      padding: 1rem;
+      border-radius: calc(var(--radius) - 2px);
+      overflow: auto;
+      max-height: 480px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    code {
+      background: var(--muted);
+      color: var(--foreground);
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .label   { color: var(--foreground); font-weight: 600; }
+    .muted   { color: var(--muted-foreground); font-size: 11px; }
+    .success { color: var(--success); }
+    .error   { color: var(--destructive); }
+    .warn    { color: var(--warn); }
     .row     { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+
+    #g-canvas {
+      background: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) - 2px);
+      image-rendering: pixelated;
+    }
+
+    #theme-toggle {
+      flex: 0 0 auto;
+      margin: 0;
+      background: var(--secondary);
+      color: var(--secondary-foreground);
+      border: 1px solid var(--border);
+    }
+    #theme-toggle:hover:not(:disabled) { opacity: 1; background: var(--accent); }
+
+    @media (max-width: 760px) {
+      .site-header-inner {
+        min-height: auto;
+        padding: .75rem 0;
+        flex-wrap: wrap;
+      }
+
+      .site-nav {
+        order: 3;
+        width: 100%;
+      }
+    }
   </style>
+  <script>
+    /* Apply the saved/system theme before first paint to avoid a flash. */
+    (function () {
+      var stored = localStorage.getItem('apidemo-theme');
+      var dark = stored
+        ? stored === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.classList.toggle('dark', dark);
+    })();
+  </script>
 </head>
 <body>
-  <h1>webparsers/api — functional demo</h1>
-  <p class="muted">
-    Calls <code>scan</code>, <code>extract</code>, <code>extractOutput</code> from
-    <code>webparsers-api.js</code> directly. Open the browser console to see every result logged.
-  </p>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="#">
+        <span class="brand-mark">WP</span>
+        <span>
+          <strong>webparsers/api</strong>
+          <span>Functional demo</span>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Demo sections">
+        <a href="#section-file">File</a>
+        <a href="#section-scan">Scan</a>
+        <a href="#section-extract">Extract</a>
+        <a href="#section-grid">Grid</a>
+        <a href="#section-slim">Slim</a>
+      </nav>
+      <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme"></button>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero" aria-labelledby="page-title">
+      <p class="kicker">Browser API demo</p>
+      <h1 id="page-title">webparsers/api — functional demo</h1>
+      <p class="muted">
+        Calls <code>scan</code>, <code>extract</code>, <code>extractOutput</code> from
+        <code>webparsers-api.js</code> directly. Open the browser console to see every result logged.
+      </p>
+    </section>
 
   <!-- 1. File picker -->
-  <div class="section">
-    <span class="label">1. Pick a file</span><br>
+  <details class="section" id="section-file" open>
+    <summary><span class="label">1. Pick a file</span></summary>
     <span class="muted">GRIB2 (.grb2 / .grib2), NetCDF3 (.nc3), NetCDF4 / HDF5 (.nc), or Zarr v2 (zipped store, .zip / .zarr)</span><br><br>
     <input type="file" id="file" accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr">
     <button id="btn-detect">detectFormat()</button>
     <span id="detect-out"></span>
-  </div>
+  </details>
 
   <!-- 2. Scan -->
-  <div class="section">
-    <span class="label">2. Scan — list variables [0..20]</span><br>
+  <details class="section" id="section-scan" open>
+    <summary><span class="label">2. Scan — list variables [0..20]</span></summary>
     <code>await scan(file)</code><br><br>
     <button id="btn-scan">scan()</button>
     <pre id="scan-out">(no scan yet)</pre>
-  </div>
+  </details>
 
   <!-- 3. Extract -->
-  <div class="section">
-    <span class="label">3. Extract a variable</span><br>
+  <details class="section" id="section-extract" open>
+    <summary><span class="label">3. Extract a variable</span></summary>
     <code>await extract(file, { variable, lat, lon })</code><br><br>
     <div class="row">
       <label>Variable: <input type="text" id="ex-var" placeholder="(auto: first supported)" style="width:240px;"></label>
@@ -70,12 +405,14 @@
     <button id="btn-extract">extract()</button>
     <button id="btn-csv">extractOutput("csv")</button>
     <button id="btn-json">extractOutput("json")</button>
+    <button id="btn-dl-csv">⬇ Download CSV</button>
+    <button id="btn-dl-json">⬇ Download JSON</button>
     <pre id="ex-out">(no extract yet)</pre>
-  </div>
+  </details>
 
   <!-- 4. Extract grid (bbox) -->
-  <div class="section">
-    <span class="label">4. Extract grid (bbox) — parallel worker pool</span><br>
+  <details class="section" id="section-grid" open>
+    <summary><span class="label">4. Extract grid (bbox) — parallel worker pool</span></summary>
     <code>await extractGrid(file, { variable, bbox, width, height, workers, signal, onProgress })</code><br>
     <span class="muted">Spawns up to N workers (default 5); each handles a row band. Result is rendered as a heatmap.</span><br><br>
     <div class="row">
@@ -98,14 +435,14 @@
     <button id="btn-grid-tiff" disabled>Save GeoTIFF</button>
     <span id="g-progress" class="muted"></span>
     <div style="margin-top:.75rem; display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
-      <canvas id="g-canvas" width="256" height="256" style="background:#0f0f23; border:1px solid #444; image-rendering: pixelated;"></canvas>
+      <canvas id="g-canvas" width="256" height="256"></canvas>
       <pre id="g-out" style="flex:1; min-width:280px; max-height:280px;">(no grid yet)</pre>
     </div>
-  </div>
+  </details>
 
   <!-- 5. Slim — keep only selected variables (and an optional time slice) -->
-  <div class="section">
-    <span class="label">5. Slim — same-format file trimming</span><br>
+  <details class="section" id="section-slim" open>
+    <summary><span class="label">5. Slim — same-format file trimming</span></summary>
     <code>await slim(file, { variables, t1, t2 })</code><br>
     <span class="muted">
       Byte-cut for GRIB2 / NetCDF3 / Zarr (no decode). h5wasm writer for NetCDF4.
@@ -124,7 +461,9 @@
       <span id="slim-status" class="muted"></span>
     </div>
     <pre id="slim-out">(no slim yet)</pre>
-  </div>
+  </details>
+
+  </main>
 
   <!-- No import map needed: the lib loads h5wasm from jsdelivr CDN on demand.
        If you'd rather mirror it, pass `{ h5wasmUrl: '<your-url>' }` to the
@@ -277,6 +616,48 @@
         const json = await extractOutput(f, opts, 'json');
         log(`extractOutput("json")`, json);
         show(out, json);
+      } catch (e) {
+        show(out, 'Error: ' + e.message, 'error');
+        console.error(e);
+      }
+    });
+
+    /* Build "<file-stem>_<variable>" for download filenames. */
+    function extractFileStem(opts) {
+      const f = fileInput.files[0];
+      const stem = (f?.name || 'file').replace(/\.[^.]+$/, '');
+      const varPart = String(opts.variable || 'var').replace(/[^A-Za-z0-9._-]+/g, '_');
+      return `${stem}_${varPart}`;
+    }
+
+    $('btn-dl-csv').addEventListener('click', async () => {
+      const out = $('ex-out');
+      out.textContent = 'Extracting…';
+      try {
+        const f = requireFile();
+        const opts = buildExtractOpts();
+        const csv = await extractOutput(f, opts, 'csv');
+        show(out, csv);
+        const name = `${extractFileStem(opts)}.csv`;
+        saveBlob(csv, 'text/csv;charset=utf-8', name);
+        log('Saved CSV', `${name} (${csv.length} chars)`);
+      } catch (e) {
+        show(out, 'Error: ' + e.message, 'error');
+        console.error(e);
+      }
+    });
+
+    $('btn-dl-json').addEventListener('click', async () => {
+      const out = $('ex-out');
+      out.textContent = 'Extracting…';
+      try {
+        const f = requireFile();
+        const opts = buildExtractOpts();
+        const json = await extractOutput(f, opts, 'json');
+        show(out, json);
+        const name = `${extractFileStem(opts)}.json`;
+        saveBlob(json, 'application/json;charset=utf-8', name);
+        log('Saved JSON', `${name} (${json.length} chars)`);
       } catch (e) {
         show(out, 'Error: ' + e.message, 'error');
         console.error(e);
@@ -538,6 +919,22 @@
     window.api = { detectFormat, scan, extract, extractOutput, extractGrid,
                    gridToJSON, gridToGeoTIFF, slim };
     console.log('[api-demo] Ready. Try `api.scan(yourFile)` from this console.');
+  </script>
+  <script>
+    /* Theme toggle — independent of the demo module; touches only the .dark class. */
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      function setLabel() {
+        var dark = document.documentElement.classList.contains('dark');
+        btn.textContent = dark ? '☀ Light' : '🌙 Dark';
+      }
+      setLabel();
+      btn.addEventListener('click', function () {
+        var dark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('apidemo-theme', dark ? 'dark' : 'light');
+        setLabel();
+      });
+    })();
   </script>
 </body>
 </html>

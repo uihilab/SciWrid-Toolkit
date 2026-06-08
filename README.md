@@ -7,7 +7,7 @@ JavaScript / TypeScript library for parsing meteorological and geospatial data f
 Until published to npm:
 
 ```bash
-npm install git+https://github.com/<org>/webparsers.git
+npm install git+https://github.com/uihilab/webparsers.git
 ```
 
 End users do **not** need to install peer compression libraries — `h5wasm` (NetCDF4) and `numcodecs` (Zarr blosc/zstd/lz4) are lazy-loaded from jsdelivr on first use.
