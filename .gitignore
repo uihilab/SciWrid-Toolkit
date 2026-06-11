@@ -12,6 +12,9 @@ node_modules/
 *.o
 *.obj
 
+# Built npm package (produced by `npm run build`; never committed)
+dist/
+
 # Normalized data output
 data/*.refs.json
 data/*.bin
