@@ -94,6 +94,7 @@
     "numcodecs": "^0.3.2"
   },
   "devDependencies": {
+    "esbuild": "^0.24.0",
     "hyparquet-writer": "^0.15.1",
     "pngjs": "^7.0.0"
   },
@@ -103,6 +104,7 @@
     "demo:netcdf4": "node examples/testfile/demoNetcdf4File.js",
     "demo:zarr": "node examples/testfile/demoZarrFile.js",
     "demo:web": "node scripts/serve.js",
+    "build": "node scripts/build.mjs",
     "build:wasm": "python wasm/build.py",
     "build:tiff-fixtures": "node scripts/build-tiff-fixtures.js",
     "build:zarr-fixture": "node scripts/build-zarr-fixture.js",
