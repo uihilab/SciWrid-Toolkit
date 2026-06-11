@@ -130,7 +130,12 @@ webparsers/
 ├── examples/           ← api-demo.html, map-demo.html, library-usage.html, testfile/
 ├── scripts/            ← serve.js + test-*.js / demo-*.js runners
 ├── docs/               ← API.md
-└── formats/            ← C sources for the WASM build (GRIB2, NetCDF, Zarr, …)
+│
+│   ── native C side (compiled to WASM; not shipped in the npm package) ──
+├── core/               ← C engine: dispatch, cursor, query, errors, geo math
+├── formats/            ← per-format C readers (grib2, hdf5, netcdf, raw)
+├── helper/             ← GRIB2 conversion helpers
+└── tools/              ← native offline CLIs (normalize_refs, query) + Makefile
 ```
 
 ## Run the demos

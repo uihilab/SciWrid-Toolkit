@@ -1,15 +1,8 @@
 # webparsers — JavaScript / TypeScript API
 
-A WebAssembly-powered library for parsing meteorological data formats.
-Three calls cover the common cases:
-
-| Function        | Returns                                                              | Use for                      |
-| --------------- | -------------------------------------------------------------------- | ---------------------------- |
-| `detectFormat`  | `'grib2' \| 'netcdf3' \| 'netcdf4' \| 'zarr' \| 'tiff' \| null`     | Sniff a file's format        |
-| `scan`          | metadata + variable list                                     | List what's in the file      |
-| `extract`       | structured object                                            | Pull values for a variable   |
-| `extractOutput` | `string` (JSON or CSV)                                       | Same, ready to write to disk |
-| `slim`          | `{ bytes, format, warnings, stats }`                         | Trim a huge file in place    |
+A WebAssembly-powered library for parsing meteorological and geospatial data
+formats. New here? Jump to **[Choosing your pathway](#choosing-your-pathway)** —
+it routes you from "what I have" to the right function in one screen.
 
 Supported formats:
 
@@ -23,23 +16,75 @@ Supported formats:
 
 ---
 
+## Choosing your pathway
+
+There's more than one way through this library. The two questions that actually
+branch the API are **"point or area?"** and **"object or file-ready output?"**.
+Pick your path here, then jump to that function's reference below.
+
+```
+You have a file / URL / bytes
+        │
+        ├─ "What format is this?" ..................... detectFormat   → 'grib2'…'tiff' | null
+        ├─ "What's inside?" (vars, time axis, bbox) ... scan           → metadata object
+        │
+        └─ "Give me the data"
+              │
+              ├─ at ONE point (lat/lon) ............... extract            → object
+              │                                         extractOutput      → JSON / CSV string
+              │
+              └─ over an AREA (bbox) .................. extractGrid        → Float32 grid
+                                                        extractGridOutput  → JSON / GeoTIFF / PNG / ImageData
+                                                              │
+                                                              ├─ draw on a web map → gridToImageData / gridToPNG (+ ramps)
+                                                              └─ save as a raster  → gridToGeoTIFF / gridToJSON
+
+Want a smaller file, same format out?  ............... slim               → { bytes, … }
+Reusing one loaded file for many queries? ............ WebParsers (class) → instance
+```
+
+| I want to…                                  | Function                          | Returns                              |
+| ------------------------------------------- | --------------------------------- | ------------------------------------ |
+| Sniff the format without parsing            | [`detectFormat`](#detectformatsource)         | `'grib2'…'tiff' \| null`             |
+| List variables / time axis / bbox           | [`scan`](#scansource-opts)                    | metadata object                      |
+| One value at a lat/lon                       | [`extract`](#extractsource-options)           | object                               |
+| …as a JSON/CSV string to save               | [`extractOutput`](#extractoutputsource-options-format) | `string`                    |
+| A whole bbox grid (parallel, abortable)      | [`extractGrid`](#extractgridsource-options)   | `{ data: Float32Array, … }`          |
+| …as JSON / GeoTIFF / PNG / ImageData         | [`extractGridOutput`](#extractgridoutputsource-options-format) | `string \| Uint8Array \| ImageData` |
+| Render a grid for a web map                  | [`gridToImageData`](#gridtoimagedatagrid-opts) / [`gridToPNG`](#gridtopnggrid-opts) | RGBA / PNG       |
+| Save a grid as a raster                      | [`gridToGeoTIFF`](#map-rendering) / `gridToJSON` | `Uint8Array` / `string`           |
+| Trim a huge file, same format                | [`slim`](#slimsource-options)                 | `{ bytes, … }`                       |
+| Reuse one loaded file across queries         | [`WebParsers` class](#class-based-api-webparsers) | instance                         |
+
+Every reader produces the **same** `scan` / `extract` / `extractGrid` shapes
+regardless of format, so once you've chosen a pathway it works identically for
+GRIB2, NetCDF3/4, Zarr, and TIFF/COG. For the *internals* of how each format is
+decoded, see the decode-logic docs under `docs/webparsers/logic/`.
+
+---
+
 ## Library structure
 
 ```
 webparsers/
 ├── index.js          ← front-facing entry point  (import from here)
 ├── index.d.ts        ← TypeScript types
-├── package.json
-└── wasm/             ← internal implementation (do not import directly)
-    ├── webparsers.js        Emscripten WASM loader
-    ├── webparsers.wasm      compiled C binary
-    ├── webparsers-lib.js    core class
-    ├── webparsers-api.js    functional API
-    └── zarr-helper.js       Zarr v2 helper
+├── lib/              ← JavaScript library source (internal — do not import directly)
+│   ├── webparsers-api.js    functional API (scan/extract/extractGrid/slim/…)
+│   ├── webparsers-lib.js    core class (WebParsers)
+│   ├── zarr-helper.js       Zarr v2 helper           tiff-helper.js  TIFF/GeoTIFF
+│   ├── render/              color ramps + grid → RGBA / PNG
+│   └── slim/                in-place file trimming (per-format)
+├── wasm/             ← compiled C core (internal)
+│   ├── webparsers.js        Emscripten WASM loader
+│   └── webparsers.wasm      compiled C binary
+├── worker/           ← Web Worker for parallel bbox extraction
+└── dist/             ← the published, bundled package (produced by `npm run build`)
 ```
 
-All public symbols are re-exported through `index.js`.
-Files inside `wasm/` are internal — they may change without notice.
+All public symbols are re-exported through `index.js` (which `npm run build`
+bundles into `dist/index.js`). Files inside `lib/`, `wasm/`, and `worker/` are
+internal — import only from the package root (`'webparsers'`).
 
 ---
 
@@ -265,6 +310,91 @@ writeFileSync('berlin.csv', csv);
 const json = await extractOutput(file, { variable: '2t' });
 writeFileSync('result.json', json);
 ```
+
+---
+
+## `extractGrid(source, options)`
+
+Resample a variable over a **bounding box** into a dense, north-up `Float32`
+grid. This is the heavy-lifting pathway: it runs across parallel workers, is
+abortable, and reports progress. Use it whenever you want an *area* rather than
+a single point — heat maps, raster export, tiles.
+
+| Option       | Type                          | Notes                                                              |
+| ------------ | ----------------------------- | ------------------------------------------------------------------ |
+| `variable`   | `string`                      | **Required.** Name from `scan().variable_names`.                   |
+| `bbox`       | `[minLon, minLat, maxLon, maxLat]` | **Required.** Geographic bounds, degrees.                     |
+| `width`      | `number`                      | **Required.** Output columns.                                      |
+| `height`     | `number`                      | **Required.** Output rows.                                         |
+| `time`       | `number`                      | Time-axis index. Default `0`.                                      |
+| `date`       | `string \| number \| Date`    | Single timestep by date (nearest match). Mutually exclusive with `time`. |
+| `workers`    | `number`                      | Parallel workers. Default `5`; `0` forces inline (single-threaded). |
+| `signal`     | `AbortSignal`                 | Abort the run; rejects with an `AbortError`.                       |
+| `onProgress` | `({done, total}) => void`     | Called as output cells are filled.                                 |
+
+```js
+import { extractGrid } from 'webparsers';
+
+const controller = new AbortController();
+
+const grid = await extractGrid(file, {
+  variable: 'TMP',
+  bbox:     [-100, 30, -80, 45],   // [minLon, minLat, maxLon, maxLat]
+  width:    256, height: 256,
+  workers:  5,
+  signal:   controller.signal,
+  onProgress: ({ done, total }) => console.log(`${done}/${total}`),
+});
+```
+
+### Result shape
+
+```ts
+{
+  data:     Float32Array,   // length width*height, row-major, row 0 = maxLat (north-up)
+  width:    number,
+  height:   number,
+  bbox:     [number, number, number, number],
+  variable: string,
+  units:    string | undefined,
+  time:     number | string | undefined,
+}
+```
+
+Cells are **row-major** with **row 0 at `maxLat`** (north-up), so `data[y*width + x]`
+is the value at output pixel `(x, y)`. Missing / masked points are `NaN` — the
+render helpers paint those transparent.
+
+> **Same shape, every format.** GRIB2, NetCDF3/4, Zarr, and TIFF/COG all return
+> this identical `ExtractGridResult`, so the render and output helpers below work
+> the same regardless of the input format. For Zarr without CF coordinates, the
+> grid is indexed against the synthetic axes (see [Zarr v2 notes](#zarr-v2-notes)).
+
+---
+
+## `extractGridOutput(source, options, format?)`
+
+Same as `extractGrid`, but returns a **file-ready** result instead of the raw
+grid object — handy for one-shot "give me a blob to save/serve" callers.
+
+| `format`        | Returns                | Use for                              |
+| --------------- | ---------------------- | ------------------------------------ |
+| `'json'`        | `string`               | Grid + metadata as JSON (`pretty` opt) |
+| `'geotiff'`     | `Uint8Array`           | A WGS84 Float32 GeoTIFF              |
+| `'png'`         | `Promise<Uint8Array>`  | Colored PNG (pass `ramp`, `vmin`, `vmax`) |
+| `'imagedata'`   | `{ width, height, data }` | RGBA for a `<canvas>` / MapLibre   |
+
+```js
+// Save a GeoTIFF straight from a bbox query
+const tiff = await extractGridOutput(file, {
+  variable: 'TMP', bbox: [-100, 30, -80, 45], width: 512, height: 512,
+}, 'geotiff');
+writeFileSync('tmp.tif', tiff);
+```
+
+For the in-memory grid, prefer `extractGrid`; the render helpers
+([`gridToImageData`](#gridtoimagedatagrid-opts) / [`gridToPNG`](#gridtopnggrid-opts))
+and [`gridToGeoTIFF`](#map-rendering) are documented under **Map rendering** below.
 
 ---
 
