@@ -6,46 +6,52 @@
   <style>
     :root {
       --radius: 0.625rem;
-      --background: oklch(1 0 0);
-      --foreground: oklch(0.141 0.005 285.823);
-      --card: oklch(1 0 0);
-      --card-foreground: oklch(0.141 0.005 285.823);
-      --primary: oklch(0.21 0.006 285.885);
-      --primary-foreground: oklch(0.985 0 0);
-      --secondary: oklch(0.967 0.001 286.375);
-      --secondary-foreground: oklch(0.21 0.006 285.885);
-      --muted: oklch(0.967 0.001 286.375);
-      --muted-foreground: oklch(0.552 0.016 285.938);
-      --accent: oklch(0.967 0.001 286.375);
-      --accent-foreground: oklch(0.21 0.006 285.885);
+      --background: oklch(0.992 0.004 240);
+      --foreground: oklch(0.21 0.03 252);
+      --card: oklch(1 0.002 240);
+      --card-foreground: oklch(0.21 0.03 252);
+      --primary: oklch(0.28 0.04 252);
+      --primary-foreground: oklch(0.99 0.005 240);
+      --secondary: oklch(0.96 0.01 240);
+      --secondary-foreground: oklch(0.28 0.04 252);
+      --muted: oklch(0.965 0.008 240);
+      --muted-foreground: oklch(0.52 0.03 248);
+      --accent: oklch(0.95 0.02 242);
+      --accent-foreground: oklch(0.28 0.04 252);
+      --brand: oklch(0.55 0.16 245);
+      --brand-foreground: oklch(0.99 0.005 240);
       --destructive: oklch(0.637 0.237 25.331);
-      --border: oklch(0.92 0.004 286.32);
-      --input: oklch(0.871 0.006 286.286);
-      --ring: oklch(0.871 0.006 286.286);
-      --success: oklch(0.6 0.13 160);
+      --border: oklch(0.91 0.012 245);
+      --input: oklch(0.86 0.014 245);
+      --ring: oklch(0.55 0.16 245);
+      --success: oklch(0.6 0.13 165);
       --warn: oklch(0.68 0.15 70);
+      --shadow-tint: oklch(0.45 0.05 250 / 0.10);
       --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       --font-mono: ui-monospace, "Cascadia Code", "Consolas", "Courier New", monospace;
     }
     .dark {
-      --background: oklch(0.141 0.005 285.823);
-      --foreground: oklch(0.985 0 0);
-      --card: oklch(0.141 0.005 285.823);
-      --card-foreground: oklch(0.985 0 0);
-      --primary: oklch(0.985 0 0);
-      --primary-foreground: oklch(0.21 0.006 285.885);
-      --secondary: oklch(0.274 0.006 286.033);
-      --secondary-foreground: oklch(0.985 0 0);
-      --muted: oklch(0.21 0.006 285.885);
-      --muted-foreground: oklch(0.65 0.01 286);
-      --accent: oklch(0.21 0.006 285.885);
-      --accent-foreground: oklch(0.985 0 0);
+      --background: oklch(0.17 0.022 250);
+      --foreground: oklch(0.97 0.006 240);
+      --card: oklch(0.205 0.025 252);
+      --card-foreground: oklch(0.97 0.006 240);
+      --primary: oklch(0.97 0.006 240);
+      --primary-foreground: oklch(0.21 0.03 252);
+      --secondary: oklch(0.27 0.03 252);
+      --secondary-foreground: oklch(0.97 0.006 240);
+      --muted: oklch(0.24 0.025 252);
+      --muted-foreground: oklch(0.69 0.025 245);
+      --accent: oklch(0.29 0.04 250);
+      --accent-foreground: oklch(0.97 0.006 240);
+      --brand: oklch(0.70 0.13 240);
+      --brand-foreground: oklch(0.17 0.022 250);
       --destructive: oklch(0.396 0.141 25.723);
-      --border: oklch(0.274 0.006 286.033);
-      --input: oklch(0.274 0.006 286.033);
-      --ring: oklch(0.442 0.017 285.786);
-      --success: oklch(0.72 0.15 160);
+      --border: oklch(0.30 0.03 252);
+      --input: oklch(0.30 0.03 252);
+      --ring: oklch(0.70 0.13 240);
+      --success: oklch(0.72 0.15 165);
       --warn: oklch(0.78 0.15 75);
+      --shadow-tint: oklch(0 0 0 / 0.35);
     }
 
     * { box-sizing: border-box; }
@@ -53,14 +59,19 @@
     body {
       font-family: var(--font-sans);
       margin: 0;
-      background: var(--background);
+      background-color: var(--background);
+      background-image:
+        radial-gradient(1100px 480px at 8% -10%, oklch(from var(--brand) l c h / 0.10), transparent 55%),
+        radial-gradient(900px 420px at 100% 0%, oklch(from var(--brand) l c h / 0.06), transparent 60%);
+      background-attachment: fixed;
+      background-repeat: no-repeat;
       color: var(--foreground);
       line-height: 1.5;
     }
 
-    h1, h2 { color: var(--foreground); margin: 0 0 .5rem; font-weight: 600; letter-spacing: -0.01em; }
-    h1 { font-size: 1.5rem; }
-    h2 { font-size: 1.15rem; }
+    h1, h2 { color: var(--foreground); margin: 0 0 .5rem; font-weight: 600; letter-spacing: -0.022em; }
+    h1 { font-size: clamp(1.55rem, 1.25rem + 1.2vw, 1.9rem); line-height: 1.1; }
+    h2 { font-size: 1.18rem; }
 
     a {
       color: inherit;
@@ -98,12 +109,13 @@
       height: 32px;
       display: inline-grid;
       place-items: center;
-      background: var(--primary);
-      color: var(--primary-foreground);
+      background: var(--brand);
+      color: var(--brand-foreground);
       border-radius: calc(var(--radius) - 2px);
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0;
+      box-shadow: 0 2px 8px oklch(from var(--brand) l c h / 0.35);
     }
 
     .brand strong {
@@ -153,8 +165,27 @@
     }
 
     .hero {
-      padding: 1.5rem 0 .5rem;
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
+      margin: 1.1rem 0 .25rem;
+      padding: clamp(1.4rem, 1rem + 2.5vw, 2.4rem) clamp(1.1rem, .6rem + 2vw, 2rem);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 4px);
+      background: linear-gradient(180deg, oklch(from var(--brand) l c h / 0.06), transparent 45%), var(--card);
+      box-shadow: 0 1px 2px var(--shadow-tint), 0 24px 50px -40px var(--shadow-tint);
     }
+    .hero-bg {
+      position: absolute; inset: 0; z-index: -1;
+      pointer-events: none; overflow: hidden; opacity: .5;
+      -webkit-mask-image: linear-gradient(100deg, transparent 0%, #000 48%);
+              mask-image: linear-gradient(100deg, transparent 0%, #000 48%);
+    }
+    .hero-bg svg { position: absolute; top: 50%; left: 0; width: 140%; height: 180%; transform: translateY(-50%); }
+    .hero-bg path { fill: none; stroke: var(--brand); stroke-width: 1.1; }
+    .hero-bg .flow { animation: drift 26s linear infinite; }
+    @keyframes drift { from { transform: translateX(0); } to { transform: translateX(-90px); } }
+    @media (prefers-reduced-motion: reduce) { .hero-bg .flow { animation: none; } }
 
     .hero p {
       max-width: 760px;
@@ -162,12 +193,22 @@
     }
 
     .kicker {
-      color: var(--muted-foreground);
+      color: var(--brand);
       font-size: 12px;
       font-weight: 700;
-      letter-spacing: 0;
+      letter-spacing: .08em;
       text-transform: uppercase;
-      margin: 0 0 .35rem;
+      margin: 0 0 .5rem;
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .kicker::before {
+      content: "";
+      width: 18px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--brand);
     }
 
     .section {
@@ -177,7 +218,7 @@
       color: var(--card-foreground);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      box-shadow: 0 1px 2px oklch(0 0 0 / 0.05);
+      box-shadow: 0 1px 2px var(--shadow-tint), 0 12px 30px -18px var(--shadow-tint);
       scroll-margin-top: 88px;
     }
 
@@ -362,6 +403,18 @@
 
   <main class="page">
     <section class="hero" aria-labelledby="page-title">
+      <div class="hero-bg" aria-hidden="true">
+        <svg viewBox="0 0 960 280" preserveAspectRatio="none">
+          <g class="flow">
+            <path d="M-60 26 C70 6,170 46,300 26 C430 6,530 46,660 26 C790 6,890 46,1020 26" stroke-opacity="0.85"/>
+            <path d="M-60 70 C70 50,170 90,300 70 C430 50,530 90,660 70 C790 50,890 90,1020 70" stroke-opacity="0.55"/>
+            <path d="M-60 114 C70 94,170 134,300 114 C430 94,530 134,660 114 C790 94,890 134,1020 114" stroke-opacity="0.8"/>
+            <path d="M-60 158 C70 138,170 178,300 158 C430 138,530 178,660 158 C790 138,890 178,1020 158" stroke-opacity="0.5"/>
+            <path d="M-60 202 C70 182,170 222,300 202 C430 182,530 222,660 202 C790 182,890 222,1020 202" stroke-opacity="0.7"/>
+            <path d="M-60 246 C70 226,170 266,300 246 C430 226,530 266,660 246 C790 226,890 266,1020 246" stroke-opacity="0.45"/>
+          </g>
+        </svg>
+      </div>
       <p class="kicker">Browser API demo</p>
       <h1 id="page-title">webparsers/api — functional demo</h1>
       <p class="muted">
