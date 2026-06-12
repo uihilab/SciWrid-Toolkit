@@ -92,6 +92,11 @@
     #sidebar select:focus-visible, #sidebar input:focus-visible {
       outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--ring);
     }
+    #sidebar input[type=range] {
+      width: 100%; margin: .2rem 0 0; padding: 0;
+      accent-color: var(--brand); cursor: pointer;
+    }
+    #opacity-val { font-weight: 600; color: var(--brand); }
     #sidebar input[type=file]::file-selector-button {
       margin-right: 8px; padding: 5px 10px;
       background: var(--secondary); color: var(--secondary-foreground);
@@ -161,6 +166,9 @@
         <option value="grayscale">grayscale</option>
         <option value="RdBu">RdBu (diverging)</option>
       </select>
+
+      <label for="opacity">Layer opacity <span id="opacity-val" class="muted">75%</span></label>
+      <input type="range" id="opacity" min="0" max="100" step="1" value="75">
 
       <div id="legend" hidden>
         <label>Legend</label>

@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>webparsers — README</title>
+  <style>
+    :root {
+      --radius: 0.625rem;
+      --background: oklch(0.992 0.004 240);
+      --foreground: oklch(0.21 0.03 252);
+      --card: oklch(1 0.002 240);
+      --card-foreground: oklch(0.21 0.03 252);
+      --secondary: oklch(0.96 0.01 240);
+      --secondary-foreground: oklch(0.28 0.04 252);
+      --muted: oklch(0.965 0.008 240);
+      --muted-foreground: oklch(0.52 0.03 248);
+      --accent: oklch(0.95 0.02 242);
+      --accent-foreground: oklch(0.28 0.04 252);
+      --brand: oklch(0.55 0.16 245);
+      --brand-foreground: oklch(0.99 0.005 240);
+      --border: oklch(0.91 0.012 245);
+      --input: oklch(0.86 0.014 245);
+      --ring: oklch(0.55 0.16 245);
+      --success: oklch(0.6 0.13 165);
+      --warn: oklch(0.68 0.15 70);
+      --shadow-tint: oklch(0.45 0.05 250 / 0.10);
+      --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, "Cascadia Code", "Consolas", "Courier New", monospace;
+      --check: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M13.5 4.5 6.5 11.5 2.5 7.5" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+      --alert: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5 15 14H1z" fill="none" stroke="black" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v3.4M8 11.6v.2" stroke="black" stroke-width="1.6" stroke-linecap="round"/></svg>');
+    }
+    .dark {
+      --background: oklch(0.17 0.022 250);
+      --foreground: oklch(0.97 0.006 240);
+      --card: oklch(0.205 0.025 252);
+      --card-foreground: oklch(0.97 0.006 240);
+      --secondary: oklch(0.27 0.03 252);
+      --secondary-foreground: oklch(0.97 0.006 240);
+      --muted: oklch(0.24 0.025 252);
+      --muted-foreground: oklch(0.69 0.025 245);
+      --accent: oklch(0.29 0.04 250);
+      --accent-foreground: oklch(0.97 0.006 240);
+      --brand: oklch(0.70 0.13 240);
+      --brand-foreground: oklch(0.17 0.022 250);
+      --border: oklch(0.30 0.03 252);
+      --input: oklch(0.30 0.03 252);
+      --ring: oklch(0.70 0.13 240);
+      --success: oklch(0.72 0.15 165);
+      --warn: oklch(0.78 0.15 75);
+      --shadow-tint: oklch(0 0 0 / 0.35);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: var(--font-sans); margin: 0; line-height: 1.6;
+      background-color: var(--background);
+      background-image:
+        radial-gradient(1100px 480px at 8% -10%, oklch(from var(--brand) l c h / 0.10), transparent 55%),
+        radial-gradient(900px 420px at 100% 0%, oklch(from var(--brand) l c h / 0.06), transparent 60%);
+      background-attachment: fixed; background-repeat: no-repeat;
+      color: var(--foreground);
+    }
+    a { color: inherit; text-decoration: none; }
+
+    /* header */
+    .site-header {
+      position: sticky; top: 0; z-index: 20;
+      background: oklch(from var(--background) l c h / 0.92);
+      border-bottom: 1px solid var(--border); backdrop-filter: blur(12px);
+    }
+    .site-header-inner {
+      width: min(1200px, calc(100% - 2rem)); margin: 0 auto; min-height: 64px;
+      display: flex; align-items: center; gap: 1rem;
+    }
+    .brand { display: inline-flex; align-items: center; gap: .75rem; min-width: max-content; }
+    .brand-mark {
+      width: 32px; height: 32px; display: inline-grid; place-items: center;
+      background: var(--brand); color: var(--brand-foreground);
+      border-radius: calc(var(--radius) - 2px); font-size: 12px; font-weight: 700;
+      box-shadow: 0 2px 8px oklch(from var(--brand) l c h / 0.35);
+    }
+    .brand strong { display: block; font-size: 14px; line-height: 1.1; }
+    .brand span:last-child span { display: block; color: var(--muted-foreground); font-size: 11px; line-height: 1.2; }
+    .site-nav { display: flex; align-items: center; gap: .25rem; margin-left: auto; }
+    .site-nav a {
+      padding: 6px 10px; color: var(--muted-foreground);
+      border-radius: calc(var(--radius) - 2px); font-size: 13px; font-weight: 500; white-space: nowrap;
+    }
+    .site-nav a:hover, .site-nav a:focus-visible { background: var(--accent); color: var(--accent-foreground); outline: none; }
+    .site-nav a.active { color: var(--foreground); background: var(--accent); }
+    #theme-toggle {
+      padding: 6px 10px; min-width: 36px; background: transparent; color: var(--muted-foreground);
+      border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+      cursor: pointer; opacity: .85; font-size: 14px;
+    }
+    #theme-toggle:hover { opacity: 1; background: var(--accent); }
+
+    /* hero */
+    .page-hero {
+      width: min(1200px, calc(100% - 2rem)); margin: 1.5rem auto 0;
+      padding: clamp(1.5rem, 1rem + 3vw, 2.75rem) clamp(1.25rem, .5rem + 2.5vw, 2.5rem);
+      border: 1px solid var(--border); border-radius: calc(var(--radius) + 6px);
+      background: linear-gradient(180deg, oklch(from var(--brand) l c h / 0.07), transparent 45%), var(--card);
+      box-shadow: 0 1px 2px var(--shadow-tint), 0 30px 70px -50px var(--shadow-tint);
+    }
+    .kicker {
+      color: var(--brand); font-size: 12px; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; margin: 0 0 .6rem; display: inline-flex; align-items: center; gap: .5rem;
+    }
+    .kicker::before { content: ""; width: 18px; height: 2px; border-radius: 2px; background: var(--brand); }
+    .page-hero h1 {
+      margin: 0; font-size: clamp(1.8rem, 1.3rem + 2.4vw, 2.6rem);
+      line-height: 1.05; letter-spacing: -0.03em; font-weight: 600;
+    }
+    .page-hero .lead { max-width: 64ch; margin: 1rem 0 0; color: var(--muted-foreground); font-size: 1.05rem; }
+    .formats { margin-top: 1.1rem; display: flex; flex-wrap: wrap; gap: .4rem; }
+    .pill {
+      font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+      background: var(--secondary); color: var(--secondary-foreground); border: 1px solid var(--border);
+    }
+
+    /* doc layout */
+    .doc-layout {
+      width: min(1200px, calc(100% - 2rem)); margin: 2rem auto 0;
+      display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 3rem;
+      padding-bottom: 4rem; align-items: start;
+    }
+    .doc-toc { position: sticky; top: 84px; }
+    .doc-toc .toc-title {
+      margin: 0 0 .6rem; font-size: 11px; font-weight: 700; letter-spacing: .07em;
+      text-transform: uppercase; color: var(--muted-foreground);
+    }
+    .doc-toc ul { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--border); }
+    .doc-toc li { margin: 0; }
+    .doc-toc a {
+      display: block; padding: 5px 0 5px 14px; margin-left: -1px;
+      border-left: 2px solid transparent; color: var(--muted-foreground);
+      font-size: 12.5px; line-height: 1.35;
+    }
+    .doc-toc a code { font-size: .95em; background: none; padding: 0; border: 0; }
+    .doc-toc a:hover { color: var(--foreground); }
+    .doc-toc a.active { color: var(--brand); border-left-color: var(--brand); font-weight: 600; }
+
+    /* doc content */
+    .doc-content { min-width: 0; }
+    .doc-content h2 {
+      margin: 2.4rem 0 .9rem; padding-top: .4rem; font-size: 1.5rem; font-weight: 600;
+      letter-spacing: -0.02em; line-height: 1.2; scroll-margin-top: 84px;
+    }
+    .doc-content h2:first-child { margin-top: .5rem; }
+    .doc-content h3 {
+      margin: 1.8rem 0 .7rem; font-size: 1.12rem; font-weight: 600;
+      letter-spacing: -0.01em; scroll-margin-top: 84px;
+    }
+    .doc-content h4 { margin: 1.3rem 0 .5rem; font-size: 1rem; font-weight: 600; }
+    .doc-content h2 code, .doc-content h3 code { font-size: .92em; color: var(--brand); background: none; border: 0; padding: 0; }
+    .doc-content p { margin: .75rem 0; color: var(--foreground); max-width: 72ch; }
+    .doc-content a:not(.pill) {
+      color: var(--brand); border-bottom: 1px dashed oklch(from var(--brand) l c h / 0.45);
+    }
+    .doc-content a:hover { border-bottom-style: solid; }
+    .doc-content ul, .doc-content ol { margin: .75rem 0; padding-left: 1.3rem; max-width: 72ch; }
+    .doc-content li { margin: .35rem 0; }
+    .doc-content li::marker { color: var(--muted-foreground); }
+    .doc-content code {
+      font-family: var(--font-mono); font-size: .85em;
+      background: var(--secondary); padding: 1px 6px; border-radius: 5px;
+      border: 1px solid var(--border); color: var(--foreground);
+    }
+    .doc-content pre {
+      margin: 1rem 0; padding: 1rem 1.1rem; overflow-x: auto;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: 0 1px 2px var(--shadow-tint);
+    }
+    .doc-content pre code {
+      font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7;
+      background: none; border: 0; padding: 0; color: var(--foreground);
+    }
+    .doc-content blockquote {
+      margin: 1rem 0; padding: .7rem 1.1rem; color: var(--muted-foreground);
+      border-left: 3px solid var(--brand);
+      background: oklch(from var(--brand) l c h / 0.05);
+      border-radius: 0 var(--radius) var(--radius) 0;
+    }
+    .doc-content blockquote p { margin: 0; max-width: none; }
+    .doc-content hr { margin: 2rem 0; border: 0; border-top: 1px solid var(--border); }
+    .table-wrap { margin: 1rem 0; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+    .doc-content table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .doc-content th, .doc-content td {
+      padding: .55rem .8rem; text-align: left; vertical-align: top;
+      border-bottom: 1px solid var(--border);
+    }
+    .doc-content thead th {
+      background: var(--secondary); color: var(--secondary-foreground);
+      font-weight: 600; white-space: nowrap;
+    }
+    .doc-content tbody tr:last-child td { border-bottom: 0; }
+    .doc-content tbody tr:hover { background: oklch(from var(--accent) l c h / 0.4); }
+    .doc-content td code { white-space: nowrap; }
+
+    /* status marks (emoji-free) */
+    .mk { display: inline-block; width: 15px; height: 15px; vertical-align: -2px; margin-right: .15rem; }
+    .mk-ok { background: var(--success); -webkit-mask: var(--check) center/contain no-repeat; mask: var(--check) center/contain no-repeat; }
+    .mk-warn { background: var(--warn); -webkit-mask: var(--alert) center/contain no-repeat; mask: var(--alert) center/contain no-repeat; }
+
+    .doc-foot {
+      width: min(1200px, calc(100% - 2rem)); margin: 0 auto; padding: 1.5rem 0 3rem;
+      border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: .85rem;
+    }
+    .doc-foot a { color: var(--brand); }
+    .doc-foot code { font-family: var(--font-mono); background: var(--secondary); padding: 1px 6px; border-radius: 5px; }
+
+    @media (max-width: 900px) {
+      .doc-layout { grid-template-columns: 1fr; gap: 1.5rem; }
+      .doc-toc { display: none; }
+    }
+  </style>
+  <script>
+    /* Apply the saved/system theme before first paint. Shares 'apidemo-theme'. */
+    (function () {
+      var stored = localStorage.getItem('apidemo-theme');
+      var dark = stored ? stored === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.classList.toggle('dark', dark);
+    })();
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/">
+        <span class="brand-mark">wp</span>
+        <span><strong>webparsers</strong><span>documentation</span></span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/docs/api.html">API</a>
+        <a href="/readme.html" aria-current="page" class="active">README</a>
+        <a href="/examples/api-demo.html">Demos</a>
+        <a href="https://github.com/uihilab/webparsers">GitHub</a>
+        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">&#9685;</button>
+      </nav>
+    </div>
+  </header>
+
+  <section class="page-hero">
+    <p class="kicker">Project overview</p>
+    <h1>webparsers</h1>
+    <p class="lead">JavaScript / TypeScript library for parsing meteorological and geospatial data formats — <strong>GRIB2</strong>, <strong>NetCDF3</strong>, <strong>NetCDF4 / HDF5</strong>, <strong>Zarr v2</strong>, and <strong>TIFF / GeoTIFF (including Cloud-Optimized GeoTIFFs)</strong> — in the browser, Web Workers, and Node 18+. Powered by a pure-C engine compiled to WebAssembly via Emscripten.</p>
+    
+  </section>
+
+  <main class="doc-layout">
+    <nav class="doc-toc" aria-label="On this page">
+        <p class="toc-title">On this page</p>
+        <ul><li><a href="#install">Install</a></li><li><a href="#supported-formats">Supported formats</a></li><li><a href="#quick-start">Quick start</a></li><li><a href="#public-exports">Public exports</a></li><li><a href="#project-layout">Project layout</a></li><li><a href="#run-the-demos">Run the demos</a></li><li><a href="#current-state">Current state</a></li><li><a href="#roadmap">Roadmap</a></li><li><a href="#building">Building</a></li><li><a href="#license">License</a></li></ul>
+      </nav>
+    <article class="doc-content">
+<h2 id="install">Install</h2>
+<p>Until published to npm:</p>
+<pre><code>npm install git+https://github.com/uihilab/webparsers.git</code></pre>
+<blockquote>You do <strong>not</strong> need Python or Emscripten to install, use, or bundle this library - the compiled <code>webparsers.wasm</code> ships in the package. Python + Emscripten are only needed to <em>recompile</em> the WASM from its C sources.</blockquote>
+<p>End users do <strong>not</strong> need to install peer compression libraries — <code>h5wasm</code> (NetCDF4) and <code>numcodecs</code> (Zarr blosc/zstd/lz4) are lazy-loaded from jsdelivr on first use.</p>
+<h2 id="supported-formats">Supported formats</h2>
+<div class="table-wrap"><table><thead><tr><th>Format</th><th>Extensions</th><th>Notes</th></tr></thead><tbody><tr><td>GRIB2</td><td><code>.grb2</code>, <code>.grib2</code></td><td>Grid templates 0, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → <code>NaN</code>)</td></tr><tr><td>NetCDF3 Classic</td><td><code>.nc3</code></td><td>Full CF coordinate support</td></tr><tr><td>NetCDF4 / HDF5</td><td><code>.nc</code>, <code>.nc4</code></td><td>Loads <code>h5wasm</code> from CDN on first use</td></tr><tr><td>Zarr v2 (zip)</td><td><code>.zip</code>, <code>.zarr</code></td><td>Compressors: <code>null</code>, <code>gzip</code>, <code>zlib</code>, <code>blosc</code>, <code>zstd</code>, <code>lz4</code>. Filters: <code>shuffle</code> only (<code>fixedscaleoffset</code>, <code>delta</code>, … not yet supported).</td></tr><tr><td>TIFF / GeoTIFF</td><td><code>.tif</code>, <code>.tiff</code></td><td>UInt8/UInt16/Int16/Float32; LZW + Deflate; horizontal + floating-point predictors; WGS84 / UTM / sinusoidal; strip + tile; <strong>COG over HTTP Range</strong> (scan/extract only read the IFD + needed tile).</td></tr></tbody></table></div>
+<h2 id="quick-start">Quick start</h2>
+<pre><code>import { scan, extract, extractGrid, gridToGeoTIFF, gridToImageData, slim } from 'webparsers';
+
+// 1. Inspect a file
+const meta = await scan(file);          // file: Uint8Array | Blob | File | URL | string
+console.log(meta.format, meta.variables.map(v =&gt; v.name));
+
+// 2. Point extract
+const point = await extract(file, {
+  variable: 'TMP', lat: 40.7, lon: -74.0, t1: 0, t2: 0,
+});
+
+// 2b. Select a timestep by date instead of index (nearest match):
+const atNoon = await extract(file, { variable: 'TMP', date: '2026-04-14T12:00:00Z' });
+
+// 3. Bounding-box grid (parallel workers, abortable, with progress)
+const grid = await extractGrid(file, {
+  variable: 'TMP',
+  bbox:     [-100, 30, -80, 45],   // [minLon, minLat, maxLon, maxLat]
+  width:    256, height: 256,
+  workers:  5,
+  onProgress: ({ done, total }) =&gt; console.log(`${done}/${total}`),
+});
+// grid.data is a Float32Array of length width*height (row 0 = maxLat)
+
+// 4. Save as Float32 WGS84 GeoTIFF
+const tiff = gridToGeoTIFF(grid);    // Uint8Array
+
+// 4b. Render it for a web map — Float32 grid → colored RGBA, ready for a
+//     &lt;canvas&gt; or a MapLibre ImageSource (zero-dependency, Node + browser)
+const img = gridToImageData(grid, { ramp: 'viridis' });   // { width, height, data }
+const canvas = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+canvas.getContext('2d').putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
+map.addSource('data', { type: 'image', url: canvas.toDataURL('image/png'),
+  coordinates: [[bbox[0], bbox[3]], [bbox[2], bbox[3]], [bbox[2], bbox[1]], [bbox[0], bbox[1]]] });
+map.addLayer({ id: 'data', type: 'raster', source: 'data' });
+// Need a PNG instead (server-side, &lt;img&gt; src)? `await gridToPNG(grid, { ramp })`.
+// Full drop-a-file MapLibre demo: examples/map-demo.html (npm run demo:web)
+
+// 5. Slim a huge file in-place — keep only what you need, same format out
+const trimmed = await slim(file, {
+  variables: ['TMP', 'UGRD'],     // names from scan().variable_names
+  t1: 0, t2: 23,                  // optional time-axis slice
+});
+// trimmed.bytes is a Uint8Array of the same format as the input.
+// GRIB2 / NetCDF3 / Zarr are byte-cut (no decode); NetCDF4 uses h5wasm.</code></pre>
+<p>Full API reference: <a href="docs/api.html"><code>docs/API.md</code></a>. TypeScript types ship with the package — no <code>@types</code> needed.</p>
+<h2 id="public-exports">Public exports</h2>
+<p>All public symbols come from the package root:</p>
+<pre><code>import {
+  // Functional API (recommended)
+  detectFormat, scan, extract, extractOutput,
+  extractGrid, extractGridOutput, gridToJSON, gridToGeoTIFF,
+  gridToImageData, gridToPNG,        // map rendering: Float32 grid → RGBA / PNG
+  RAMPS, resolveRamp, sampleRamp,    // color ramps (viridis/plasma/grayscale/RdBu)
+  slim,
+
+  // Class API (advanced — reuse one instance across many extracts)
+  WebParsers,
+
+  // Typed errors (all extend WebparsersError)
+  WebparsersError, UnsupportedFormatError, VariableNotFoundError,
+  SourceError, ExtractError, SlimError, UnsupportedCRSError,
+} from 'webparsers';</code></pre>
+<p>Anything inside <code>wasm/</code> is internal and may change without notice.</p>
+<h2 id="project-layout">Project layout</h2>
+<pre><code>webparsers/
+├── index.js            ← public entry point
+├── index.d.ts          ← TypeScript types
+├── lib/                ← JavaScript library source (internal — do not import directly)
+│   ├── webparsers-lib.js   class implementation
+│   ├── webparsers-api.js   functional API
+│   ├── webparsers-api.d.ts TypeScript types
+│   ├── errors.js           typed error classes
+│   ├── grid-output.js      GeoTIFF / JSON serialisers
+│   ├── render/             color ramps + Float32 grid → RGBA / PNG
+│   ├── slim/               in-place file trimming (per-format)
+│   ├── tiff/               TIFF / GeoTIFF reader (+ COG over HTTP Range)
+│   ├── zarr/               Zarr v2 reader (zip, compressors, filters)
+│   ├── kerchunk/           Kerchunk / reference-store reader
+│   ├── time-decoder.js     CF time-axis decoding
+│   └── time-select.js      date → nearest timestep selection
+├── wasm/               ← WASM artifacts + C build (internal)
+│   ├── webparsers.wasm     compiled C core (~193 KB)
+│   ├── webparsers.js       Emscripten loader
+│   ├── wasm_api.c          C bindings
+│   └── build.py            build script
+├── worker/             ← Web Worker for parallel bbox extraction
+├── examples/           ← api-demo.html, map-demo.html, library-usage.html, testfile/
+├── scripts/            ← serve.js + test-*.js / demo-*.js runners
+├── docs/               ← API.md
+│
+│   ── native C side (compiled to WASM; not shipped in the npm package) ──
+├── core/               ← C engine: dispatch, cursor, query, errors, geo math
+├── formats/            ← per-format C readers (grib2, hdf5, netcdf, raw)
+├── helper/             ← GRIB2 conversion helpers
+└── tools/              ← native offline CLIs (normalize_refs, query) + Makefile</code></pre>
+<h2 id="run-the-demos">Run the demos</h2>
+<pre><code>npm run demo:web        # serves examples/ on localhost (api-demo, map-demo, library-usage)
+npm run demo:grib2      # CLI: scan + extract a sample GRIB2 file
+npm run demo:netcdf3    # CLI: scan + extract a sample NetCDF3 file
+npm run demo:netcdf4    # CLI: scan + extract a sample NetCDF4 file
+npm run demo:zarr       # CLI: scan + extract a sample Zarr file</code></pre>
+<p>CLI demo scripts live under <code>examples/testfile/</code>. Use <code>npm run build:zarr-fixture</code> to regenerate the rich deflated Zarr fixture at <code>examples/testfile/sample-zarr-rich.zarr.zip</code>.</p>
+<p>Smoke tests:</p>
+<pre><code>npm run test:api        # functional API
+npm run test:grid       # extractGrid (parallel bbox)
+npm run test:zarr       # Zarr path
+npm run test:tiff       # TIFF / GeoTIFF
+npm run test:tiff-range # COG over HTTP Range
+npm run test:slim       # slim() across all formats
+npm run test:time       # CF time-axis decoding
+npm run test:time-select# date → nearest-timestep selection
+npm run test:render     # color ramps + gridToImageData / gridToPNG
+npm run test:kerchunk   # Kerchunk reference store</code></pre>
+<p>The <code>demo:web</code> server hosts several pages:</p>
+<ul><li><strong><code>api-demo.html</code></strong> — drop a <code>.grb2</code> / <code>.nc</code> / <code>.zip</code>/<code>.zarr</code> / <code>.tif</code> file and run <code>scan</code> / <code>extract</code> / <code>extractGrid</code> interactively (heat-map canvas, progress, abort, GeoTIFF / JSON download).</li><li><strong><code>map-demo.html</code></strong> — drop a file and render it on a MapLibre map (date coverage in the sidebar).</li><li><strong><code>library-usage.html</code></strong> — minimal copy-paste usage example.</li></ul>
+<h2 id="current-state">Current state</h2>
+<h3 id="working"><span class="mk mk-ok" aria-label="supported"></span> Working</h3>
+<ul><li><strong>GRIB2</strong> — grid templates 0, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → <code>NaN</code>).</li><li><strong>NetCDF3 Classic</strong> — full CF coordinate support.</li><li><strong>NetCDF4 / HDF5</strong> — via lazy-loaded <code>h5wasm</code>.</li><li><strong>Zarr v2 (zip)</strong> — compressors <code>null</code>, <code>gzip</code>, <code>zlib</code>, <code>blosc</code>, <code>zstd</code>, <code>lz4</code>.</li><li><strong>TIFF / GeoTIFF</strong> — UInt8/16, Int16, Float32; LZW + Deflate; horizontal + floating-point predictors; WGS84 / UTM / sinusoidal; strip + tile; <strong>COG over HTTP Range</strong>.</li><li><strong>Point + bbox extraction</strong> — <code>extract</code>, <code>extractGrid</code> (parallel workers, abortable, progress).</li><li><strong>CF time axis</strong> — decode timesteps; select a timestep by <code>date</code> (nearest match); <code>timeRange</code> / per-axis start–end exposed by <code>scan</code>.</li><li><strong>Output</strong> — <code>gridToGeoTIFF</code>, <code>gridToJSON</code>, <code>gridToImageData</code> / <code>gridToPNG</code> (viridis / plasma / grayscale / RdBu ramps).</li><li><strong><code>slim()</code></strong> — in-place file trimming across GRIB2 / NetCDF3 / NetCDF4 / Zarr.</li></ul>
+<h3 id="not-yet-supported"><span class="mk mk-warn" aria-label="partial"></span> Not yet supported</h3>
+<ul><li>Zarr filters (<code>fixedscaleoffset</code>, <code>delta</code>, …).</li><li>Zarr v3.</li></ul>
+<h2 id="roadmap">Roadmap</h2>
+<h3 id="sprint-7--api-demo-ux--large-file-testing">Sprint 7 — <code>api-demo</code> UX + large-file testing</h3>
+<ol><li><strong>Improve the <code>api-demo</code> UX</strong> so users can comfortably test the library end-to-end — clearer scan/extract flows, better feedback, and easier inspection of results.</li><li><strong>Heavy testing on large files</strong> — exercise the existing pipeline (streaming scan, COG HTTP Range reads, parallel <code>extractGrid</code>, <code>slim</code>) against big real-world inputs to validate performance and memory behavior.</li></ol>
+<h2 id="building">Building</h2>
+<p>The library ships a <strong>prebuilt <code>webparsers.wasm</code></strong> in the repo, so neither end users nor most contributors need Python or Emscripten.</p>
+<p>There are two independent stages:</p>
+<div class="table-wrap"><table><thead><tr><th>Command</th><th>What it does</th><th>When you need it</th><th>Requires</th></tr></thead><tbody><tr><td><code>npm run build</code></td><td>Bundles the JS and copies the prebuilt <code>.wasm</code> into <code>dist/</code> (the publishable package).</td><td>Every time you publish to npm.</td><td>Node 18+ only</td></tr><tr><td><code>npm run build:wasm</code></td><td>Recompiles the C sources to <code>webparsers.wasm</code>.</td><td>Only when you change the C in <code>formats/</code> or <code>wasm/</code>.</td><td>Emscripten (<code>emcc</code>) on <code>PATH</code></td></tr></tbody></table></div>
+<pre><code># Package for npm (pure Node - no Python, no Emscripten):
+npm run build        # writes dist/
+
+# Recompile the WASM (only when C sources changed):
+npm run build:wasm   # writes wasm/webparsers.wasm (commit the result)</code></pre>
+<p>The repo is kept <strong>un-built</strong>: <code>dist/</code> is gitignored and regenerated by <code>npm run build</code> (which also runs automatically on <code>npm publish</code>).</p>
+<h2 id="license">License</h2>
+<p>MIT.</p>
+    </article>
+  </main>
+
+  <footer class="doc-foot">
+    Generated from <code>README.md</code> &middot;
+    <a href="https://github.com/uihilab/webparsers">github.com/uihilab/webparsers</a> &middot;
+    run the demos with <code>npm run demo:web</code>.
+  </footer>
+
+  <script>
+    /* Theme toggle — touches only the .dark class + localStorage. */
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      function sync() {
+        var dark = document.documentElement.classList.contains('dark');
+        btn.innerHTML = dark ? '&#9728;' : '&#9685;';
+        btn.setAttribute('aria-pressed', String(dark));
+      }
+      btn.addEventListener('click', function () {
+        var dark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('apidemo-theme', dark ? 'dark' : 'light');
+        sync();
+      });
+      sync();
+    })();
+  </script>
+  <script>
+    /* Highlight the current section in the on-this-page nav. */
+    (function () {
+      var links = Array.prototype.slice.call(document.querySelectorAll('.doc-toc a'));
+      if (!links.length || !('IntersectionObserver' in window)) return;
+      var byId = {};
+      links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+      var targets = links
+        .map(function (a) { return document.getElementById(a.getAttribute('href').slice(1)); })
+        .filter(Boolean);
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) current = e.target.id; });
+        links.forEach(function (a) { a.classList.remove('active'); });
+        if (current && byId[current]) byId[current].classList.add('active');
+      }, { rootMargin: '-80px 0px -70% 0px', threshold: 0 });
+      targets.forEach(function (t) { io.observe(t); });
+    })();
+  </script>
+</body>
+</html>
