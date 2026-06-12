@@ -47,6 +47,16 @@ function setStatus(msg, cls = '') {
   el.className = cls;
 }
 
+/* ── layer opacity ──────────────────────────────────────────────────────── */
+// Read the opacity slider (0–100) as a 0–1 raster-opacity, defaulting to 0.75.
+function currentOpacity() {
+  const v = parseInt($('opacity').value, 10);
+  return Number.isFinite(v) ? v / 100 : 0.75;
+}
+function updateOpacityLabel() {
+  $('opacity-val').textContent = `${parseInt($('opacity').value, 10) || 0}%`;
+}
+
 /* ── bbox helpers ───────────────────────────────────────────────────────── */
 // Intersection of two [minLon, minLat, maxLon, maxLat] boxes, or null.
 function intersectBbox(a, b) {
@@ -191,7 +201,7 @@ async function refreshLayer() {
     } else {
       map.addSource('data-source', { type: 'image', url, coordinates: bboxToCoords(bbox) });
       map.addLayer({ id: 'data-layer', type: 'raster', source: 'data-source',
-                     paint: { 'raster-opacity': 0.75 } });
+                     paint: { 'raster-opacity': currentOpacity() } });
     }
     drawLegend(ramp, range?.vmin, range?.vmax);
     setStatus(`${variable} — ${img.width}×${img.height}`, 'ok');
@@ -234,6 +244,13 @@ $('variable').addEventListener('change', () => {
 });
 $('time').addEventListener('change', refreshLayer);
 $('ramp').addEventListener('change', refreshLayer);
+
+// Layer opacity — live-update the existing raster without re-rendering the grid.
+$('opacity').addEventListener('input', () => {
+  updateOpacityLabel();
+  if (map && map.getLayer('data-layer'))
+    map.setPaintProperty('data-layer', 'raster-opacity', currentOpacity());
+});
 
 /* ── point query (lat/lon inputs bounded by the variable's extent) ──────── */
 // bbox is [minLon, minLat, maxLon, maxLat]. For TIFF these are real file
@@ -324,7 +341,28 @@ function attachClickQuery() {
 function init() {
   map = new maplibregl.Map({
     container: 'map',
-    style: 'https://demotiles.maplibre.org/style.json',
+    // Minimal near-blank basemap: pale background + faint country outlines only,
+    // so the data color ramp stays easy to read. Reuses the demotiles vector
+    // source (no API key, no extra CDN dependency).
+    style: {
+      version: 8,
+      sources: {
+        countries: {
+          type: 'vector',
+          url: 'https://demotiles.maplibre.org/tiles/tiles.json',
+        },
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#f4f4f2' } },
+        {
+          id: 'country-borders',
+          type: 'line',
+          source: 'countries',
+          'source-layer': 'countries',
+          paint: { 'line-color': '#c8c8c8', 'line-width': 0.6 },
+        },
+      ],
+    },
     center: [0, 20],
     zoom: 1,
   });

@@ -63,6 +63,7 @@
     "build:wasm": "python wasm/build.py",
     "build:tiff-fixtures": "node scripts/build-tiff-fixtures.js",
     "build:zarr-fixture": "node scripts/build-zarr-fixture.js",
+    "build:docs": "node scripts/build-docs.js",
     "test": "node scripts/test-api.js && node scripts/test-grid.js && node scripts/test-zarr.js && node scripts/test-tiff.js && node scripts/test-slim.js && node scripts/test-time.js && node scripts/test-render.js && node scripts/test-kerchunk.js && node scripts/test-time-select.js",
     "test:api": "node scripts/test-api.js",
     "test:grid": "node scripts/test-grid.js",
