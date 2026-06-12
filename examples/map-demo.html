@@ -10,41 +10,133 @@
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <style>
-    html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+    :root {
+      --radius: 0.625rem;
+      --background: oklch(0.992 0.004 240);
+      --foreground: oklch(0.21 0.03 252);
+      --card: oklch(1 0.002 240);
+      --card-foreground: oklch(0.21 0.03 252);
+      --secondary: oklch(0.96 0.01 240);
+      --secondary-foreground: oklch(0.28 0.04 252);
+      --muted-foreground: oklch(0.52 0.03 248);
+      --accent: oklch(0.95 0.02 242);
+      --brand: oklch(0.55 0.16 245);
+      --brand-foreground: oklch(0.99 0.005 240);
+      --border: oklch(0.91 0.012 245);
+      --input: oklch(0.86 0.014 245);
+      --ring: oklch(0.55 0.16 245);
+      --success: oklch(0.6 0.13 165);
+      --warn: oklch(0.68 0.15 70);
+      --destructive: oklch(0.637 0.237 25.331);
+      --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    .dark {
+      --background: oklch(0.17 0.022 250);
+      --foreground: oklch(0.97 0.006 240);
+      --card: oklch(0.205 0.025 252);
+      --card-foreground: oklch(0.97 0.006 240);
+      --secondary: oklch(0.27 0.03 252);
+      --secondary-foreground: oklch(0.97 0.006 240);
+      --muted-foreground: oklch(0.69 0.025 245);
+      --accent: oklch(0.29 0.04 250);
+      --brand: oklch(0.70 0.13 240);
+      --brand-foreground: oklch(0.17 0.022 250);
+      --border: oklch(0.30 0.03 252);
+      --input: oklch(0.30 0.03 252);
+      --ring: oklch(0.70 0.13 240);
+      --success: oklch(0.72 0.15 165);
+      --warn: oklch(0.78 0.15 75);
+      --destructive: oklch(0.7 0.18 25);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font-family: var(--font-sans); }
+    body { color: var(--foreground); }
     #app { display: flex; height: 100%; }
     #sidebar {
-      width: 280px; flex: 0 0 280px; padding: 1rem; box-sizing: border-box;
-      background: #16213e; color: #e0e0e0; overflow-y: auto;
+      width: 300px; flex: 0 0 300px; padding: 1.1rem;
+      background: var(--card); color: var(--card-foreground);
+      border-right: 1px solid var(--border); overflow-y: auto;
+      position: relative;
     }
-    #sidebar h1 { font-size: 1.1rem; color: #00d4ff; margin: 0 0 .25rem; }
-    #sidebar .muted { color: #8aa; font-size: 11px; line-height: 1.4; }
-    #sidebar label { display: block; margin: .75rem 0 .2rem; font-size: 12px; color: #00d4ff; }
-    #sidebar select, #sidebar input[type=file] {
-      width: 100%; box-sizing: border-box; padding: 6px; background: #0f3460;
-      color: #fff; border: 1px solid #335; border-radius: 4px; font-family: inherit;
+    #sidebar::before {
+      content: ""; display: block;
+      height: 3px; margin: -1.1rem -1.1rem 1rem;
+      background: linear-gradient(90deg, var(--brand), oklch(from var(--brand) l c h / 0) 75%);
     }
-    #status { margin-top: .75rem; font-size: 12px; min-height: 1.2em; }
-    #status.error { color: #ff6b6b; }
-    #status.busy  { color: #ffd166; }
-    #status.ok    { color: #51cf66; }
+    .sb-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
+    .brand-mark {
+      width: 30px; height: 30px; flex: 0 0 30px;
+      display: inline-grid; place-items: center;
+      background: var(--brand); color: var(--brand-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 11px; font-weight: 700;
+      box-shadow: 0 2px 8px oklch(from var(--brand) l c h / 0.35);
+    }
+    #sidebar h1 { font-size: 1.02rem; color: var(--foreground); margin: 0; letter-spacing: -0.02em; line-height: 1.15; }
+    #theme-toggle {
+      margin-left: auto; padding: 5px 9px; min-width: 32px;
+      background: transparent; color: var(--muted-foreground);
+      border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+      cursor: pointer; opacity: .85; font-size: 13px;
+    }
+    #theme-toggle:hover { opacity: 1; background: var(--accent); }
+    #sidebar .muted { color: var(--muted-foreground); font-size: 11px; line-height: 1.45; }
+    #sidebar label { display: block; margin: .85rem 0 .25rem; font-size: 12px; font-weight: 600; color: var(--foreground); }
+    #sidebar select, #sidebar input[type=file], #sidebar input[type=number] {
+      width: 100%; padding: 7px 8px;
+      background: var(--background); color: var(--foreground);
+      border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px);
+      font-family: inherit; font-size: 13px;
+    }
+    #sidebar select:focus-visible, #sidebar input:focus-visible {
+      outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--ring);
+    }
+    #sidebar input[type=file]::file-selector-button {
+      margin-right: 8px; padding: 5px 10px;
+      background: var(--secondary); color: var(--secondary-foreground);
+      border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+      cursor: pointer; font-family: inherit; font-size: 12px;
+    }
+    #status { margin-top: .75rem; font-size: 12px; min-height: 1.2em; color: var(--muted-foreground); }
+    #status.error { color: var(--destructive); }
+    #status.busy  { color: var(--warn); }
+    #status.ok    { color: var(--success); }
     #sidebar button {
-      padding: 7px 10px; background: #0f3460; color: #fff; border: 1px solid #00d4ff;
-      border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;
+      padding: 8px 12px; background: var(--brand); color: var(--brand-foreground);
+      border: 1px solid transparent; border-radius: calc(var(--radius) - 2px);
+      cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
+      transition: filter .15s ease, transform .1s ease;
     }
-    #sidebar button:hover { background: #00d4ff; color: #16213e; }
+    #sidebar button:hover { filter: brightness(1.08); }
+    #sidebar button:active { transform: translateY(1px); }
+    #sidebar #theme-toggle { background: transparent; color: var(--muted-foreground); }
     #query { margin-top: 1rem; }
-    #q-result.ok { color: #51cf66; }
-    #q-result.error { color: #ff6b6b; }
+    #q-result.ok { color: var(--success); }
+    #q-result.error { color: var(--destructive); }
     #legend { margin-top: 1rem; }
-    #legend canvas { width: 100%; height: 14px; border: 1px solid #335; border-radius: 3px; display: block; }
-    #legend .ticks { display: flex; justify-content: space-between; font-size: 10px; color: #8aa; margin-top: 2px; }
+    #legend canvas { width: 100%; height: 14px; border: 1px solid var(--border); border-radius: 3px; display: block; }
+    #legend .ticks { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted-foreground); margin-top: 2px; }
     #map { flex: 1; height: 100%; }
   </style>
+  <script>
+    /* Apply the saved/system theme before first paint. Shares 'apidemo-theme'. */
+    (function () {
+      var stored = localStorage.getItem('apidemo-theme');
+      var dark = stored ? stored === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.classList.toggle('dark', dark);
+    })();
+  </script>
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
-      <h1>webparsers map demo</h1>
+      <div class="sb-head">
+        <span class="brand-mark">WP</span>
+        <h1>webparsers map demo</h1>
+        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
+      </div>
       <p class="muted">
         Drop any supported file (GRIB2, NetCDF3/4, Zarr-zip, TIFF/COG), pick a
         variable, and see it overlaid on a real basemap. Click the map to read
@@ -96,6 +188,24 @@
 
     <div id="map"></div>
   </div>
+
+  <!-- Theme toggle — touches only the .dark class + localStorage. -->
+  <script>
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      function sync() {
+        var dark = document.documentElement.classList.contains('dark');
+        btn.textContent = dark ? '☀' : '◐';
+        btn.setAttribute('aria-pressed', String(dark));
+      }
+      btn.addEventListener('click', function () {
+        var dark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('apidemo-theme', dark ? 'dark' : 'light');
+        sync();
+      });
+      sync();
+    })();
+  </script>
 
   <script type="module" src="./map-demo.js"></script>
 </body>
