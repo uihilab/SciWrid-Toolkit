@@ -19,6 +19,7 @@ let timeAxis = null;   // { kind, values } for the active variable; values are d
 let renderToken = 0;   // bumped each refresh; stale worker responses are discarded
 let extractBbox = null; // [minLon,minLat,maxLon,maxLat] - chosen extract region
 let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-extract
+const MERCATOR_MAX_LAT = 85.05112878;
 
 /* ── render worker ──────────────────────────────────────────────────────── */
 // extractGrid + gridToImageData run off the main thread so pan/zoom stays
@@ -74,7 +75,10 @@ function bboxToCoords([minLon, minLat, maxLon, maxLat]) {
 function fitMapToBbox(bbox) {
   if (!bbox) return;
   const [minLon, minLat, maxLon, maxLat] = bbox;
-  map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 30, duration: 0 });
+  map.fitBounds([
+    [minLon, Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, minLat))],
+    [maxLon, Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, maxLat))],
+  ], { padding: 30, duration: 0 });
 }
 
 /* ── variable picker ────────────────────────────────────────────────────── */
@@ -221,10 +225,18 @@ function clearBboxSketch() {
 
 function bboxPixelSize(bbox) {
   const [minLon, minLat, maxLon, maxLat] = bbox;
-  const tl = map.project([minLon, maxLat]);
-  const br = map.project([maxLon, minLat]);
-  const w = Math.min(1024, Math.max(64, Math.round(Math.abs(br.x - tl.x))));
-  const h = Math.min(1024, Math.max(64, Math.round(Math.abs(br.y - tl.y))));
+  const projectLat = (lat) => Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, lat));
+  const clampDim = (px, fallback) => {
+    const n = Math.round(Math.abs(px));
+    return Number.isFinite(n) && n > 0
+      ? Math.min(1024, Math.max(64, n))
+      : Math.min(1024, Math.max(64, Math.round(fallback) || 512));
+  };
+  const tl = map.project([minLon, projectLat(maxLat)]);
+  const br = map.project([maxLon, projectLat(minLat)]);
+  const canvas = map.getCanvas();
+  const w = clampDim(br.x - tl.x, canvas?.clientWidth);
+  const h = clampDim(br.y - tl.y, canvas?.clientHeight);
   return { w, h };
 }
 
