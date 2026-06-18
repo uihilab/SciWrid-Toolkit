@@ -62,8 +62,37 @@ function updateOpacityLabel() {
 }
 
 /* ── bbox helpers ───────────────────────────────────────────────────────── */
+function clampMercatorLat(lat) {
+  return Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, lat));
+}
+
+function normalizeDisplayLon(lon) {
+  return ((((lon + 180) % 360) + 360) % 360) - 180;
+}
+
+function displayBbox([minLon, minLat, maxLon, maxLat]) {
+  let dMinLon = minLon, dMaxLon = maxLon;
+  const span = maxLon - minLon;
+  if (minLon >= 0 && maxLon > 180 && span > 180) {
+    dMinLon = minLon - 180;
+    dMaxLon = maxLon - 180;
+  } else if (minLon < -180 || maxLon > 180) {
+    dMinLon = normalizeDisplayLon(minLon);
+    dMaxLon = normalizeDisplayLon(maxLon);
+    if (dMaxLon <= dMinLon) {
+      dMinLon = Math.max(-180, dMinLon - 360);
+      dMaxLon = Math.min(180, dMaxLon);
+    }
+  }
+  dMinLon = Math.max(-180, Math.min(180, dMinLon));
+  dMaxLon = Math.max(-180, Math.min(180, dMaxLon));
+  if (dMaxLon <= dMinLon) { dMinLon = -180; dMaxLon = 180; }
+  return [dMinLon, clampMercatorLat(minLat), dMaxLon, clampMercatorLat(maxLat)];
+}
+
 // MapLibre ImageSource wants 4 corner coords, clockwise from top-left.
-function bboxToCoords([minLon, minLat, maxLon, maxLat]) {
+function bboxToCoords(bbox) {
+  const [minLon, minLat, maxLon, maxLat] = displayBbox(bbox);
   return [
     [minLon, maxLat], // top-left
     [maxLon, maxLat], // top-right
@@ -74,11 +103,8 @@ function bboxToCoords([minLon, minLat, maxLon, maxLat]) {
 
 function fitMapToBbox(bbox) {
   if (!bbox) return;
-  const [minLon, minLat, maxLon, maxLat] = bbox;
-  map.fitBounds([
-    [minLon, Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, minLat))],
-    [maxLon, Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, maxLat))],
-  ], { padding: 30, duration: 0 });
+  const [minLon, minLat, maxLon, maxLat] = displayBbox(bbox);
+  map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 30, duration: 0 });
 }
 
 /* ── variable picker ────────────────────────────────────────────────────── */
@@ -202,7 +228,7 @@ function validateAndSketch() {
 
 function drawBboxSketch(bbox) {
   if (!map || !map.isStyleLoaded()) return;
-  const [minLon, minLat, maxLon, maxLat] = bbox;
+  const [minLon, minLat, maxLon, maxLat] = displayBbox(bbox);
   const ring = [[minLon, minLat], [maxLon, minLat], [maxLon, maxLat], [minLon, maxLat], [minLon, minLat]];
   const data = { type: 'Feature', geometry: { type: 'LineString', coordinates: ring }, properties: {} };
   if (map.getSource('bbox-sketch')) {
@@ -224,16 +250,15 @@ function clearBboxSketch() {
 }
 
 function bboxPixelSize(bbox) {
-  const [minLon, minLat, maxLon, maxLat] = bbox;
-  const projectLat = (lat) => Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, lat));
+  const [minLon, minLat, maxLon, maxLat] = displayBbox(bbox);
   const clampDim = (px, fallback) => {
     const n = Math.round(Math.abs(px));
     return Number.isFinite(n) && n > 0
       ? Math.min(1024, Math.max(64, n))
       : Math.min(1024, Math.max(64, Math.round(fallback) || 512));
   };
-  const tl = map.project([minLon, projectLat(maxLat)]);
-  const br = map.project([maxLon, projectLat(minLat)]);
+  const tl = map.project([minLon, maxLat]);
+  const br = map.project([maxLon, minLat]);
   const canvas = map.getCanvas();
   const w = clampDim(br.x - tl.x, canvas?.clientWidth);
   const h = clampDim(br.y - tl.y, canvas?.clientHeight);
