@@ -164,10 +164,76 @@ const tempBE = (() => {
   return u8;
 })();
 
+function buildShardedTemp() {
+  const flat = field();
+  const inner = [1, 2, 5], outer = [2, 4, 5];
+  const innerGrid = outer.map((o, i) => Math.ceil(o / inner[i]));
+  const nInner = innerGrid.reduce((a, b) => a * b, 1);
+  const strides = [NLAT * NLON, NLON, 1];
+  const parts = [];
+  const index = new BigUint64Array(nInner * 2);
+  let cursor = 0, k = 0;
+
+  for (let it = 0; it < innerGrid[0]; it++) {
+    for (let ij = 0; ij < innerGrid[1]; ij++) {
+      for (let ii = 0; ii < innerGrid[2]; ii++, k++) {
+        if (it === 1 && ij === 1) {
+          index[k * 2] = 0xFFFFFFFFFFFFFFFFn;
+          index[k * 2 + 1] = 0n;
+          continue;
+        }
+        const buf = new Float64Array(inner[0] * inner[1] * inner[2]);
+        let w = 0;
+        for (let a = 0; a < inner[0]; a++) {
+          for (let b = 0; b < inner[1]; b++) {
+            for (let c = 0; c < inner[2]; c++) {
+              const gt = it * inner[0] + a;
+              const gj = ij * inner[1] + b;
+              const gi = ii * inner[2] + c;
+              if (gt < NT && gj < NLAT && gi < NLON)
+                buf[w] = flat[gt * strides[0] + gj * strides[1] + gi * strides[2]];
+              w++;
+            }
+          }
+        }
+        const bytes = new Uint8Array(buf.buffer);
+        parts.push(bytes);
+        index[k * 2] = BigInt(cursor);
+        index[k * 2 + 1] = BigInt(bytes.length);
+        cursor += bytes.length;
+      }
+    }
+  }
+
+  const idxBytes = new Uint8Array(index.buffer);
+  const idxWithCrc = new Uint8Array(idxBytes.length + 4);
+  idxWithCrc.set(idxBytes, 0);
+  const total = new Uint8Array(cursor + idxWithCrc.length);
+  let p = 0;
+  for (const part of parts) { total.set(part, p); p += part.length; }
+  total.set(idxWithCrc, cursor);
+  return { bytes: total, inner };
+}
+
+const sharded = buildShardedTemp();
+const SHARD_CODECS = [{
+  name: 'sharding_indexed',
+  configuration: {
+    chunk_shape: sharded.inner,
+    index_location: 'end',
+    codecs: [{ name: 'bytes', configuration: { endian: 'little' } }],
+    index_codecs: [
+      { name: 'bytes', configuration: { endian: 'little' } },
+      { name: 'crc32c', configuration: {} },
+    ],
+  },
+}];
+
 const stores = [
   ['v3-regular-zstd', ZSTD, ZSTD, zstdEnc, await zstdEnc(tempLE), 'float64'],
   ['v3-gzip', GZIP, GZIP, gzipEnc, gzipEnc(tempLE), 'float64'],
   ['v3-bigendian', RAW_BE, RAW_LE, (b) => b, tempBE, 'int16'],
+  ['v3-sharded', SHARD_CODECS, ZSTD, zstdEnc, sharded.bytes, 'float64'],
 ];
 
 for (const [name, dataCodecs, coordCodecs, coordEncFn, tempBytes, tempDtype] of stores) {
