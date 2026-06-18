@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // scripts/test-zarr-v3.js - Zarr v3 unit + integration tests.
 import { parseDtype } from '../lib/zarr/metadata.js';
+import { mapCodecs, decodeChunkBytes } from '../lib/zarr/codecs.js';
+import { gzipSync } from 'node:zlib';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
@@ -28,6 +30,28 @@ await test('float16 decodes to Float32 value', () => {
   const dt = parseDtype('<f2');
   const buf = new Uint8Array([0x00, 0x3c]);
   assert(Math.abs(dt.view(buf, 0, 1)[0] - 1.0) < 1e-6, `expected 1.0, got ${dt.view(buf, 0, 1)[0]}`);
+});
+
+console.log('\n[codecs]');
+await test('mapCodecs splits bytes endianness and compressor', () => {
+  const r = mapCodecs([
+    { name: 'bytes', configuration: { endian: 'big' } },
+    { name: 'gzip', configuration: { level: 5 } },
+  ]);
+  assert(r.endianness === 'big', 'endian');
+  assert(r.compressor && r.compressor.id === 'gzip', 'compressor id');
+  assert(r.sharding === null, 'no sharding');
+});
+await test('decodeChunkBytes inflates gzip and strips crc32c', async () => {
+  const payload = new Uint8Array([1, 2, 3, 4, 5]);
+  const gz = new Uint8Array(gzipSync(Buffer.from(payload)));
+  const stored = new Uint8Array(gz.length + 4);
+  stored.set(gz, 0);
+  const out = await decodeChunkBytes(stored, [
+    { name: 'gzip', configuration: {} },
+    { name: 'crc32c', configuration: {} },
+  ]);
+  assert(out.length === 5 && out[4] === 5, `got ${Array.from(out)}`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
