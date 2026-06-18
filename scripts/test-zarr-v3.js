@@ -126,5 +126,20 @@ await test('dimension_names resolves real lat/lon (explicit)', async () => {
   await zarrHelper.scanFree(scan);
 });
 
+console.log('\n[v3 sharding]');
+await test('read sharded temp incl. empty inner chunk = fill', async () => {
+  if (!existsSync(FX('v3-sharded.zarr.zip'))) return;
+  const buf = new Uint8Array(readFileSync(FX('v3-sharded.zarr.zip')));
+  const scan = await zarrHelper.scan(buf);
+  const temp = scan.arrays.find((a) => a.name === 'temp');
+  const data = await zarrHelper._readArrayAsFloat32(scan, temp);
+  assert(data.length === 2 * 4 * 5, `len ${data.length}`);
+  const strides = [20, 5, 1];
+  const cell = (t, j, i) => data[t * strides[0] + j * strides[1] + i * strides[2]];
+  assert(Number.isNaN(cell(1, 3, 0)), 'empty inner chunk should be NaN');
+  assert(Number.isFinite(cell(0, 0, 0)), 'present chunk finite');
+  await zarrHelper.scanFree(scan);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
