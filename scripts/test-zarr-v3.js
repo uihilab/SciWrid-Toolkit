@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // scripts/test-zarr-v3.js - Zarr v3 unit + integration tests.
-import { parseDtype } from '../lib/zarr/metadata.js';
+import { parseDtype, resolveCoordRefs } from '../lib/zarr/metadata.js';
 import { mapCodecs, decodeChunkBytes } from '../lib/zarr/codecs.js';
 import { dataTypeToTypestr, indexArraysV3 } from '../lib/zarr/v3-metadata.js';
 import { readFileSync, existsSync } from 'node:fs';
@@ -112,6 +112,19 @@ for (const file of ['v3-regular-zstd.zarr.zip', 'v3-gzip.zarr.zip', 'v3-bigendia
     await zarrHelper.scanFree(scan);
   });
 }
+
+console.log('\n[v3 coords]');
+await test('dimension_names resolves real lat/lon (explicit)', async () => {
+  if (!existsSync(FX('v3-regular-zstd.zarr.zip'))) return;
+  const buf = new Uint8Array(readFileSync(FX('v3-regular-zstd.zarr.zip')));
+  const scan = await zarrHelper.scan(buf);
+  const temp = scan.arrays.find((a) => a.name === 'temp');
+  const refs = resolveCoordRefs(scan, temp);
+  assert(refs.source === 'explicit', `source=${refs.source}`);
+  assert(refs.latRef && refs.latRef.name === 'lat', 'latRef');
+  assert(refs.lonRef && refs.lonRef.name === 'lon', 'lonRef');
+  await zarrHelper.scanFree(scan);
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
