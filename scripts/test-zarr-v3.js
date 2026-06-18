@@ -2,6 +2,7 @@
 // scripts/test-zarr-v3.js - Zarr v3 unit + integration tests.
 import { parseDtype } from '../lib/zarr/metadata.js';
 import { mapCodecs, decodeChunkBytes } from '../lib/zarr/codecs.js';
+import { dataTypeToTypestr, indexArraysV3 } from '../lib/zarr/v3-metadata.js';
 import { gzipSync } from 'node:zlib';
 
 let passed = 0, failed = 0;
@@ -52,6 +53,42 @@ await test('decodeChunkBytes inflates gzip and strips crc32c', async () => {
     { name: 'crc32c', configuration: {} },
   ]);
   assert(out.length === 5 && out[4] === 5, `got ${Array.from(out)}`);
+});
+
+console.log('\n[v3-metadata]');
+await test('dataTypeToTypestr maps names + endianness', () => {
+  assert(dataTypeToTypestr('float64', 'little') === '<f8', 'f8 le');
+  assert(dataTypeToTypestr('int16', 'big') === '>i2', 'i2 be');
+  assert(dataTypeToTypestr('uint8', 'little') === '|u1', 'u1');
+});
+await test('indexArraysV3 translates a per-node zarr.json', () => {
+  const enc = new TextEncoder();
+  const arr = {
+    shape: [2, 3],
+    data_type: 'float64',
+    zarr_format: 3,
+    node_type: 'array',
+    chunk_grid: { name: 'regular', configuration: { chunk_shape: [2, 3] } },
+    chunk_key_encoding: { name: 'default', configuration: { separator: '/' } },
+    fill_value: 'NaN',
+    dimension_names: ['lat', 'lon'],
+    codecs: [
+      { name: 'bytes', configuration: { endian: 'little' } },
+      { name: 'zstd', configuration: { level: 0 } },
+    ],
+    attributes: { units: 'K' },
+  };
+  const entries = { 'precip/zarr.json': enc.encode(JSON.stringify(arr)) };
+  const out = indexArraysV3(entries);
+  assert(out.length === 1, 'one array');
+  const m = out[0];
+  assert(m.name === 'precip', 'name');
+  assert(m.meta.dtype === '<f8', 'dtype');
+  assert(m.meta._chunkKeyPrefix === 'c', 'prefix');
+  assert(m.meta.dimension_separator === '/', 'sep');
+  assert(m.meta.compressor.id === 'zstd', 'compressor');
+  assert(JSON.stringify(m.meta._dimNames) === JSON.stringify(['lat', 'lon']), 'dims');
+  assert(m.attrs.units === 'K', 'attrs');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
