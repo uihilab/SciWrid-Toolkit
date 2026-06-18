@@ -7,6 +7,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve as rsv } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import zarrHelper from '../lib/zarr-helper.js';
+import { extractGrid } from '../index.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
@@ -138,6 +139,32 @@ await test('read sharded temp incl. empty inner chunk = fill', async () => {
   const cell = (t, j, i) => data[t * strides[0] + j * strides[1] + i * strides[2]];
   assert(Number.isNaN(cell(1, 3, 0)), 'empty inner chunk should be NaN');
   assert(Number.isFinite(cell(0, 0, 0)), 'present chunk finite');
+  await zarrHelper.scanFree(scan);
+});
+
+console.log('\n[v3 extractGrid]');
+await test('extractGrid over real coords returns finite cells', async () => {
+  if (!existsSync(FX('v3-regular-zstd.zarr.zip'))) return;
+  const buf = new Uint8Array(readFileSync(FX('v3-regular-zstd.zarr.zip')));
+  const g = await extractGrid(buf, {
+    variable: 'temp',
+    bbox: [-95, 27, -91, 30],
+    width: 8,
+    height: 8,
+    time: 0,
+  });
+  let finite = 0;
+  for (const v of g.data) if (Number.isFinite(v)) finite++;
+  assert(finite > 0, 'some finite cells');
+});
+
+await test('AORC real file (gated)', async () => {
+  const p = FX('aorc_20010101_south.zarr.zip');
+  if (!existsSync(p)) return;
+  const buf = new Uint8Array(readFileSync(p));
+  const scan = await zarrHelper.scan(buf);
+  const vars = JSON.parse(zarrHelper.scanGetVarsJson(scan));
+  assert(vars.some((v) => v.name === 'precip'), 'precip present');
   await zarrHelper.scanFree(scan);
 });
 
