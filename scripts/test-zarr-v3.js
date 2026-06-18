@@ -3,7 +3,10 @@
 import { parseDtype } from '../lib/zarr/metadata.js';
 import { mapCodecs, decodeChunkBytes } from '../lib/zarr/codecs.js';
 import { dataTypeToTypestr, indexArraysV3 } from '../lib/zarr/v3-metadata.js';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve as rsv } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import zarrHelper from '../lib/zarr-helper.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
@@ -90,6 +93,25 @@ await test('indexArraysV3 translates a per-node zarr.json', () => {
   assert(JSON.stringify(m.meta._dimNames) === JSON.stringify(['lat', 'lon']), 'dims');
   assert(m.attrs.units === 'K', 'attrs');
 });
+
+const FX = (n) => rsv(process.cwd(), 'examples/testfile', n);
+
+console.log('\n[integration: regular v3]');
+for (const file of ['v3-regular-zstd.zarr.zip', 'v3-gzip.zarr.zip', 'v3-bigendian.zarr.zip']) {
+  await test(`scan + read ${file}`, async () => {
+    if (!existsSync(FX(file))) return;
+    const buf = new Uint8Array(readFileSync(FX(file)));
+    const scan = await zarrHelper.scan(buf);
+    const vars = JSON.parse(zarrHelper.scanGetVarsJson(scan));
+    const temp = vars.find((v) => v.name === 'temp');
+    assert(temp, 'temp var present');
+    assert(JSON.stringify(temp.shape) === JSON.stringify([2, 4, 5]), `shape ${temp.shape}`);
+    const data = await zarrHelper._readArrayAsFloat32(scan, scan.arrays.find((a) => a.name === 'temp'));
+    assert(data.length === 2 * 4 * 5, `len ${data.length}`);
+    assert(Number.isFinite(data[0]), 'finite[0]');
+    await zarrHelper.scanFree(scan);
+  });
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
