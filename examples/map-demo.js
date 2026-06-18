@@ -280,6 +280,22 @@ function updateQueryUI() {
     lonIn.value = ((minLon + maxLon) / 2).toFixed(3);
   $('q-result').textContent = '–';
   $('q-result').className = 'muted';
+  drawBboxDebug();
+}
+
+// Debug readout: print the raw bbox min/max so the data extent can be
+// eyeballed against the map. Shows whether bounds are real or assumed.
+function drawBboxDebug() {
+  const el = $('q-bbox-debug');
+  if (!el) return;
+  const b = lastScan?.bbox;
+  if (!Array.isArray(b) || b.length !== 4) { el.textContent = '–'; return; }
+  const [minLon, minLat, maxLon, maxLat] = b;
+  el.textContent =
+    `bbox ${boundsAssumed ? '(ASSUMED global)' : '(from file)'}\n` +
+    `  lon min ${minLon.toFixed(4)}   max ${maxLon.toFixed(4)}\n` +
+    `  lat min ${minLat.toFixed(4)}   max ${maxLat.toFixed(4)}\n` +
+    `  span  ${(maxLon - minLon).toFixed(4)}° × ${(maxLat - minLat).toFixed(4)}°`;
 }
 
 // Run a point query and show the value in the sidebar (+ optional map popup).
