@@ -187,6 +187,29 @@
         <div class="ticks"><span id="legend-min">–</span><span id="legend-max">–</span></div>
       </div>
 
+      <div id="extract" hidden>
+        <label>Extract area (bbox)</label>
+        <div class="muted" id="ext-coverage">-</div>
+        <div style="display:flex; gap:.4rem; margin-top:.3rem;">
+          <label style="flex:1; margin:.2rem 0;">Min Lat
+            <input type="number" id="ext-min-lat" step="any" style="width:100%;">
+          </label>
+          <label style="flex:1; margin:.2rem 0;">Max Lat
+            <input type="number" id="ext-max-lat" step="any" style="width:100%;">
+          </label>
+        </div>
+        <div style="display:flex; gap:.4rem; margin-top:.3rem;">
+          <label style="flex:1; margin:.2rem 0;">Min Lon
+            <input type="number" id="ext-min-lon" step="any" style="width:100%;">
+          </label>
+          <label style="flex:1; margin:.2rem 0;">Max Lon
+            <input type="number" id="ext-max-lon" step="any" style="width:100%;">
+          </label>
+        </div>
+        <button id="ext-btn" type="button" style="margin-top:.5rem;" disabled>Render area</button>
+        <div id="ext-msg" class="muted" style="margin-top:.4rem;">-</div>
+      </div>
+
       <div id="query" hidden>
         <label>Point query</label>
         <div class="muted" id="q-bounds">–</div>
