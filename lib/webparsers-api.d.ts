@@ -214,7 +214,7 @@ export function extractGridOutput(
 export function gridToJSON(grid: ExtractGridResult, opts?: { pretty?: boolean }): string;
 
 /** Serialize an already-extracted grid to a single-band Float32 GeoTIFF (WGS84). */
-export function gridToGeoTIFF(grid: ExtractGridResult): Uint8Array;
+export function gridToGeoTIFF(grid: ExtractGridResult): Promise<Uint8Array>;
 
 /* =========================================================================
  * Map rendering — Float32 grid → colored RGBA / PNG

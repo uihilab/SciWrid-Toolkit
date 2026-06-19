@@ -876,10 +876,10 @@
       }
     });
 
-    $('btn-grid-tiff').addEventListener('click', () => {
+    $('btn-grid-tiff').addEventListener('click', async () => {
       if (!lastGrid) return;
       try {
-        const buf  = gridToGeoTIFF(lastGrid);
+        const buf  = await gridToGeoTIFF(lastGrid);
         const stem = (lastGrid.variable || 'grid').replace(/\W+/g, '_');
         saveBlob(buf, 'image/tiff', `${stem}.tif`);
         log('Saved GeoTIFF', `${stem}.tif (${buf.byteLength} bytes)`);
