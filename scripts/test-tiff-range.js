@@ -48,7 +48,7 @@ async function test(name, fn) {
   catch (e) { failed++; console.log('FAIL'); console.error('    →', e.stack || e.message); }
 }
 
-const { scan, extract } = await import('../lib/webparsers-api.js');
+const { scan, extract } = await import('../lib/sciwrid-api.js');
 
 console.log(`[range — fixture ${fileSize} bytes]`);
 
@@ -104,14 +104,14 @@ const cogUrl = `http://127.0.0.1:${cogServer.address().port}/cog2.tif`;
 console.log(`\n[overview auto-select — fixture ${cogSize} bytes]`);
 const beforeOverview = cogBytesServed;
 await test('extractGrid({width:4}) picks the overview IFD (not full-res)', async () => {
-  const { extractGrid } = await import('../lib/webparsers-api.js');
+  const { extractGrid } = await import('../lib/sciwrid-api.js');
   // Main = 16×16, overview = 8×8. Requesting width:4,height:4 — the 8×8
   // overview is the smallest that meets the request.
   const g = await extractGrid(cogUrl, { variable: 'band_1', width: 4, height: 4 });
   if (g.data.length !== 16) throw new Error(`expected 16 pixels (4×4 viewport), got ${g.data.length}`);
 });
 await test('extractGrid({width:16}) reads the full-res IFD and reports usedOverview=false', async () => {
-  const { extractGrid } = await import('../lib/webparsers-api.js');
+  const { extractGrid } = await import('../lib/sciwrid-api.js');
   const g = await extractGrid(cogUrl, { variable: 'band_1', width: 16, height: 16 });
   if (g.data.length !== 16 * 16) throw new Error(`expected 256 pixels, got ${g.data.length}`);
   if (g.usedOverview !== false)
@@ -119,7 +119,7 @@ await test('extractGrid({width:16}) reads the full-res IFD and reports usedOverv
 });
 
 await test('extractGrid({width:4}) reports usedOverview=true', async () => {
-  const { extractGrid } = await import('../lib/webparsers-api.js');
+  const { extractGrid } = await import('../lib/sciwrid-api.js');
   const g = await extractGrid(cogUrl, { variable: 'band_1', width: 4, height: 4 });
   if (g.usedOverview !== true)
     throw new Error(`expected usedOverview=true for downsampled request, got ${g.usedOverview}`);

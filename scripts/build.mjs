@@ -24,8 +24,8 @@ const externalAssets = {
   name: 'external-assets',
   setup(b) {
     b.onResolve({ filter: /^node:/ }, (a) => ({ path: a.path, external: true }));
-    b.onResolve({ filter: /[\\/]wasm[\\/]webparsers\.js$/ },
-      () => ({ path: './webparsers.js', external: true }));
+    b.onResolve({ filter: /[\\/]wasm[\\/]sciwrid\.js$/ },
+      () => ({ path: './sciwrid.js', external: true }));
     b.onResolve({ filter: /[\\/]worker[\\/]loader\.js$/ },
       () => ({ path: './loader.js', external: true }));
   },
@@ -51,8 +51,8 @@ async function main() {
 
   /* 2. Copy runtime assets verbatim (NOT re-minified). */
   const assets = [
-    ['wasm/webparsers.wasm', 'webparsers.wasm'],
-    ['wasm/webparsers.js', 'webparsers.js'],
+    ['wasm/sciwrid.wasm', 'sciwrid.wasm'],
+    ['wasm/sciwrid.js', 'sciwrid.js'],
     ['worker/worker.js', 'worker.js'],
     ['worker/loader.js', 'loader.js'],
   ];
@@ -61,16 +61,16 @@ async function main() {
   /* 3. Emit flattened TypeScript declarations.
    *    index.d.ts references ./lib/*.js - rewrite those to flat siblings. */
   const idts = (await readFile(r('index.d.ts'), 'utf8'))
-    .replaceAll('./lib/webparsers-api.js', './webparsers-api.js')
-    .replaceAll('./lib/webparsers-lib.js', './webparsers-lib.js');
+    .replaceAll('./lib/sciwrid-api.js', './sciwrid-api.js')
+    .replaceAll('./lib/sciwrid-lib.js', './sciwrid-lib.js');
   await writeFile(d('index.d.ts'), idts);
-  await copyFile(r('lib/webparsers-api.d.ts'), d('webparsers-api.d.ts'));
+  await copyFile(r('lib/sciwrid-api.d.ts'), d('sciwrid-api.d.ts'));
   /* The class + default export have no hand-written .d.ts; copy the JS so a
    * consumer's TypeScript can infer their types (matches today's behavior,
-   * where lib/webparsers-lib.js ships in the package). */
-  await copyFile(r('lib/webparsers-lib.js'), d('webparsers-lib.js'));
+   * where lib/sciwrid-lib.js ships in the package). */
+  await copyFile(r('lib/sciwrid-lib.js'), d('sciwrid-lib.js'));
 
-  console.log('build: wrote dist/ (index.js, webparsers.js, webparsers.wasm, worker.js, loader.js, *.d.ts)');
+  console.log('build: wrote dist/ (index.js, sciwrid.js, sciwrid.wasm, worker.js, loader.js, *.d.ts)');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

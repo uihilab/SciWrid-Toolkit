@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>webparsers - Library Usage Example</title>
+  <title>SciWrid Toolkit - Library Usage Example</title>
   <style>
     :root {
       --radius: 0.625rem;
@@ -220,7 +220,7 @@
       <a class="brand" href="index.html">
         <span class="brand-mark">WP</span>
         <span>
-          <strong>webparsers</strong>
+          <strong>SciWrid Toolkit</strong>
           <span>Library usage</span>
         </span>
       </a>
@@ -248,9 +248,9 @@
         </svg>
       </div>
       <p class="kicker">Class API</p>
-      <h1>webparsers — library usage</h1>
+      <h1>SciWrid Toolkit — library usage</h1>
       <p>
-        Importing <code>webparsers</code> as a library and driving its class-based
+        Importing <code>SciWrid Toolkit</code> as a library and driving its class-based
         public API: load a file once, then reuse the instance across metadata and
         extract calls.
       </p>
@@ -324,15 +324,15 @@
   </script>
 
   <!-- Load WASM (the Emscripten-generated loader) -->
-  <script src="../wasm/webparsers.js"></script>
+  <script src="../wasm/sciwrid.js"></script>
 
   <!-- Use the library as an ES module -->
   <script type="module">
-    import { webparsers } from '../lib/webparsers-lib.js';
+    import { SciWridToolkit } from '../lib/sciwrid-lib.js';
 
     // === This is the public library API ===
-    // Pass WebParsers factory explicitly — avoids global lookup issues
-    const lib = new webparsers({ wasmFactory: WebParsers });
+    // Pass SciWridToolkit factory explicitly — avoids global lookup issues
+    const lib = new SciWridToolkit({ wasmFactory: SciWridToolkit });
 
     document.getElementById('btn-load').addEventListener('click', async () => {
       const file = document.getElementById('grb-file').files[0];
@@ -340,12 +340,12 @@
       const status = document.getElementById('load-status');
       status.innerHTML = '<span class="warn">Loading...</span>';
       try {
-        console.log('[webparsers] Reading file:', file.name, `(${(file.size / 1024).toFixed(1)} KB)`);
+        console.log('[sciwrid] Reading file:', file.name, `(${(file.size / 1024).toFixed(1)} KB)`);
         await lib.read(file);
         const vars = lib.getvariables();
         const supported = vars.filter(v => v.supported);
-        console.log('[webparsers] Load complete.', vars.length, 'variables found:', vars.map(v => v.name));
-        console.log('[webparsers] Supported (extractable):', supported.map(v => v.name));
+        console.log('[sciwrid] Load complete.', vars.length, 'variables found:', vars.map(v => v.name));
+        console.log('[sciwrid] Supported (extractable):', supported.map(v => v.name));
         status.innerHTML = '<span class="success">Loaded! ' + vars.length + ' variable(s) found, '
           + supported.length + ' extractable.</span>';
 
@@ -359,7 +359,7 @@
           sel.appendChild(opt);
         });
       } catch (e) {
-        console.error('[webparsers] Load failed:', e);
+        console.error('[sciwrid] Load failed:', e);
         status.innerHTML = '<span class="error">' + e.message + '</span>';
       }
     });
@@ -369,10 +369,10 @@
       try {
         const result = fn();
         out.textContent = JSON.stringify(result, null, 2);
-        console.log('[webparsers] inspect result:', result);
+        console.log('[sciwrid] inspect result:', result);
       } catch (e) {
         out.textContent = 'Error: ' + e.message;
-        console.error('[webparsers] inspect error:', e);
+        console.error('[sciwrid] inspect error:', e);
       }
     }
 
@@ -412,7 +412,7 @@
 
         const out = await lib.extract(opts);
         outEl.textContent = (typeof out === 'string') ? out : JSON.stringify(out, null, 2);
-        console.log('[webparsers] extract result:', out);
+        console.log('[sciwrid] extract result:', out);
 
         lastExtractResult   = out;
         lastExtractType     = type;
@@ -420,7 +420,7 @@
       } catch (e) {
         outEl.textContent   = 'Error: ' + e.message;
         downloadEl.disabled = true;
-        console.error('[webparsers] extract error:', e);
+        console.error('[sciwrid] extract error:', e);
       }
     }
 
@@ -439,7 +439,7 @@
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = `webparsers_extract.${ext}`;
+      a.download = `sciwrid_extract.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
     });
@@ -452,8 +452,8 @@
 
     // Expose for console debugging
     window.lib = lib;
-    console.log('[webparsers] Library ready. Try `lib` in the console.');
-    console.log('[webparsers] API: lib.read(file), lib.metadata(), lib.getvariables(), lib.variables(), lib.extract({...}), lib.close()');
+    console.log('[sciwrid] Library ready. Try `lib` in the console.');
+    console.log('[sciwrid] API: lib.read(file), lib.metadata(), lib.getvariables(), lib.variables(), lib.extract({...}), lib.close()');
   </script>
 </body>
 </html>

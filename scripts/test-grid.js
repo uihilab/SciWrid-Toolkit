@@ -28,16 +28,16 @@ import {
   gridToJSON,
   gridToGeoTIFF,
   VariableNotFoundError,
-} from '../lib/webparsers-api.js';
+} from '../lib/sciwrid-api.js';
 
 /* Emscripten module is ES-module style (EXPORT_ES6=1) — import directly. */
-import WebParsers from '../wasm/webparsers.js';
+import SciWridToolkit from '../wasm/sciwrid.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root      = resolve(__dirname, '..');
 
-const wasmBinary  = readFileSync(resolve(root, 'wasm/webparsers.wasm'));
-const wasmFactory = () => WebParsers({ wasmBinary });
+const wasmBinary  = readFileSync(resolve(root, 'wasm/sciwrid.wasm'));
+const wasmFactory = () => SciWridToolkit({ wasmBinary });
 const wf = { wasmFactory };
 
 /* ---- Tiny test runner ---- */
@@ -225,7 +225,7 @@ await test('gridToGeoTIFF emits valid TIFF magic + correct strip size', async ()
 
 /* ---- Test 7: gridToGeoTIFF multi-band ---- */
 await test('gridToGeoTIFF multi-band: round-trip via scan()/extract()', async () => {
-  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const { scan, extract } = await import('../lib/sciwrid-api.js');
   const W = 4, H = 4;
   const grid = {
     width: W, height: H,
@@ -252,7 +252,7 @@ await test('gridToGeoTIFF multi-band: round-trip via scan()/extract()', async ()
 
 /* ---- Test 8: gridToGeoTIFF dtype + compression options ---- */
 await test('gridToGeoTIFF { dtype: int16, compression: deflate, predictor: 2 } round-trips', async () => {
-  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const { scan, extract } = await import('../lib/sciwrid-api.js');
   const W = 4, H = 4;
   const grid = {
     width: W, height: H,
@@ -277,7 +277,7 @@ await test('gridToGeoTIFF { dtype: int16, compression: deflate, predictor: 2 } r
 
 /* ---- Test 9: gridToGeoTIFF UTM CRS ---- */
 await test('gridToGeoTIFF { crs: UTM 15N } emits a projected TIFF', async () => {
-  const { scan } = await import('../lib/webparsers-api.js');
+  const { scan } = await import('../lib/sciwrid-api.js');
   const W = 4, H = 4;
   const grid = {
     width: W, height: H,

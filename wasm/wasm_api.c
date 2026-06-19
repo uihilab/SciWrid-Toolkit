@@ -195,12 +195,12 @@ char* wp_scan_get_vars_json(const wp_scan_result_t* s) {
 }
 
 /* =========================================================================
- * Slim helper: per-message byte-range layout for the JS slim pipeline.
+ * Trim helper: per-message byte-range layout for the JS trim pipeline.
  *
  * Returns a JSON array describing every GRIB2 message in the source. Each
  * entry carries the message's byte span in the original buffer, the
  * (cat, num) and human-readable variable name, the reference time (Unix
- * seconds), and the forecast offset (seconds). JS slim filters this array
+ * seconds), and the forecast offset (seconds). JS trim filters this array
  * by variable + time and concatenates the kept byte spans verbatim — no
  * decode involved.
  *
@@ -750,7 +750,7 @@ char* wp_nc3_scan_get_vars_json(const wp_nc3_scan_result_t* s) {
 }
 
 /* ------------------------------------------------------------------
- * Slim helper: full header layout for the JS slim pipeline.
+ * Trim helper: full header layout for the JS trim pipeline.
  *
  * Returns a JSON dump of the parsed nc3_file_t — version, numrecs, dims,
  * global attrs, and per-variable definitions including the byte offset

@@ -1177,7 +1177,7 @@ function fixtureMultibandU16Planar2StripWgs84() {
   // 3-band UInt16 planar=2 (separate planes). Each band gets its own strip
   // group, no compression, no predictor. Strip-per-row layout.
   const W = 8, H = 4, SPP = 3;
-  // Per-band pixel values — distinct so the slim test can verify band identity.
+  // Per-band pixel values — distinct so the trim test can verify band identity.
   const bands = [];
   for (let band = 0; band < SPP; band++) {
     const arr = new Uint16Array(W * H);

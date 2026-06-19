@@ -6,7 +6,7 @@
  * entry — including the .zarray/.zattrs/.zgroup metadata — is DEFLATE-
  * compressed (method 8), matching what real-world tools (zarr ZipStore with
  * ZIP_DEFLATED, `zip -r`, PowerShell Compress-Archive) emit. This is the
- * shape that today's `slim()` chokes on, so the file is both a usable demo
+ * shape that today's `trim()` chokes on, so the file is both a usable demo
  * input and a faithful round-trip regression vehicle.
  *
  * Layout:
