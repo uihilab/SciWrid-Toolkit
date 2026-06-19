@@ -1,5 +1,5 @@
 /*
- * demoNetcdf4File.js — end-to-end demo of the webparsers library against a
+ * demoNetcdf4File.js — end-to-end demo of the SciWrid Toolkit library against a
  * NetCDF4 / HDF5 file.  Mirrors demoGrib2File.js / demoNetcdf3File.js.
  *
  * NetCDF4 support uses h5wasm under the hood; the first call lazy-loads it

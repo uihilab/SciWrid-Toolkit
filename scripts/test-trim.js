@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * scripts/test-slim.js — smoke tests for the slim() pipeline (Sprint 5).
+ * scripts/test-trim.js — smoke tests for the trim() pipeline (Sprint 5).
  *
  * Run from repo root:
- *   node scripts/test-slim.js
+ *   node scripts/test-trim.js
  *
  * Covers all four formats:
  *   GRIB2   — real fixture (examples/timeseries/gfs_timeseries.grb2 if present)
@@ -25,9 +25,9 @@ import { dirname, resolve } from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 
 import {
-  scan, extract, slim,
-  SlimError, VariableNotFoundError, UnsupportedFormatError,
-} from '../lib/webparsers-api.js';
+  scan, extract, trim,
+  TrimError, VariableNotFoundError, UnsupportedFormatError,
+} from '../lib/sciwrid-api.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root      = resolve(__dirname, '..');
@@ -207,7 +207,7 @@ async function buildNC4Fixture() {
   const h5 = h5mod.default ?? h5mod;
   const { FS } = await h5.ready;
 
-  const fname = `_slim_fixture_${Date.now()}.nc`;
+  const fname = `_trim_fixture_${Date.now()}.nc`;
   const NT = 5, NY = 4, NX = 6;
   const f = new h5.File(fname, 'w');
 
@@ -243,7 +243,7 @@ async function buildNC4Fixture() {
 /* Tests                                                                   */
 /* ====================================================================== */
 
-console.log('webparsers/slim smoke test\n');
+console.log('sciwrid-toolkit/trim smoke test\n');
 
 /* ---------------- Dispatcher / validation ---------------- */
 
@@ -251,29 +251,29 @@ console.log('[dispatcher]');
 
 await test('opts is required', async () => {
   let err;
-  try { await slim(new Uint8Array([0xff,0xff,0xff,0xff]), undefined); }
+  try { await trim(new Uint8Array([0xff,0xff,0xff,0xff]), undefined); }
   catch (e) { err = e; }
-  assert(err instanceof SlimError, 'expected SlimError, got ' + (err?.constructor.name));
+  assert(err instanceof TrimError, 'expected TrimError, got ' + (err?.constructor.name));
 });
 
 await test('opts.variables must be a non-empty string array', async () => {
   let err;
-  try { await slim(new Uint8Array([0xff]), { variables: [] }); }
+  try { await trim(new Uint8Array([0xff]), { variables: [] }); }
   catch (e) { err = e; }
-  assert(err instanceof SlimError && /non-empty/.test(err.message));
+  assert(err instanceof TrimError && /non-empty/.test(err.message));
 });
 
-await test('t2 < t1 throws SlimError', async () => {
+await test('t2 < t1 throws TrimError', async () => {
   let err;
-  try { await slim(new Uint8Array([0xff]), { variables: ['x'], t1: 5, t2: 1 }); }
+  try { await trim(new Uint8Array([0xff]), { variables: ['x'], t1: 5, t2: 1 }); }
   catch (e) { err = e; }
-  assert(err instanceof SlimError && /t2.*>=.*t1/i.test(err.message));
+  assert(err instanceof TrimError && /t2.*>=.*t1/i.test(err.message));
 });
 
 await test('unknown magic bytes → UnsupportedFormatError', async () => {
   const garbage = new Uint8Array([0xff,0xff,0xff,0xff,0,0,0,0,0,0,0,0,0,0,0,0]);
   let err;
-  try { await slim(garbage, { variables: ['x'] }); }
+  try { await trim(garbage, { variables: ['x'] }); }
   catch (e) { err = e; }
   assert(err instanceof UnsupportedFormatError);
 });
@@ -291,12 +291,12 @@ await test('GRIB2: keep one variable round-trips through scan()', async () => {
   const meta = await scan(data);
   const v = meta.variables.find(x => x.supported)?.name;
   assert(v, 'no supported variable in fixture');
-  const r = await slim(data, { variables: [v] });
+  const r = await trim(data, { variables: [v] });
   assert(r.format === 'grib2');
-  assert(r.bytes.length < data.length, 'slimmed should be smaller');
+  assert(r.bytes.length < data.length, 'trimmed should be smaller');
   const meta2 = await scan(r.bytes);
   assert(meta2.format === 'grib2');
-  assert(meta2.variable_names.includes(v), 'slimmed should contain ' + v);
+  assert(meta2.variable_names.includes(v), 'trimmed should contain ' + v);
 });
 
 await test('GRIB2: time slice keeps the expected number of messages', async () => {
@@ -305,7 +305,7 @@ await test('GRIB2: time slice keeps the expected number of messages', async () =
   const meta = await scan(data);
   const v = meta.variables.find(x => x.supported && x.messages > 1)?.name;
   if (!v) return 'skip';
-  const r = await slim(data, { variables: [v], t1: 0, t2: 1 });
+  const r = await trim(data, { variables: [v], t1: 0, t2: 1 });
   const meta2 = await scan(r.bytes);
   const v2 = meta2.variables.find(x => x.name === v);
   assert(v2 && v2.messages === 2, `expected 2 messages, got ${v2?.messages}`);
@@ -316,7 +316,7 @@ await test('GRIB2: unknown variable → VariableNotFoundError', async () => {
   if (!hasGrb) return 'skip';
   const data = new Uint8Array(readFileSync(grbPath));
   let err;
-  try { await slim(data, { variables: ['NOPE'] }); }
+  try { await trim(data, { variables: ['NOPE'] }); }
   catch (e) { err = e; }
   assert(err instanceof VariableNotFoundError);
 });
@@ -327,7 +327,7 @@ console.log('\n[netcdf3]');
 
 await test('NetCDF3: keep a record var only', async () => {
   const fx = buildNC3Fixture();
-  const r = await slim(fx, { variables: ['tas'] });
+  const r = await trim(fx, { variables: ['tas'] });
   assert(r.format === 'netcdf3');
   const m = await scan(r.bytes);
   assert(m.variable_names.includes('tas'));
@@ -340,16 +340,16 @@ await test('NetCDF3: keep a record var only', async () => {
 
 await test('NetCDF3: time slice on record var', async () => {
   const fx = buildNC3Fixture();
-  const r = await slim(fx, { variables: ['tas','time'], t1: 1, t2: 2 });
+  const r = await trim(fx, { variables: ['tas','time'], t1: 1, t2: 2 });
   const e = await extract(r.bytes, { variable: 'tas', lat: 0, lon: 0, t1: 0, t2: 1 });
   const ts = e.timeseries?.map(p => p.value) ?? [];
-  /* slimmed t=0,1 = original t=1,2 → values 11, 12 */
+  /* trimmed t=0,1 = original t=1,2 → values 11, 12 */
   assert(JSON.stringify(ts) === '[11,12]', 'expected [11,12], got ' + JSON.stringify(ts));
 });
 
 await test('NetCDF3: non-record var round-trip', async () => {
   const fx = buildNC3Fixture();
-  const r = await slim(fx, { variables: ['height'] });
+  const r = await trim(fx, { variables: ['height'] });
   const e = await extract(r.bytes, { variable: 'height', lat: 0, lon: 0 });
   const v = e.timeseries?.[0]?.value ?? e.value;
   assert(v === 100, 'expected 100, got ' + v);
@@ -358,7 +358,7 @@ await test('NetCDF3: non-record var round-trip', async () => {
 await test('NetCDF3: unknown variable → VariableNotFoundError', async () => {
   const fx = buildNC3Fixture();
   let err;
-  try { await slim(fx, { variables: ['NOPE'] }); }
+  try { await trim(fx, { variables: ['NOPE'] }); }
   catch (e) { err = e; }
   assert(err instanceof VariableNotFoundError);
 });
@@ -369,7 +369,7 @@ console.log('\n[zarr]');
 
 await test('Zarr: drop one of two vars', async () => {
   const fx = buildZarrFixture();
-  const r = await slim(fx, { variables: ['temperature'] });
+  const r = await trim(fx, { variables: ['temperature'] });
   assert(r.format === 'zarr');
   const m = await scan(r.bytes);
   assert(m.variable_names.includes('temperature'));
@@ -378,7 +378,7 @@ await test('Zarr: drop one of two vars', async () => {
 
 await test('Zarr: aligned time slice updates .zarray shape', async () => {
   const fx = buildZarrFixture();
-  const r = await slim(fx, { variables: ['temperature'], t1: 0, t2: 1 });
+  const r = await trim(fx, { variables: ['temperature'], t1: 0, t2: 1 });
   assert(r.warnings.length === 0, 'aligned slice should not warn');
   const m = await scan(r.bytes);
   const v = m.variables.find(x => x.name === 'temperature');
@@ -391,7 +391,7 @@ await test('Zarr: aligned time slice updates .zarray shape', async () => {
 
 await test('Zarr: time slice crossing chunk boundary surfaces a widening warning', async () => {
   const fx = buildZarrFixture();
-  const r = await slim(fx, { variables: ['temperature'], t1: 1, t2: 2 });
+  const r = await trim(fx, { variables: ['temperature'], t1: 1, t2: 2 });
   assert(r.warnings.some(w => /widened/.test(w)),
     'expected a widening warning; got ' + JSON.stringify(r.warnings));
 });
@@ -399,9 +399,9 @@ await test('Zarr: time slice crossing chunk boundary surfaces a widening warning
 await test('Zarr: bbox without lat/lon coord arrays throws clearly', async () => {
   const buf = buildZarrFixture();
   let err;
-  try { await slim(buf, { variables: ['temperature'], bbox: [-180, -90, 180, 90] }); }
+  try { await trim(buf, { variables: ['temperature'], bbox: [-180, -90, 180, 90] }); }
   catch (e) { err = e; }
-  assert(err instanceof SlimError, `wrong error: ${err && err.constructor.name}: ${err && err.message}`);
+  assert(err instanceof TrimError, `wrong error: ${err && err.constructor.name}: ${err && err.message}`);
   assert(/lat\/lon/i.test(err.message), `expected lat/lon in message: ${err.message}`);
 });
 
@@ -424,7 +424,7 @@ await test('Zarr (deflated): drop a var -> output re-reads via scan', async () =
     { name: 'precip/0.0.0',    bytes: c0 },
     { name: 'precip/1.0.0',    bytes: c1 },
   ]);
-  const r = await slim(fx, { variables: ['temperature'] });
+  const r = await trim(fx, { variables: ['temperature'] });
   const m = await scan(r.bytes);
   assert(m.variable_names.includes('temperature'), 'temperature kept');
   assert(!m.variable_names.includes('precip'), 'precip dropped');
@@ -457,9 +457,9 @@ await test('Zarr (deflated): bbox slice keeps a lat/lon window and re-reads', as
     { name: 'temperature/0.1.0', bytes: chunk(200) },
     { name: 'temperature/0.1.1', bytes: chunk(300) },
   ]);
-  const r = await slim(fx, { variables: ['temperature'], bbox: [0, 0, 30, 30] });
+  const r = await trim(fx, { variables: ['temperature'], bbox: [0, 0, 30, 30] });
   const m = await scan(r.bytes);
-  assert(m.variable_names.includes('temperature'), 'temperature present after bbox slim');
+  assert(m.variable_names.includes('temperature'), 'temperature present after bbox trim');
 });
 
 await test('Zarr (deflated): time slice shortens the time coord to match data', async () => {
@@ -484,7 +484,7 @@ await test('Zarr (deflated): time slice shortens the time coord to match data', 
     { name: 'temperature/0.0.0', bytes: c0 },
     { name: 'temperature/1.0.0', bytes: c1 },
   ]);
-  const r = await slim(fx, { variables: ['temperature'], t1: 0, t2: 1 });
+  const r = await trim(fx, { variables: ['temperature'], t1: 0, t2: 1 });
   const m = await scan(r.bytes);
   const tvar  = m.variables.find(v => v.name === 'temperature');
   const tcoord = m.variables.find(v => v.name === 'time');
@@ -518,7 +518,7 @@ await test('Zarr (deflated): bbox slice shortens lat/lon coords to match data', 
     { name: 'temperature/0.1.0', bytes: chunk(200) },
     { name: 'temperature/0.1.1', bytes: chunk(300) },
   ]);
-  const r = await slim(fx, { variables: ['temperature'], bbox: [0, 0, 30, 30] });
+  const r = await trim(fx, { variables: ['temperature'], bbox: [0, 0, 30, 30] });
   const m = await scan(r.bytes);
   const tvar = m.variables.find(v => v.name === 'temperature');
   const lat  = m.variables.find(v => v.name === 'lat');
@@ -530,7 +530,7 @@ await test('Zarr (deflated): bbox slice shortens lat/lon coords to match data', 
 await test('Zarr: unknown variable → VariableNotFoundError', async () => {
   const fx = buildZarrFixture();
   let err;
-  try { await slim(fx, { variables: ['NOPE'] }); }
+  try { await trim(fx, { variables: ['NOPE'] }); }
   catch (e) { err = e; }
   assert(err instanceof VariableNotFoundError);
 });
@@ -543,10 +543,10 @@ const nc4 = await buildNC4Fixture();
 
 await test('NetCDF4: keep tas+time+coords round-trips', async () => {
   if (!nc4) return 'skip';
-  const r = await slim(nc4.bytes, { variables: ['tas','time','lat','lon'] });
+  const r = await trim(nc4.bytes, { variables: ['tas','time','lat','lon'] });
   assert(r.format === 'netcdf4');
   /* verify via h5wasm direct read */
-  const dbg = `_slim_dbg_${Date.now()}.nc`;
+  const dbg = `_trim_dbg_${Date.now()}.nc`;
   nc4.FS.writeFile(dbg, r.bytes);
   const f = new nc4.h5.File(dbg, 'r');
   const tas = f.get('tas');
@@ -560,8 +560,8 @@ await test('NetCDF4: keep tas+time+coords round-trips', async () => {
 
 await test('NetCDF4: time slice cuts axis 0 and preserves coord lengths', async () => {
   if (!nc4) return 'skip';
-  const r = await slim(nc4.bytes, { variables: ['tas','time','lat','lon'], t1: 1, t2: 3 });
-  const dbg = `_slim_dbg_${Date.now()}.nc`;
+  const r = await trim(nc4.bytes, { variables: ['tas','time','lat','lon'], t1: 1, t2: 3 });
+  const dbg = `_trim_dbg_${Date.now()}.nc`;
   nc4.FS.writeFile(dbg, r.bytes);
   const f = new nc4.h5.File(dbg, 'r');
   const tas = f.get('tas');
@@ -570,7 +570,7 @@ await test('NetCDF4: time slice cuts axis 0 and preserves coord lengths', async 
     'expected tas shape [3, NY, NX], got ' + JSON.stringify(tasShape));
   /* tas raw first value should be original t=1, y=0, x=0 = 200 */
   const v0 = Array.from(tas.value)[0];
-  assert(v0 === 200, 'expected first slimmed value 200, got ' + v0);
+  assert(v0 === 200, 'expected first trimmed value 200, got ' + v0);
   const time = f.get('time');
   assert(Number(time.shape[0]) === 3);
   /* lat / lon shapes must be untouched */
@@ -581,8 +581,8 @@ await test('NetCDF4: time slice cuts axis 0 and preserves coord lengths', async 
 
 await test('NetCDF4: attributes survive', async () => {
   if (!nc4) return 'skip';
-  const r = await slim(nc4.bytes, { variables: ['tas'] });
-  const dbg = `_slim_dbg_${Date.now()}.nc`;
+  const r = await trim(nc4.bytes, { variables: ['tas'] });
+  const dbg = `_trim_dbg_${Date.now()}.nc`;
   nc4.FS.writeFile(dbg, r.bytes);
   const f = new nc4.h5.File(dbg, 'r');
   const tas = f.get('tas');
@@ -593,33 +593,33 @@ await test('NetCDF4: attributes survive', async () => {
 await test('NetCDF4: unknown variable → VariableNotFoundError', async () => {
   if (!nc4) return 'skip';
   let err;
-  try { await slim(nc4.bytes, { variables: ['NOPE'] }); }
+  try { await trim(nc4.bytes, { variables: ['NOPE'] }); }
   catch (e) { err = e; }
   assert(err instanceof VariableNotFoundError);
 });
 
-await test('NetCDF4: data-var-only slim auto-keeps coords (re-scan + extract)', async () => {
+await test('NetCDF4: data-var-only trim auto-keeps coords (re-scan + extract)', async () => {
   if (!nc4) return 'skip';
-  /* Slim asking for ONLY the data variable - no coords. Before the fix this
+  /* Trim asking for ONLY the data variable - no coords. Before the fix this
    * dropped lat/lon/time and the variable became unsupported on re-scan. */
-  const r = await slim(nc4.bytes, { variables: ['tas'] });
+  const r = await trim(nc4.bytes, { variables: ['tas'] });
   const m = await scan(r.bytes);
   const v = m.variables.find(x => x.name === 'tas');
   assert(v && v.supported === true,
-    'tas should be supported after slim, got ' + JSON.stringify(v));
-  assert(!!m.times, 'time axis should survive the slim');
+    'tas should be supported after trim, got ' + JSON.stringify(v));
+  assert(!!m.times, 'time axis should survive the trim');
   /* Values must match the original extract exactly (no axis/index drift). */
   const orig    = await extract(nc4.bytes, { variable: 'tas', lat: 35, lon: -95 });
-  const slimmed = await extract(r.bytes,   { variable: 'tas', lat: 35, lon: -95 });
+  const trimmed = await extract(r.bytes,   { variable: 'tas', lat: 35, lon: -95 });
   const a = JSON.stringify(orig.timeseries?.map(p => p.value));
-  const b = JSON.stringify(slimmed.timeseries?.map(p => p.value));
-  assert(a === b, `slimmed values must match original: orig=${a} slim=${b}`);
+  const b = JSON.stringify(trimmed.timeseries?.map(p => p.value));
+  assert(a === b, `trimmed values must match original: orig=${a} trim=${b}`);
 });
 
 await test('NetCDF4: auto-coord keep does not resurrect dropped data vars', async () => {
   if (!nc4) return 'skip';
-  const r = await slim(nc4.bytes, { variables: ['tas'] });
-  const dbg = `_slim_dbg_${Date.now()}.nc`;
+  const r = await trim(nc4.bytes, { variables: ['tas'] });
+  const dbg = `_trim_dbg_${Date.now()}.nc`;
   nc4.FS.writeFile(dbg, r.bytes);
   const f = new nc4.h5.File(dbg, 'r');
   const keys = f.keys();
@@ -635,7 +635,7 @@ await test('NetCDF4: bbox clips lat/lon dims of data variables', async () => {
   if (!nc4) return 'skip';
   // Source lat = [30, 35, 40, 45] (NY=4), lon = [-100, -95, -90, -85, -80, -75] (NX=6).
   // Pick bbox [-95, 35, -85, 45] → keeps lat indices 1..3 (3 vals) and lon 1..3 (3 vals).
-  const out = await slim(nc4.bytes, {
+  const out = await trim(nc4.bytes, {
     variables: ['tas', 'lat', 'lon', 'time', 'height'],
     bbox: [-95, 35, -85, 45],
   });
@@ -657,71 +657,71 @@ await test('NetCDF4: bbox clips lat/lon dims of data variables', async () => {
 
 /* ---------------- TIFF (v2: band selection) ---------------- */
 console.log('\n[tiff]');
-await test('TIFF slim: keep 1 of 3 bands (LZW + horizontal predictor)', async () => {
+await test('TIFF trim: keep 1 of 3 bands (LZW + horizontal predictor)', async () => {
   const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-lzw-h-strip-wgs84.tif');
   if (!existsSync(tiffPath)) return 'skip';
   const buf = new Uint8Array(readFileSync(tiffPath));
-  const out = await slim(buf, { variables: ['B04_red'] });
+  const out = await trim(buf, { variables: ['B04_red'] });
   assert(out.format === 'tiff', `format=${out.format}`);
   assert(out.bytes instanceof Uint8Array);
-  assert(out.bytes.length < buf.length, `slim should shrink the file (got ${out.bytes.length} vs ${buf.length})`);
+  assert(out.bytes.length < buf.length, `trim should shrink the file (got ${out.bytes.length} vs ${buf.length})`);
   assert(out.stats.variablesKept === 1, `kept=${out.stats.variablesKept}`);
   assert(out.stats.variablesDropped === 2, `dropped=${out.stats.variablesDropped}`);
 });
 
-await test('TIFF slim: re-scan returns just the kept band', async () => {
+await test('TIFF trim: re-scan returns just the kept band', async () => {
   const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-lzw-h-strip-wgs84.tif');
   if (!existsSync(tiffPath)) return 'skip';
   const buf = new Uint8Array(readFileSync(tiffPath));
-  const out = await slim(buf, { variables: ['B04_red'] });
+  const out = await trim(buf, { variables: ['B04_red'] });
   const m = await scan(out.bytes);
   assert(m.format === 'tiff');
   assert(m.variable_names.length === 1, `expected 1 band, got ${m.variable_names.length}`);
   assert(m.variable_names[0] === 'B04_red', `got name '${m.variable_names[0]}'`);
 });
 
-await test('TIFF slim: kept band values match the original', async () => {
+await test('TIFF trim: kept band values match the original', async () => {
   const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-lzw-h-strip-wgs84.tif');
   if (!existsSync(tiffPath)) return 'skip';
   const buf = new Uint8Array(readFileSync(tiffPath));
   const orig = await extract(buf, { variable: 'B04_red', lat: 23.5, lon: 10.5 });
-  const out  = await slim(buf, { variables: ['B04_red'] });
-  const slimmed = await extract(out.bytes, { variable: 'B04_red', lat: 23.5, lon: 10.5 });
-  assert(orig.value === slimmed.value,
-    `band value drift after slim: orig=${orig.value}, slimmed=${slimmed.value}`);
+  const out  = await trim(buf, { variables: ['B04_red'] });
+  const trimmed = await extract(out.bytes, { variable: 'B04_red', lat: 23.5, lon: 10.5 });
+  assert(orig.value === trimmed.value,
+    `band value drift after trim: orig=${orig.value}, trimmed=${trimmed.value}`);
 });
 
-await test('TIFF slim: unknown variable throws VariableNotFoundError', async () => {
+await test('TIFF trim: unknown variable throws VariableNotFoundError', async () => {
   const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-lzw-h-strip-wgs84.tif');
   if (!existsSync(tiffPath)) return 'skip';
   const buf = new Uint8Array(readFileSync(tiffPath));
   let err;
-  try { await slim(buf, { variables: ['NOPE'] }); }
+  try { await trim(buf, { variables: ['NOPE'] }); }
   catch (e) { err = e; }
   assert(err instanceof VariableNotFoundError,
     `wrong error: ${err && err.constructor.name}: ${err && err.message}`);
 });
 
-await test('TIFF slim: spatial bbox clips a tile-layout COG to a smaller window', async () => {
+await test('TIFF trim: spatial bbox clips a tile-layout COG to a smaller window', async () => {
   const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-f32-none-tile-cog-wgs84.tif');
   if (!existsSync(tiffPath)) return 'skip';
   const buf = new Uint8Array(readFileSync(tiffPath));
   // Source: 64×64 single-band Float32, tiles 16×16. Drop to ~16×16 window
   // (one tile in each direction) by asking for bbox [16, 32, 32, 48] in WGS84.
   // (Source covers [0, 0, 64, 64] in degrees.)
-  const out = await slim(buf, { variables: ['band_1'], bbox: [16, 32, 32, 48] });
-  assert(out.bytes.length < buf.length, `bbox slim should shrink the file (got ${out.bytes.length} vs ${buf.length})`);
+  const out = await trim(buf, { variables: ['band_1'], bbox: [16, 32, 32, 48] });
+  assert(out.bytes.length < buf.length, `bbox trim should shrink the file (got ${out.bytes.length} vs ${buf.length})`);
   const m = await scan(out.bytes);
   // After clipping (snapped to tile grid), the width/height should be 16.
   assert(m.width === 16,  `expected width=16 after bbox clip, got ${m.width}`);
   assert(m.height === 16, `expected height=16 after bbox clip, got ${m.height}`);
 });
 
-await test('TIFF slim: planar=2 byte-copies the kept band group (no re-encode)', async () => {
+await test('TIFF trim: planar=2 byte-copies the kept band group (no re-encode)', async () => {
   const tiffPath = resolve(root, 'examples/testfile/tiff/synthetic-multiband-u16-planar2-strip-wgs84.tif');
   if (!existsSync(tiffPath)) return 'skip';
   const buf = new Uint8Array(readFileSync(tiffPath));
-  const out = await slim(buf, { variables: ['green'] });
+  const out = await trim(buf, { variables: ['green'] });
   const m = await scan(out.bytes);
   assert(m.variable_names.length === 1, `expected 1 band, got ${m.variable_names.length}`);
   assert(m.variable_names[0] === 'green');

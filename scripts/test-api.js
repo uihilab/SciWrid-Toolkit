@@ -19,18 +19,18 @@ import {
   extract,
   extractOutput,
   UnsupportedFormatError,
-} from '../lib/webparsers-api.js';
+} from '../lib/sciwrid-api.js';
 
 /* The Emscripten module is built with MODULARIZE=1 + EXPORT_ES6=1, so it's a
  * real ES module that uses import.meta.url to resolve the .wasm. Import it
  * directly — no CJS-eval shim needed. */
-import WebParsers from '../wasm/webparsers.js';
+import SciWridToolkit from '../wasm/sciwrid.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root      = resolve(__dirname, '..');
 
-const wasmBinary  = readFileSync(resolve(root, 'wasm/webparsers.wasm'));
-const wasmFactory = () => WebParsers({ wasmBinary });
+const wasmBinary  = readFileSync(resolve(root, 'wasm/sciwrid.wasm'));
+const wasmFactory = () => SciWridToolkit({ wasmBinary });
 const wf = { wasmFactory };
 
 /* ---- Tiny test runner ------------------------------------------------- */
@@ -58,7 +58,7 @@ const FIXTURES = [
   { format: 'netcdf4', name: 'NetCDF4', path: 'examples/sample.nc'  },
 ];
 
-console.log('webparsers/api smoke test\n');
+console.log('sciwrid-toolkit/api smoke test\n');
 
 for (const fx of FIXTURES) {
   const abs = resolve(root, fx.path);

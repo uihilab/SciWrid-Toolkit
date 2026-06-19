@@ -1,5 +1,5 @@
 {
-  "name": "webparsers",
+  "name": "sciwrid-toolkit",
   "version": "0.1.0",
   "description": "WebAssembly library for parsing meteorological and geospatial data formats (GRIB2, NetCDF3, NetCDF4/HDF5, Zarr v2, TIFF/GeoTIFF) in the browser, Web Workers, and Node.js",
   "type": "module",
@@ -21,8 +21,8 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./wasm": "./dist/webparsers.js",
-    "./wasm-binary": "./dist/webparsers.wasm",
+    "./wasm": "./dist/sciwrid.js",
+    "./wasm-binary": "./dist/sciwrid.wasm",
     "./worker": "./dist/loader.js"
   },
   "files": [
@@ -65,14 +65,14 @@
     "build:zarr-fixture": "node scripts/build-zarr-fixture.js",
     "build:zarr-v3-fixture": "node scripts/build-zarr-v3-fixture.js",
     "build:docs": "node scripts/build-docs.js",
-    "test": "node scripts/test-api.js && node scripts/test-grid.js && node scripts/test-zarr.js && node scripts/test-tiff.js && node scripts/test-slim.js && node scripts/test-time.js && node scripts/test-render.js && node scripts/test-kerchunk.js && node scripts/test-time-select.js && node scripts/test-kerchunk-cloud.js && node scripts/test-map-bbox.js && node scripts/test-zarr-v3.js",
+    "test": "node scripts/test-api.js && node scripts/test-grid.js && node scripts/test-zarr.js && node scripts/test-tiff.js && node scripts/test-trim.js && node scripts/test-time.js && node scripts/test-render.js && node scripts/test-kerchunk.js && node scripts/test-time-select.js && node scripts/test-kerchunk-cloud.js && node scripts/test-map-bbox.js && node scripts/test-zarr-v3.js",
     "test:api": "node scripts/test-api.js",
     "test:grid": "node scripts/test-grid.js",
     "test:zarr": "node scripts/test-zarr.js",
     "test:zarr-v3": "node scripts/test-zarr-v3.js",
     "test:kerchunk": "node scripts/test-kerchunk.js",
     "test:kerchunk-cloud": "node scripts/test-kerchunk-cloud.js",
-    "test:slim": "node scripts/test-slim.js",
+    "test:trim": "node scripts/test-trim.js",
     "test:tiff": "node scripts/test-tiff.js",
     "test:tiff-range": "node scripts/test-tiff-range.js",
     "test:time": "node scripts/test-time.js",

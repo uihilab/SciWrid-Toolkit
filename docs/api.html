@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>webparsers — API reference</title>
+  <title>SciWrid Toolkit — API reference</title>
   <style>
     :root {
       --radius: 0.625rem;
@@ -231,7 +231,7 @@
     <div class="site-header-inner">
       <a class="brand" href="/">
         <span class="brand-mark">wp</span>
-        <span><strong>webparsers</strong><span>documentation</span></span>
+        <span><strong>SciWrid Toolkit</strong><span>documentation</span></span>
       </a>
       <nav class="site-nav" aria-label="Primary">
         <a href="/docs/api.html" aria-current="page" class="active">API</a>
@@ -245,7 +245,7 @@
 
   <section class="page-hero">
     <p class="kicker">API reference</p>
-    <h1>webparsers — JavaScript / TypeScript API</h1>
+    <h1>SciWrid Toolkit — JavaScript / TypeScript API</h1>
     <p class="lead">A WebAssembly-powered library for parsing meteorological and geospatial data formats. New here? Jump to <strong><a href="#choosing-your-pathway">Choosing your pathway</a></strong> — it routes you from "what I have" to the right function in one screen.</p>
     <div class="formats"><span class="pill">GRIB2</span><span class="pill">NetCDF3</span><span class="pill">NetCDF4 / HDF5</span><span class="pill">Zarr v2</span><span class="pill">TIFF / GeoTIFF / COG</span></div>
   </section>
@@ -253,7 +253,7 @@
   <main class="doc-layout">
     <nav class="doc-toc" aria-label="On this page">
         <p class="toc-title">On this page</p>
-        <ul><li><a href="#choosing-your-pathway">Choosing your pathway</a></li><li><a href="#library-structure">Library structure</a></li><li><a href="#install">Install</a></li><li><a href="#import">Import</a></li><li><a href="#source-types-accepted">Source types accepted</a></li><li><a href="#detectformatsource"><code>detectFormat(source)</code></a></li><li><a href="#scansource-opts"><code>scan(source, opts?)</code></a></li><li><a href="#extractsource-options"><code>extract(source, options)</code></a></li><li><a href="#extractoutputsource-options-format"><code>extractOutput(source, options, format?)</code></a></li><li><a href="#extractgridsource-options"><code>extractGrid(source, options)</code></a></li><li><a href="#extractgridoutputsource-options-format"><code>extractGridOutput(source, options, format?)</code></a></li><li><a href="#zarr-v2-notes">Zarr v2 notes</a></li><li><a href="#slimsource-options"><code>slim(source, options)</code></a></li><li><a href="#geotiff-tif--tiff">GeoTIFF (<code>.tif</code> / <code>.tiff</code>)</a></li><li><a href="#map-rendering">Map rendering</a></li><li><a href="#class-based-api-webparsers">Class-based API (<code>WebParsers</code>)</a></li><li><a href="#error-handling">Error handling</a></li><li><a href="#nodejs-usage">Node.js usage</a></li><li><a href="#browser-usage">Browser usage</a></li></ul>
+        <ul><li><a href="#choosing-your-pathway">Choosing your pathway</a></li><li><a href="#library-structure">Library structure</a></li><li><a href="#install">Install</a></li><li><a href="#import">Import</a></li><li><a href="#source-types-accepted">Source types accepted</a></li><li><a href="#detectformatsource"><code>detectFormat(source)</code></a></li><li><a href="#scansource-opts"><code>scan(source, opts?)</code></a></li><li><a href="#extractsource-options"><code>extract(source, options)</code></a></li><li><a href="#extractoutputsource-options-format"><code>extractOutput(source, options, format?)</code></a></li><li><a href="#extractgridsource-options"><code>extractGrid(source, options)</code></a></li><li><a href="#extractgridoutputsource-options-format"><code>extractGridOutput(source, options, format?)</code></a></li><li><a href="#zarr-v2-notes">Zarr v2 notes</a></li><li><a href="#trimsource-options"><code>trim(source, options)</code></a></li><li><a href="#geotiff-tif--tiff">GeoTIFF (<code>.tif</code> / <code>.tiff</code>)</a></li><li><a href="#map-rendering">Map rendering</a></li><li><a href="#class-based-api-SciWrid Toolkit">Class-based API (<code>SciWridToolkit</code>)</a></li><li><a href="#error-handling">Error handling</a></li><li><a href="#nodejs-usage">Node.js usage</a></li><li><a href="#browser-usage">Browser usage</a></li></ul>
       </nav>
     <article class="doc-content">
 <p>Supported formats:</p>
@@ -277,27 +277,27 @@
                                                               ├─ draw on a web map → gridToImageData / gridToPNG (+ ramps)
                                                               └─ save as a raster  → gridToGeoTIFF / gridToJSON
 
-Want a smaller file, same format out?  ............... slim               → { bytes, … }
-Reusing one loaded file for many queries? ............ WebParsers (class) → instance</code></pre>
-<div class="table-wrap"><table><thead><tr><th>I want to…</th><th>Function</th><th>Returns</th></tr></thead><tbody><tr><td>Sniff the format without parsing</td><td><a href="#detectformatsource"><code>detectFormat</code></a></td><td><code>'grib2'…'tiff' | null</code></td></tr><tr><td>List variables / time axis / bbox</td><td><a href="#scansource-opts"><code>scan</code></a></td><td>metadata object</td></tr><tr><td>One value at a lat/lon</td><td><a href="#extractsource-options"><code>extract</code></a></td><td>object</td></tr><tr><td>…as a JSON/CSV string to save</td><td><a href="#extractoutputsource-options-format"><code>extractOutput</code></a></td><td><code>string</code></td></tr><tr><td>A whole bbox grid (parallel, abortable)</td><td><a href="#extractgridsource-options"><code>extractGrid</code></a></td><td><code>{ data: Float32Array, … }</code></td></tr><tr><td>…as JSON / GeoTIFF / PNG / ImageData</td><td><a href="#extractgridoutputsource-options-format"><code>extractGridOutput</code></a></td><td><code>string | Uint8Array | ImageData</code></td></tr><tr><td>Render a grid for a web map</td><td><a href="#gridtoimagedatagrid-opts"><code>gridToImageData</code></a> / <a href="#gridtopnggrid-opts"><code>gridToPNG</code></a></td><td>RGBA / PNG</td></tr><tr><td>Save a grid as a raster</td><td><a href="#map-rendering"><code>gridToGeoTIFF</code></a> / <code>gridToJSON</code></td><td><code>Uint8Array</code> / <code>string</code></td></tr><tr><td>Trim a huge file, same format</td><td><a href="#slimsource-options"><code>slim</code></a></td><td><code>{ bytes, … }</code></td></tr><tr><td>Reuse one loaded file across queries</td><td><a href="#class-based-api-webparsers"><code>WebParsers</code> class</a></td><td>instance</td></tr></tbody></table></div>
+Want a smaller file, same format out?  ............... trim               → { bytes, … }
+Reusing one loaded file for many queries? ............ SciWridToolkit (class) → instance</code></pre>
+<div class="table-wrap"><table><thead><tr><th>I want to…</th><th>Function</th><th>Returns</th></tr></thead><tbody><tr><td>Sniff the format without parsing</td><td><a href="#detectformatsource"><code>detectFormat</code></a></td><td><code>'grib2'…'tiff' | null</code></td></tr><tr><td>List variables / time axis / bbox</td><td><a href="#scansource-opts"><code>scan</code></a></td><td>metadata object</td></tr><tr><td>One value at a lat/lon</td><td><a href="#extractsource-options"><code>extract</code></a></td><td>object</td></tr><tr><td>…as a JSON/CSV string to save</td><td><a href="#extractoutputsource-options-format"><code>extractOutput</code></a></td><td><code>string</code></td></tr><tr><td>A whole bbox grid (parallel, abortable)</td><td><a href="#extractgridsource-options"><code>extractGrid</code></a></td><td><code>{ data: Float32Array, … }</code></td></tr><tr><td>…as JSON / GeoTIFF / PNG / ImageData</td><td><a href="#extractgridoutputsource-options-format"><code>extractGridOutput</code></a></td><td><code>string | Uint8Array | ImageData</code></td></tr><tr><td>Render a grid for a web map</td><td><a href="#gridtoimagedatagrid-opts"><code>gridToImageData</code></a> / <a href="#gridtopnggrid-opts"><code>gridToPNG</code></a></td><td>RGBA / PNG</td></tr><tr><td>Save a grid as a raster</td><td><a href="#map-rendering"><code>gridToGeoTIFF</code></a> / <code>gridToJSON</code></td><td><code>Uint8Array</code> / <code>string</code></td></tr><tr><td>Trim a huge file, same format</td><td><a href="#trimsource-options"><code>trim</code></a></td><td><code>{ bytes, … }</code></td></tr><tr><td>Reuse one loaded file across queries</td><td><a href="#class-based-api-SciWrid Toolkit"><code>SciWridToolkit</code> class</a></td><td>instance</td></tr></tbody></table></div>
 <p>Every reader produces the <strong>same</strong> <code>scan</code> / <code>extract</code> / <code>extractGrid</code> shapes regardless of format, so once you've chosen a pathway it works identically for GRIB2, NetCDF3/4, Zarr, and TIFF/COG. For the <em>internals</em> of how each format is decoded, see the decode-logic docs under <code>docs/webparsers/logic/</code>.</p>
 <hr>
 <h2 id="library-structure">Library structure</h2>
-<pre><code>webparsers/
+<pre><code>sciwrid-toolkit/
 ├── index.js          ← front-facing entry point  (import from here)
 ├── index.d.ts        ← TypeScript types
 ├── lib/              ← JavaScript library source (internal — do not import directly)
-│   ├── webparsers-api.js    functional API (scan/extract/extractGrid/slim/…)
-│   ├── webparsers-lib.js    core class (WebParsers)
+│   ├── sciwrid-api.js    functional API (scan/extract/extractGrid/trim/…)
+│   ├── sciwrid-lib.js    core class (SciWridToolkit)
 │   ├── zarr-helper.js       Zarr v2 helper           tiff-helper.js  TIFF/GeoTIFF
 │   ├── render/              color ramps + grid → RGBA / PNG
-│   └── slim/                in-place file trimming (per-format)
+│   └── trim/                in-place file trimming (per-format)
 ├── wasm/             ← compiled C core (internal)
-│   ├── webparsers.js        Emscripten WASM loader
-│   └── webparsers.wasm      compiled C binary
+│   ├── sciwrid.js        Emscripten WASM loader
+│   └── sciwrid.wasm      compiled C binary
 ├── worker/           ← Web Worker for parallel bbox extraction
 └── dist/             ← the published, bundled package (produced by `npm run build`)</code></pre>
-<p>All public symbols are re-exported through <code>index.js</code> (which <code>npm run build</code> bundles into <code>dist/index.js</code>). Files inside <code>lib/</code>, <code>wasm/</code>, and <code>worker/</code> are internal — import only from the package root (<code>'webparsers'</code>).</p>
+<p>All public symbols are re-exported through <code>index.js</code> (which <code>npm run build</code> bundles into <code>dist/index.js</code>). Files inside <code>lib/</code>, <code>wasm/</code>, and <code>worker/</code> are internal — import only from the package root (<code>'sciwrid-toolkit'</code>).</p>
 <hr>
 <h2 id="install">Install</h2>
 <pre><code># from GitHub (until published to npm)
@@ -305,13 +305,13 @@ npm install git+https://github.com/&lt;org&gt;/webparsers.git</code></pre>
 <hr>
 <h2 id="import">Import</h2>
 <pre><code>// Functional API — recommended for most consumers
-import { detectFormat, scan, extract, extractOutput } from 'webparsers';
+import { detectFormat, scan, extract, extractOutput } from 'sciwrid-toolkit';
 
 // Error classes — same package, no extra import path needed
-import { WebparsersError, UnsupportedFormatError, VariableNotFoundError } from 'webparsers';
+import { SciWridError, UnsupportedFormatError, VariableNotFoundError } from 'sciwrid-toolkit';
 
 // Class-based API — for advanced / low-level use
-import { WebParsers } from 'webparsers';</code></pre>
+import { SciWridToolkit } from 'sciwrid-toolkit';</code></pre>
 <p>TypeScript types ship with the package — no <code>@types/*</code> needed.</p>
 <hr>
 <h2 id="source-types-accepted">Source types accepted</h2>
@@ -398,7 +398,7 @@ await extract(file, { variable: 'TMP', date: '2026-04-14T12:00:00Z' });
 await extract(file, { variable: 'TMP', dateRange: ['2026-04-14T06:00:00Z', '2026-04-14T18:00:00Z'] });
 // single timestep for a grid
 await extractGrid(file, { variable: 'TMP', bbox, width: 256, height: 256, date: '2026-04-14T12:00:00Z' });</code></pre>
-<p>Matching is <strong>nearest</strong> against the file's decoded time axis. A <code>dateRange</code> bound given as a <strong>date only</strong> (<code>YYYY-MM-DD</code>, no time) expands to the whole UTC day — start → <code>00:00:00.000</code>, end → <code>23:59:59.999</code> — and every timestep inside the window is kept. So <code>dateRange: ['1990-01-01', '1990-01-01']</code> selects all timesteps on that day, no need to spell out the time. Mixing a date option with an integer index for the same axis throws <code>WebparsersError</code>. For Zarr arrays without CF time metadata the synthetic axis is <code>step t = t days</code> (<code>t·86400 s</code>), so a date is matched against that. Files with a single timestep (or no time axis) resolve any date to index 0. <code>slim</code> remains index-only.</p>
+<p>Matching is <strong>nearest</strong> against the file's decoded time axis. A <code>dateRange</code> bound given as a <strong>date only</strong> (<code>YYYY-MM-DD</code>, no time) expands to the whole UTC day — start → <code>00:00:00.000</code>, end → <code>23:59:59.999</code> — and every timestep inside the window is kept. So <code>dateRange: ['1990-01-01', '1990-01-01']</code> selects all timesteps on that day, no need to spell out the time. Mixing a date option with an integer index for the same axis throws <code>SciWridError</code>. For Zarr arrays without CF time metadata the synthetic axis is <code>step t = t days</code> (<code>t·86400 s</code>), so a date is matched against that. Files with a single timestep (or no time axis) resolve any date to index 0. <code>trim</code> remains index-only.</p>
 <hr>
 <h2 id="extractoutputsource-options-format"><code>extractOutput(source, options, format?)</code></h2>
 <p>Same as <code>extract</code>, but returns a serialised <strong>string</strong> instead of an object. <code>format</code> is <code>'json'</code> (default) or <code>'csv'</code>.</p>
@@ -417,7 +417,7 @@ writeFileSync('result.json', json);</code></pre>
 <h2 id="extractgridsource-options"><code>extractGrid(source, options)</code></h2>
 <p>Resample a variable over a <strong>bounding box</strong> into a dense, north-up <code>Float32</code> grid. This is the heavy-lifting pathway: it runs across parallel workers, is abortable, and reports progress. Use it whenever you want an <em>area</em> rather than a single point — heat maps, raster export, tiles.</p>
 <div class="table-wrap"><table><thead><tr><th>Option</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>variable</code></td><td><code>string</code></td><td><strong>Required.</strong> Name from <code>scan().variable_names</code>.</td></tr><tr><td><code>bbox</code></td><td><code>[minLon, minLat, maxLon, maxLat]</code></td><td><strong>Required.</strong> Geographic bounds, degrees.</td></tr><tr><td><code>width</code></td><td><code>number</code></td><td><strong>Required.</strong> Output columns.</td></tr><tr><td><code>height</code></td><td><code>number</code></td><td><strong>Required.</strong> Output rows.</td></tr><tr><td><code>time</code></td><td><code>number</code></td><td>Time-axis index. Default <code>0</code>.</td></tr><tr><td><code>date</code></td><td><code>string | number | Date</code></td><td>Single timestep by date (nearest match). Mutually exclusive with <code>time</code>.</td></tr><tr><td><code>workers</code></td><td><code>number</code></td><td>Parallel workers. Default <code>5</code>; <code>0</code> forces inline (single-threaded).</td></tr><tr><td><code>signal</code></td><td><code>AbortSignal</code></td><td>Abort the run; rejects with an <code>AbortError</code>.</td></tr><tr><td><code>onProgress</code></td><td><code>({done, total}) =&gt; void</code></td><td>Called as output cells are filled.</td></tr></tbody></table></div>
-<pre><code>import { extractGrid } from 'webparsers';
+<pre><code>import { extractGrid } from 'sciwrid-toolkit';
 
 const controller = new AbortController();
 
@@ -460,7 +460,7 @@ writeFileSync('tmp.tif', tiff);</code></pre>
 <p><strong>Synthetic axes:</strong> Zarr v2 arrays don't carry CF coordinate metadata, so the library assigns synthetic axes for the query engine:</p>
 <div class="table-wrap"><table><thead><tr><th>Axis</th><th>Synthetic value</th></tr></thead><tbody><tr><td>lat</td><td><code>lats[j] = j</code></td></tr><tr><td>lon</td><td><code>lons[i] = i</code></td></tr><tr><td>time</td><td><code>times[t] = t × 86400</code></td></tr></tbody></table></div>
 <p>This means <code>lat: 0, lon: 0</code> lands on grid point <code>(0, 0)</code>, and <code>t1: 0, t2: 5</code> returns the first six time steps. Real geographic queries require external coordinate data (planned for a future sprint).</p>
-<pre><code>import { scan, extract } from 'webparsers';
+<pre><code>import { scan, extract } from 'sciwrid-toolkit';
 import { readFileSync } from 'node:fs';
 
 const file = new Uint8Array(readFileSync('data.zarr.zip'));
@@ -475,29 +475,30 @@ const result = await extract(file, {
   t1: 0, t2: 11,   // all 12 time steps
 });</code></pre>
 <hr>
-<h2 id="slimsource-options"><code>slim(source, options)</code></h2>
-<p>Produce a smaller file in the <strong>same format</strong> as the input, containing only the selected variables (and optionally a time-axis slice). The result is a <code>Uint8Array</code> plus a stats/warnings envelope.</p>
+<h2 id="trimsource-options"><code>trim(source, options)</code></h2>
+<p>Produce a smaller file in the <strong>same format</strong> as the input, containing only the selected variables (and optionally a time-axis or spatial bbox slice). The result is a <code>Uint8Array</code> plus a stats/warnings envelope.</p>
 <p>Per-format strategy:</p>
-<div class="table-wrap"><table><thead><tr><th>Format</th><th>How it's slimmed</th><th>Decode?</th></tr></thead><tbody><tr><td><strong>GRIB2</strong></td><td>Filter messages by variable + valid time; concat</td><td>No</td></tr><tr><td><strong>NetCDF3</strong></td><td>Rewrite header with kept vars; copy data spans</td><td>No</td></tr><tr><td><strong>Zarr</strong> (zip)</td><td>Filter zip entries by var + chunk; re-zip</td><td>No</td></tr><tr><td><strong>NetCDF4</strong></td><td>Open with h5wasm; copy selected datasets to new file</td><td>Partial (HDF5 re-frames B-trees)</td></tr></tbody></table></div>
-<p>Zarr slim accepts both stored and DEFLATE-compressed <code>.zip</code> entries; the slimmed output is itself a valid Zarr zip that <code>scan</code>/<code>extract</code> can read back. Data chunks are passed through verbatim (no re-encode). When <code>slim()</code> slices a Zarr store along time or a bbox, the matching 1-D coordinate arrays (<code>time</code>/<code>lat</code>/<code>lon</code>) are decoded and re-sliced to the same extent so the output's axes stay consistent and re-read correctly. Limitations: coordinate arrays that are multi-chunk or zarr-compressed are kept at full length (a warning is emitted); byte-cut slicing widens to chunk boundaries, so a store whose spatial chunks span the whole dimension will not shrink along lat/lon.</p>
-<pre><code>import { slim } from 'webparsers';
+<div class="table-wrap"><table><thead><tr><th>Format</th><th>How it's trimmed</th><th>Decode?</th></tr></thead><tbody><tr><td><strong>GRIB2</strong></td><td>Filter messages by variable + valid time; concat</td><td>No</td></tr><tr><td><strong>NetCDF3</strong></td><td>Rewrite header with kept vars; copy data spans</td><td>No</td></tr><tr><td><strong>Zarr</strong> (zip)</td><td>Filter zip entries by var + chunk; re-zip</td><td>No</td></tr><tr><td><strong>NetCDF4</strong></td><td>Open with h5wasm; copy selected datasets to new file</td><td>Partial (HDF5 re-frames B-trees)</td></tr><tr><td><strong>TIFF</strong></td><td>Copy or re-encode kept bands/blocks; update IFD tags</td><td>Partial</td></tr></tbody></table></div>
+<p>Zarr trim accepts both stored and DEFLATE-compressed <code>.zip</code> entries; the trimmed output is itself a valid Zarr zip that <code>scan</code>/<code>extract</code> can read back. Data chunks are passed through verbatim (no re-encode). When <code>trim()</code> slices a Zarr store along time or a bbox, the matching 1-D coordinate arrays (<code>time</code>/<code>lat</code>/<code>lon</code>) are decoded and re-sliced to the same extent so the output's axes stay consistent and re-read correctly. Limitations: coordinate arrays that are multi-chunk or zarr-compressed are kept at full length (a warning is emitted); byte-cut slicing widens to chunk boundaries, so a store whose spatial chunks span the whole dimension will not shrink along lat/lon.</p>
+<pre><code>import { trim } from 'sciwrid-toolkit';
 
-const result = await slim(file, {
+const result = await trim(file, {
   variables: ['2t', 'sp'],   // names from scan().variable_names
   t1: 0, t2: 23,             // optional inclusive time-axis range
+  bbox: [-100, 30, -80, 45], // optional [minLon, minLat, maxLon, maxLat]
 });
 
-console.log(result.format);            // 'grib2' | 'netcdf3' | 'netcdf4' | 'zarr'
+console.log(result.format);            // 'grib2' | 'netcdf3' | 'netcdf4' | 'zarr' | 'tiff'
 console.log(result.stats);             // { inputSize, outputSize, variablesKept, variablesDropped }
 console.log(result.warnings);          // human-readable notes (e.g. Zarr boundary widening)
-fs.writeFileSync('slim.grb2', result.bytes);</code></pre>
+fs.writeFileSync('trim.grb2', result.bytes);</code></pre>
 <h3 id="options">Options</h3>
-<div class="table-wrap"><table><thead><tr><th>Option</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>variables</code></td><td><code>string[]</code></td><td><strong>Required.</strong> Variable names to keep. Same naming as <code>scan()</code>.</td></tr><tr><td><code>t1</code></td><td><code>number</code></td><td>Inclusive lower time-axis index. Defaults to <code>0</code>.</td></tr><tr><td><code>t2</code></td><td><code>number</code></td><td>Inclusive upper time-axis index. Defaults to the last one.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>variables</code></td><td><code>string[]</code></td><td><strong>Required.</strong> Variable names to keep. Same naming as <code>scan()</code>.</td></tr><tr><td><code>t1</code></td><td><code>number</code></td><td>Inclusive lower time-axis index. Defaults to <code>0</code>.</td></tr><tr><td><code>t2</code></td><td><code>number</code></td><td>Inclusive upper time-axis index. Defaults to the last one.</td></tr><tr><td><code>bbox</code></td><td><code>[number, number, number, number]</code></td><td>Optional WGS84 spatial clip as <code>[minLon, minLat, maxLon, maxLat]</code>.</td></tr></tbody></table></div>
 <p><code>t1</code>/<code>t2</code> semantics match <code>extract()</code> — they're indices into the variable's time axis in the order <code>scan()</code> reports.</p>
 <h3 id="result-shape">Result shape</h3>
 <pre><code>{
-  bytes:    Uint8Array,                                  // the slimmed file
-  format:   'grib2' | 'netcdf3' | 'netcdf4' | 'zarr',
+  bytes:    Uint8Array,                                  // the trimmed file
+  format:   'grib2' | 'netcdf3' | 'netcdf4' | 'zarr' | 'tiff',
   warnings: string[],                                    // see below
   stats: {
     inputSize: number,
@@ -507,23 +508,23 @@ fs.writeFileSync('slim.grb2', result.bytes);</code></pre>
   },
 }</code></pre>
 <h3 id="boundary-widening-zarr-only">Boundary widening (Zarr only)</h3>
-<p>Zarr chunks are atomic — the whole chunk is either present or absent. If the requested <code>[t1, t2]</code> range crosses chunk boundaries, the slim widens to keep every chunk that <em>touches</em> the range. The actual time range that ends up in the output is reported in <code>warnings</code>:</p>
+<p>Zarr chunks are atomic — the whole chunk is either present or absent. If the requested <code>[t1, t2]</code> range crosses chunk boundaries, the trim widens to keep every chunk that <em>touches</em> the range. The actual time range that ends up in the output is reported in <code>warnings</code>:</p>
 <pre><code>Zarr variable 'temperature': time range [3,7] widened to [0,7]
 because chunk size along time axis is 8</code></pre>
 <p>GRIB2 (one timestep per message), NetCDF3 (records addressable individually), and NetCDF4 (h5wasm hyperslab) all give exact ranges.</p>
 <h3 id="errors">Errors</h3>
-<div class="table-wrap"><table><thead><tr><th>Thrown</th><th>When</th></tr></thead><tbody><tr><td><code>SlimError</code></td><td>Invalid <code>opts</code>, out-of-range <code>t1</code>, format-specific failure</td></tr><tr><td><code>VariableNotFoundError</code></td><td>A requested variable isn't in the source</td></tr><tr><td><code>UnsupportedFormatError</code></td><td>The source isn't one of the four supported formats</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Thrown</th><th>When</th></tr></thead><tbody><tr><td><code>TrimError</code></td><td>Invalid <code>opts</code>, out-of-range <code>t1</code>, format-specific failure</td></tr><tr><td><code>VariableNotFoundError</code></td><td>A requested variable isn't in the source</td></tr><tr><td><code>UnsupportedFormatError</code></td><td>The source isn't one of the supported formats</td></tr></tbody></table></div>
 <h3 id="known-limitations-v1">Known limitations (v1)</h3>
-<ul><li><strong>Spatial bbox</strong> is not yet supported. Tracked for a follow-up sprint.</li><li><strong>NetCDF4</strong> writes via h5wasm into the WASM heap, so the practical</li></ul>
+<ul><li><strong>Spatial bbox</strong> is supported for Zarr, NetCDF4, and TIFF. GRIB2 and NetCDF3 bbox trimming are still tracked for a follow-up sprint.</li><li><strong>NetCDF4</strong> writes via h5wasm into the WASM heap, so the practical</li></ul>
 <p>  output cap is ~1–2 GB.</p>
 <ul><li><strong>NetCDF4</strong> v1 walks <strong>top-level datasets only</strong> — datasets nested</li></ul>
 <p>  inside HDF5 groups are not copied. Most NetCDF4 files in the wild use   the root group.</p>
 <ul><li><strong>NetCDF4</strong> dim-coord matching in <code>extract()</code> (pre-existing) uses dim</li></ul>
-<p>  length; if a sliced time axis ends up with the same length as another   coordinate (e.g. <code>lat</code>), the existing extract heuristic may mis-assign   dims. The slimmed bytes are correct — verify with a direct h5wasm read.</p>
+<p>  length; if a sliced time axis ends up with the same length as another   coordinate (e.g. <code>lat</code>), the existing extract heuristic may mis-assign   dims. The trimmed bytes are correct — verify with a direct h5wasm read.</p>
 <h2 id="geotiff-tif--tiff">GeoTIFF (<code>.tif</code> / <code>.tiff</code>)</h2>
 <p><code>scan</code>, <code>extract</code>, and <code>extractGrid</code> all accept TIFF and GeoTIFF files.</p>
 <h3 id="supported">Supported</h3>
-<div class="table-wrap"><table><thead><tr><th>Aspect</th><th>What's covered</th></tr></thead><tbody><tr><td><strong>Byte order</strong></td><td>Little-endian (<code>II*\x00</code>), big-endian (<code>MM\x00*</code>), and BigTIFF (<code>magic === 43</code>, 64-bit offsets)</td></tr><tr><td><strong>Sample types</strong></td><td><code>uint8</code>, <code>uint16</code>, <code>int16</code>, <code>float32</code> (chunky <code>PlanarConfiguration=1</code> AND separate planes <code>=2</code>)</td></tr><tr><td><strong>Compression</strong></td><td>None, Deflate, LZW, PackBits, JPEG (<code>jpeg-js</code> optional dep), WebP (browser only)</td></tr><tr><td><strong>Predictors</strong></td><td>1 (none), 2 (horizontal), 3 (floating-point — <code>float32</code> only)</td></tr><tr><td><strong>Layout</strong></td><td>Strip and tile; <code>extractGrid</code> caches decoded blocks + nearest-neighbour resamples to the requested output size</td></tr><tr><td><strong>CRS</strong></td><td>Geographic EPSG:4326, UTM north/south, Sinusoidal (MODIS), Lambert Conformal Conic (NOAA HRRR/RAP/NAM), Polar Stereographic (NSIDC 3413/3031), Albers Equal Area (USDA NASS/USGS)</td></tr><tr><td><strong>Multi-band</strong></td><td><code>SamplesPerPixel ≥ 1</code>; band names taken from <code>GDAL_METADATA</code> <code>&lt;Item name="DESCRIPTION" sample="N"&gt;…&lt;/Item&gt;</code> (fallback: <code>band_1</code>, <code>band_2</code>, …)</td></tr><tr><td><strong>COG</strong></td><td>Overview IFDs surfaced in <code>scan().overviews</code>; <code>extractGrid</code> auto-selects the smallest overview that meets the requested output size</td></tr><tr><td><strong>COG over URL</strong></td><td><code>scan</code> and <code>extract</code> issue HTTP Range requests for the IFD + only the needed tile/strip — the whole file is never downloaded</td></tr><tr><td><strong>slim()</strong></td><td>Band selection + spatial bbox (snaps to block grid with a widening warning); <code>PlanarConfiguration=2</code> slim is byte-copy (no decode)</td></tr><tr><td><strong>Writer</strong></td><td><code>gridToGeoTIFF(grid, opts)</code> — multi-band, dtype (<code>float32</code>/<code>uint8</code>/<code>uint16</code>/<code>int16</code>), compression (<code>none</code>/<code>deflate</code>), predictor (1/2/3), CRS (any supported kind)</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Aspect</th><th>What's covered</th></tr></thead><tbody><tr><td><strong>Byte order</strong></td><td>Little-endian (<code>II*\x00</code>), big-endian (<code>MM\x00*</code>), and BigTIFF (<code>magic === 43</code>, 64-bit offsets)</td></tr><tr><td><strong>Sample types</strong></td><td><code>uint8</code>, <code>uint16</code>, <code>int16</code>, <code>float32</code> (chunky <code>PlanarConfiguration=1</code> AND separate planes <code>=2</code>)</td></tr><tr><td><strong>Compression</strong></td><td>None, Deflate, LZW, PackBits, JPEG (<code>jpeg-js</code> optional dep), WebP (browser only)</td></tr><tr><td><strong>Predictors</strong></td><td>1 (none), 2 (horizontal), 3 (floating-point — <code>float32</code> only)</td></tr><tr><td><strong>Layout</strong></td><td>Strip and tile; <code>extractGrid</code> caches decoded blocks + nearest-neighbour resamples to the requested output size</td></tr><tr><td><strong>CRS</strong></td><td>Geographic EPSG:4326, UTM north/south, Sinusoidal (MODIS), Lambert Conformal Conic (NOAA HRRR/RAP/NAM), Polar Stereographic (NSIDC 3413/3031), Albers Equal Area (USDA NASS/USGS)</td></tr><tr><td><strong>Multi-band</strong></td><td><code>SamplesPerPixel ≥ 1</code>; band names taken from <code>GDAL_METADATA</code> <code>&lt;Item name="DESCRIPTION" sample="N"&gt;…&lt;/Item&gt;</code> (fallback: <code>band_1</code>, <code>band_2</code>, …)</td></tr><tr><td><strong>COG</strong></td><td>Overview IFDs surfaced in <code>scan().overviews</code>; <code>extractGrid</code> auto-selects the smallest overview that meets the requested output size</td></tr><tr><td><strong>COG over URL</strong></td><td><code>scan</code> and <code>extract</code> issue HTTP Range requests for the IFD + only the needed tile/strip — the whole file is never downloaded</td></tr><tr><td><strong>trim()</strong></td><td>Band selection + spatial bbox (snaps to block grid with a widening warning); <code>PlanarConfiguration=2</code> trim is byte-copy (no decode)</td></tr><tr><td><strong>Writer</strong></td><td><code>gridToGeoTIFF(grid, opts)</code> — multi-band, dtype (<code>float32</code>/<code>uint8</code>/<code>uint16</code>/<code>int16</code>), compression (<code>none</code>/<code>deflate</code>), predictor (1/2/3), CRS (any supported kind)</td></tr></tbody></table></div>
 <h3 id="band-naming">Band naming</h3>
 <pre><code>const meta = await scan(geoTiffBuf);
 meta.variable_names;        // ['B04_red', 'B03_green', 'B02_blue']  (from GDAL_METADATA)
@@ -540,7 +541,7 @@ const point = await extract('https://example.com/sentinel.tif',
 // One additional Range request for the tile/strip containing that pixel.</code></pre>
 <p>The Range source falls back to a full-body GET if the server responds 200 to <code>Range:</code> (no Range support).</p>
 <h3 id="unsupported-crs">Unsupported CRS</h3>
-<pre><code>import { UnsupportedCRSError } from 'webparsers';
+<pre><code>import { UnsupportedCRSError } from 'sciwrid-toolkit';
 
 try { await scan(polarStereoTiff); }
 catch (e) {
@@ -549,14 +550,14 @@ catch (e) {
   }
 }</code></pre>
 <h3 id="v3-expansion-list-not-in-this-release">v3+ expansion list (not in this release)</h3>
-<ul><li>Additional compression: JPEG 2000 (libopenjp2 in WASM, follow-up sprint)</li><li>COG overview tile pyramid auto-build in <code>gridToGeoTIFF</code> (today: single-IFD writer)</li><li>Cross-format <code>slim()</code> bbox for GRIB2 + NetCDF3 (needs C-side accessor + WASM rebuild)</li><li>TIFF <code>DateTime</code> tag (306) surfaced as <code>meta.times</code> (single-snapshot timestamp)</li><li>Tiled GeoTIFF writer (today: single-strip)</li><li>GRIB2 pre-defined / previously-defined Section-6 bitmaps (indicator 1–254); only an</li></ul>
+<ul><li>Additional compression: JPEG 2000 (libopenjp2 in WASM, follow-up sprint)</li><li>COG overview tile pyramid auto-build in <code>gridToGeoTIFF</code> (today: single-IFD writer)</li><li>Cross-format <code>trim()</code> bbox for GRIB2 + NetCDF3 (needs C-side accessor + WASM rebuild)</li><li>TIFF <code>DateTime</code> tag (306) surfaced as <code>meta.times</code> (single-snapshot timestamp)</li><li>Tiled GeoTIFF writer (today: single-strip)</li><li>GRIB2 pre-defined / previously-defined Section-6 bitmaps (indicator 1–254); only an</li></ul>
 <p>  included bitmap (indicator 0) and "no bitmap" (255) decode today. Fields with a   bitmap return masked grid points as <code>NaN</code>.</p>
 <hr>
 <h2 id="map-rendering">Map rendering</h2>
 <p>Turn a <code>Float32</code> grid from <code>extractGrid</code> into something a web map can draw: a colored RGBA buffer or a PNG. Both helpers are <strong>zero-dependency</strong> and work in Node and the browser. They are format-agnostic — every reader produces the same <code>ExtractGridResult</code>, so the same render path covers GRIB2, NetCDF3/4, Zarr, and TIFF/COG.</p>
 <h3 id="color-ramps">Color ramps</h3>
 <p>Built-in ramps: <code>viridis</code>, <code>plasma</code>, <code>grayscale</code>, and <code>RdBu</code> (diverging, for anomalies / temperatures). Pass a built-in name <strong>or</strong> a custom array of <code>[t, [r, g, b]]</code> stops (<code>t ∈ [0, 1]</code>, RGB are 0..255). Interpolation is linear in RGB.</p>
-<pre><code>import { RAMPS, resolveRamp, sampleRamp } from 'webparsers';
+<pre><code>import { RAMPS, resolveRamp, sampleRamp } from 'sciwrid-toolkit';
 
 sampleRamp(resolveRamp('viridis'), 0.5);          // → [38, 130, 142]
 const custom = [[0, [0, 0, 0]], [1, [255, 0, 0]]]; // black → red
@@ -572,14 +573,14 @@ sampleRamp(custom, 0.5);                           // → [128, 0, 0]</code></pr
 <p>The value range is auto-computed from the finite values (NaN/Infinity ignored). NaN cells are painted with <code>nodataColor</code>. In a browser, wrap the result: <code>new ImageData(data, width, height)</code>.</p>
 <h3 id="gridtopnggrid-opts"><code>gridToPNG(grid, opts?)</code></h3>
 <p>Same options as <code>gridToImageData</code>, but returns a PNG (<code>Promise&lt;Uint8Array&gt;</code>) — 8-bit RGBA, no interlace. Uses <code>node:zlib</code> in Node and <code>CompressionStream</code> in the browser, with no extra dependency.</p>
-<pre><code>import { extractGrid, gridToPNG } from 'webparsers';
+<pre><code>import { extractGrid, gridToPNG } from 'sciwrid-toolkit';
 import { writeFileSync } from 'node:fs';
 
 const grid = await extractGrid(file, { variable: '2t', bbox, width: 512, height: 512 });
 writeFileSync('temp.png', await gridToPNG(grid, { ramp: 'RdBu' }));</code></pre>
 <p><code>extractGridOutput(source, options, format)</code> also accepts <code>'imagedata'</code> and <code>'png'</code> in addition to <code>'json'</code> and <code>'geotiff'</code>.</p>
 <h3 id="full-pipeline--maplibre-imagesource">Full pipeline → MapLibre <code>ImageSource</code></h3>
-<pre><code>import { extractGrid, gridToImageData } from 'webparsers';
+<pre><code>import { extractGrid, gridToImageData } from 'sciwrid-toolkit';
 
 const grid = await extractGrid(file, { variable, bbox, width: 1024, height: 1024 });
 const img  = gridToImageData(grid, { ramp: 'viridis' });
@@ -596,11 +597,11 @@ map.addSource('data', {
 map.addLayer({ id: 'data', type: 'raster', source: 'data', paint: { 'raster-opacity': 0.75 } });</code></pre>
 <p>A complete drop-a-file demo (basemap, variable picker, click-to-query, Web Worker offload) lives at <a href="../examples/map-demo.html"><code>examples/map-demo.html</code></a>. Run it with <code>npm run demo:web</code>.</p>
 <hr>
-<h2 id="class-based-api-webparsers">Class-based API (<code>WebParsers</code>)</h2>
+<h2 id="class-based-api-SciWrid Toolkit">Class-based API (<code>SciWridToolkit</code>)</h2>
 <p>For cases where you need to reuse a single loaded file across multiple queries:</p>
-<pre><code>import { WebParsers } from 'webparsers';
+<pre><code>import { SciWridToolkit } from 'sciwrid-toolkit';
 
-const parser = new WebParsers();
+const parser = new SciWridToolkit();
 await parser.read(fileBytes);              // load once
 
 const vars = parser.getvariables();        // same as scan().variables
@@ -611,14 +612,14 @@ const data = await parser.extract({        // same options as extract()
 parser.close();                            // always free WASM memory when done</code></pre>
 <hr>
 <h2 id="error-handling">Error handling</h2>
-<p>All errors extend <code>WebparsersError</code>:</p>
+<p>All errors extend <code>SciWridError</code>:</p>
 <pre><code>import {
-  WebparsersError,
+  SciWridError,
   UnsupportedFormatError,
   VariableNotFoundError,
   SourceError,
   ExtractError,
-} from 'webparsers';
+} from 'sciwrid-toolkit';
 
 try {
   await scan(unknownBytes);
@@ -628,12 +629,12 @@ try {
   else if (e instanceof VariableNotFoundError) { /* bad variable name */ }
   else throw e;
 }</code></pre>
-<div class="table-wrap"><table><thead><tr><th>Error</th><th>When thrown</th></tr></thead><tbody><tr><td><code>UnsupportedFormatError</code></td><td>Magic bytes don't match any supported format</td></tr><tr><td><code>UnsupportedCRSError</code></td><td>TIFF/GeoTIFF uses a CRS outside the v1 set (<code>epsg</code>, <code>crsName</code> fields surfaced)</td></tr><tr><td><code>VariableNotFoundError</code></td><td>Named variable absent or not <code>supported: true</code></td></tr><tr><td><code>SourceError</code></td><td>URL fetch failed, unsupported source type</td></tr><tr><td><code>ExtractError</code></td><td>Decoder failed for a variable the library knows about</td></tr><tr><td><code>WebparsersError</code></td><td>Base class — catches anything thrown by this library</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Error</th><th>When thrown</th></tr></thead><tbody><tr><td><code>UnsupportedFormatError</code></td><td>Magic bytes don't match any supported format</td></tr><tr><td><code>UnsupportedCRSError</code></td><td>TIFF/GeoTIFF uses a CRS outside the v1 set (<code>epsg</code>, <code>crsName</code> fields surfaced)</td></tr><tr><td><code>VariableNotFoundError</code></td><td>Named variable absent or not <code>supported: true</code></td></tr><tr><td><code>SourceError</code></td><td>URL fetch failed, unsupported source type</td></tr><tr><td><code>ExtractError</code></td><td>Decoder failed for a variable the library knows about</td></tr><tr><td><code>SciWridError</code></td><td>Base class — catches anything thrown by this library</td></tr></tbody></table></div>
 <hr>
 <h2 id="nodejs-usage">Node.js usage</h2>
 <p>The library ships as ESM and works in Node 18+ out of the box — no extra setup needed.</p>
 <pre><code>import { readFileSync } from 'node:fs';
-import { scan, extract } from 'webparsers';
+import { scan, extract } from 'sciwrid-toolkit';
 
 const file = new Uint8Array(readFileSync('forecast.grb2'));
 
@@ -653,13 +654,13 @@ npm run demo:netcdf4</code></pre>
 &lt;script type="importmap"&gt;
 {
   "imports": {
-    "webparsers": "/node_modules/webparsers/index.js",
+    "sciwrid-toolkit": "/node_modules/sciwrid-toolkit/index.js",
     "h5wasm":     "/node_modules/h5wasm/dist/esm/hdf5_hl.js"
   }
 }
 &lt;/script&gt;
 &lt;script type="module"&gt;
-  import { scan } from 'webparsers';
+  import { scan } from 'sciwrid-toolkit';
 
   document.querySelector('#file').addEventListener('change', async (e) =&gt; {
     const meta = await scan(e.target.files[0]);
@@ -667,7 +668,7 @@ npm run demo:netcdf4</code></pre>
   });
 &lt;/script&gt;</code></pre>
 <p>With a bundler (recommended for production), the import map is not needed — just:</p>
-<pre><code>import { scan } from 'webparsers';</code></pre>
+<pre><code>import { scan } from 'sciwrid-toolkit';</code></pre>
     </article>
   </main>
 

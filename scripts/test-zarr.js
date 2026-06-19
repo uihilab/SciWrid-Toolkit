@@ -28,14 +28,14 @@ import { dirname, resolve } from 'node:path';
 import {
   scan, extract, extractGrid,
   extractGridOutput, gridToJSON, gridToGeoTIFF,
-} from '../lib/webparsers-api.js';
-import WebParsers from '../wasm/webparsers.js';
+} from '../lib/sciwrid-api.js';
+import SciWridToolkit from '../wasm/sciwrid.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root      = resolve(__dirname, '..');
 
-const wasmBinary  = readFileSync(resolve(root, 'wasm/webparsers.wasm'));
-const wf = { wasmFactory: () => WebParsers({ wasmBinary }) };
+const wasmBinary  = readFileSync(resolve(root, 'wasm/sciwrid.wasm'));
+const wf = { wasmFactory: () => SciWridToolkit({ wasmBinary }) };
 
 /* ---------------- Tiny test runner (matches test-grid.js style) ---------------- */
 let passed = 0, failed = 0, skipped = 0;
@@ -260,6 +260,11 @@ await test('scan() finds 4 arrays (temperature + lat/lon/time)', async () => {
   assert(names.includes('lon'),         'missing lon');
 });
 
+await test('scan() exposes a real bbox from lat/lon coordinate arrays', async () => {
+  assert(JSON.stringify(meta.bbox) === '[-100,30,-90,40]',
+    'bbox mismatch: ' + JSON.stringify(meta.bbox));
+});
+
 await test('temperature metadata: dtype, shape, _ARRAY_DIMENSIONS', async () => {
   const v = meta.variables.find(x => x.name === 'temperature');
   assert(v, 'no temperature in meta');
@@ -401,6 +406,7 @@ await test('extractGrid() without coord arrays falls back to synthetic axes', as
   const bareMeta = await scan(bareZip, wf);
   const v = bareMeta.variables.find(x => x.name === 'temperature');
   assert(v, 'no temperature in bare scan');
+  assert(!bareMeta.bbox, 'bare synthetic-coordinate scan should not expose bbox');
   assert(v.coord_source === 'synthetic',
     'expected coord_source=synthetic, got: ' + v.coord_source);
   assert(Array.isArray(v.warnings) && v.warnings.length > 0,

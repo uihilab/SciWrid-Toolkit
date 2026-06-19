@@ -94,7 +94,7 @@ console.log('\n[hoist-uniform-times]');
 await test('uniform-times hoist: all variables share → top-level set, per-var stripped', async () => {
   // Build a tiny Zarr fixture with one multi-dim variable so the only `times`
   // owner is the single variable — that's the "uniform" case.
-  const { scan } = await import('../lib/webparsers-api.js');
+  const { scan } = await import('../lib/sciwrid-api.js');
   const { readFileSync } = await import('node:fs');
   const { resolve, dirname } = await import('node:path');
   const { fileURLToPath } = await import('node:url');

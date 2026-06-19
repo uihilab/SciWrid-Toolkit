@@ -111,7 +111,7 @@ int main(void) {
     const char* data_dir = "../data/";
 
     printf("============================================\n");
-    printf("  webparsers - GRIB2 Query Tool\n");
+    printf("  SciWrid Toolkit - GRIB2 Query Tool\n");
     printf("============================================\n\n");
 
     /* Scan for available variables */

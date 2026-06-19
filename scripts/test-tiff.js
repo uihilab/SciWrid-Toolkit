@@ -36,13 +36,13 @@ await test('parses header + first IFD on u8-none-strip fixture', async () => {
 
 console.log('\n[scan]');
 await test('detectFormat returns "tiff" for LE TIFF', async () => {
-  const { detectFormat } = await import('../lib/webparsers-api.js');
+  const { detectFormat } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-wgs84.tif')));
   assertEq(await detectFormat(buf), 'tiff');
 });
 
 await test('scan returns metadata for u8-none-strip fixture', async () => {
-  const { scan } = await import('../lib/webparsers-api.js');
+  const { scan } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.format, 'tiff');
@@ -174,7 +174,7 @@ await test('floating-point predictor (float32) reverses byte-shuffle deltas', as
 
 console.log('\n[extract]');
 await test('extract returns correct uint8 value at known lat/lon', async () => {
-  const { extract } = await import('../lib/webparsers-api.js');
+  const { extract } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-wgs84.tif')));
   // Fixture: 8×4 grid at bbox [10,20,18,24], pixel 1°×1°, pixels[i] = (i*7+3)&0xff
   // (row 0 = top, north-up). lat=23.5, lon=10.5 → row 0, col 0 → pixels[0] = 3
@@ -184,7 +184,7 @@ await test('extract returns correct uint8 value at known lat/lon', async () => {
 });
 
 await test('extract out-of-bounds returns null', async () => {
-  const { extract } = await import('../lib/webparsers-api.js');
+  const { extract } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-wgs84.tif')));
   const r = await extract(buf, { variable: 'band_1', lat: 0, lon: 0 });
   assertEq(r.value, null);
@@ -192,7 +192,7 @@ await test('extract out-of-bounds returns null', async () => {
 
 console.log('\n[f32+deflate+fp]');
 await test('extract float32+deflate+fp at known pixel returns expected value', async () => {
-  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { extract, scan } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-strip-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.dtype, 'float32');
@@ -232,7 +232,7 @@ await test('sinusoidal round-trip near equator', async () => {
 
 console.log('\n[utm + sinusoidal]');
 await test('UTM 15N tile fixture: extract at known lat/lon', async () => {
-  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { extract, scan } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-utm15n.tif')));
   const meta = await scan(buf);
   assertEq(meta.crs.epsg, 32615);
@@ -245,7 +245,7 @@ await test('UTM 15N tile fixture: extract at known lat/lon', async () => {
 });
 
 await test('sinusoidal tile fixture: extract at known lat/lon', async () => {
-  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { extract, scan } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-sinusoidal.tif')));
   const meta = await scan(buf);
   assert(meta.crs.epsg === 32767 || /sinusoidal/i.test(meta.crs.name));
@@ -260,7 +260,7 @@ await test('sinusoidal tile fixture: extract at known lat/lon', async () => {
 
 console.log('\n[extractGrid]');
 await test('extractGrid full image returns Float32Array of expected shape', async () => {
-  const { extractGrid } = await import('../lib/webparsers-api.js');
+  const { extractGrid } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-strip-wgs84.tif')));
   const g = await extractGrid(buf, { variable: 'band_1' });
   assertEq(g.width, 8); assertEq(g.height, 4);
@@ -272,7 +272,7 @@ await test('extractGrid full image returns Float32Array of expected shape', asyn
 });
 
 await test('extractGrid with bbox clips correctly', async () => {
-  const { extractGrid } = await import('../lib/webparsers-api.js');
+  const { extractGrid } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-strip-wgs84.tif')));
   // Fixture bbox [10,20,18,24]. Ask for [12,21,15,23] → 3 cols × 2 rows
   const g = await extractGrid(buf, { variable: 'band_1', bbox: [12, 21, 15, 23] });
@@ -281,7 +281,7 @@ await test('extractGrid with bbox clips correctly', async () => {
 
 console.log('\n[i16 + u8 tile]');
 await test('Int16 strip: extract returns signed value', async () => {
-  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { extract, scan } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-i16-none-strip-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.dtype, 'int16');
@@ -291,7 +291,7 @@ await test('Int16 strip: extract returns signed value', async () => {
 });
 
 await test('UInt8 tile: extract returns correct value from tile (1,1)', async () => {
-  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { extract, scan } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-tile-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.layout, 'tile');
@@ -303,7 +303,7 @@ await test('UInt8 tile: extract returns correct value from tile (1,1)', async ()
 
 console.log('\n[multiband]');
 await test('multiband fixture: scan reports 3 bands with GDAL names', async () => {
-  const { scan } = await import('../lib/webparsers-api.js');
+  const { scan } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-multiband-u16-lzw-h-strip-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.variable_names.length, 3);
@@ -315,7 +315,7 @@ await test('multiband fixture: scan reports 3 bands with GDAL names', async () =
 });
 
 await test('multiband fixture: extract returns distinct values per band', async () => {
-  const { extract } = await import('../lib/webparsers-api.js');
+  const { extract } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-multiband-u16-lzw-h-strip-wgs84.tif')));
   // pixel (r=0, c=0): band 0 = 0, band 1 = 5, band 2 = 11
   const r = await extract(buf, { variable: 'B04_red',   lat: 23.5, lon: 10.5 });
@@ -328,7 +328,7 @@ await test('multiband fixture: extract returns distinct values per band', async 
 
 console.log('\n[unsupported-crs]');
 await test('unsupported EPSG: scan throws UnsupportedCRSError with the EPSG', async () => {
-  const { scan, UnsupportedCRSError } = await import('../lib/webparsers-api.js');
+  const { scan, UnsupportedCRSError } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-unsupported-crs.tif')));
   let caught;
   try { await scan(buf); }
@@ -341,7 +341,7 @@ await test('unsupported EPSG: scan throws UnsupportedCRSError with the EPSG', as
 
 console.log('\n[big-endian]');
 await test('big-endian TIFF: scan + extract', async () => {
-  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const { scan, extract } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-none-strip-be-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.format, 'tiff');
@@ -353,7 +353,7 @@ await test('big-endian TIFF: scan + extract', async () => {
 });
 
 await test('BigTIFF (magic 43) scan + extract', async () => {
-  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const { scan, extract } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-bigtiff-u8-none-strip-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.format, 'tiff');
@@ -390,7 +390,7 @@ await test('packbits decoder: canonical Apple example', async () => {
 });
 
 await test('PackBits TIFF: scan + extract', async () => {
-  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const { scan, extract } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-u8-packbits-strip-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.compression, 'packbits');
@@ -408,7 +408,7 @@ await test('JPEG TIFF: scan reports 3 bands, extract returns plausible RGB', asy
   let exists = true;
   try { readFileSync(fpath); } catch { exists = false; }
   if (!exists) return 'skip';   // jpeg-js was unavailable at fixture build time
-  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const { scan, extract } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(fpath));
   const meta = await scan(buf);
   assertEq(meta.compression, 'jpeg');
@@ -456,7 +456,7 @@ await test('LCC projection round-trip is accurate to <1e-7 deg', async () => {
 });
 
 await test('LCC tile fixture: extract at native (0,0) returns pixel (0,0) value', async () => {
-  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { extract, scan } = await import('../lib/sciwrid-api.js');
   const { nativeToLatLon } = await import('../lib/tiff/projections.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-lcc.tif')));
   const meta = await scan(buf);
@@ -501,7 +501,7 @@ await test('Polar stereographic (south, EPSG 3031) round-trip', async () => {
 });
 
 await test('Polar stereographic 3413 fixture: extract at known pixel', async () => {
-  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { extract, scan } = await import('../lib/sciwrid-api.js');
   const { nativeToLatLon } = await import('../lib/tiff/projections.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-polarstereo-3413.tif')));
   const meta = await scan(buf);
@@ -529,7 +529,7 @@ await test('Albers projection round-trip is accurate to <1e-6 deg', async () => 
 });
 
 await test('Albers fixture: extract at native (0,0) returns pixel (0,0) value', async () => {
-  const { extract, scan } = await import('../lib/webparsers-api.js');
+  const { extract, scan } = await import('../lib/sciwrid-api.js');
   const { nativeToLatLon } = await import('../lib/tiff/projections.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-deflate-fp-tile-albers.tif')));
   const meta = await scan(buf);
@@ -544,7 +544,7 @@ await test('Albers fixture: extract at native (0,0) returns pixel (0,0) value', 
 
 console.log('\n[cog-overviews]');
 await test('2-IFD COG fixture: scan surfaces overview metadata', async () => {
-  const { scan } = await import('../lib/webparsers-api.js');
+  const { scan } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-f32-none-tile-cog-2ifd-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.format, 'tiff');
@@ -560,7 +560,7 @@ await test('2-IFD COG fixture: scan surfaces overview metadata', async () => {
 
 console.log('\n[planar=2]');
 await test('PlanarConfiguration=2: read distinct values per band', async () => {
-  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const { scan, extract } = await import('../lib/sciwrid-api.js');
   const buf = new Uint8Array(readFileSync(resolve(fixtures, 'synthetic-multiband-u16-planar2-strip-wgs84.tif')));
   const meta = await scan(buf);
   assertEq(meta.variable_names[0], 'red');

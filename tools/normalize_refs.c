@@ -1,5 +1,5 @@
 /*
- * normalize_refs.c  --  Offline GRIB2 normalizer for webparsers (Sprint 1)
+ * normalize_refs.c  --  Offline GRIB2 normalizer for SciWrid Toolkit (Sprint 1)
  *
  * Reads a GRIB2 regular lat/lon file (grid template 0 or 40), decodes
  * every field (time step) to raw float32, writes a .bin companion file,

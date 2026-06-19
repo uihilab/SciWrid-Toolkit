@@ -1,5 +1,5 @@
 /**
- * Type definitions for the webparsers functional API.
+ * Type definitions for the SciWrid Toolkit functional API.
  */
 
 export type Format = 'grib2' | 'netcdf3' | 'netcdf4' | 'zarr' | 'tiff';
@@ -160,14 +160,14 @@ export interface ExtractGridResult {
 }
 
 /* ---- Error classes ---- */
-export class WebparsersError extends Error {}
-export class UnsupportedFormatError extends WebparsersError {}
-export class VariableNotFoundError extends WebparsersError {}
-export class SourceError extends WebparsersError {}
-export class ExtractError extends WebparsersError {}
+export class SciWridError extends Error {}
+export class UnsupportedFormatError extends SciWridError {}
+export class VariableNotFoundError extends SciWridError {}
+export class SourceError extends SciWridError {}
+export class ExtractError extends SciWridError {}
 
 /** Thrown by the TIFF/GeoTIFF reader for CRS outside the v1 supported set. */
-export class UnsupportedCRSError extends WebparsersError {
+export class UnsupportedCRSError extends SciWridError {
   /** EPSG code parsed from the GeoKey directory (null if unparseable). */
   epsg: number | null;
   /** Free-text CRS name when available. */
@@ -269,10 +269,10 @@ export function gridToImageData(grid: ExtractGridResult, opts?: RenderOptions): 
 export function gridToPNG(grid: ExtractGridResult, opts?: RenderOptions): Promise<Uint8Array>;
 
 /* =========================================================================
- * slim — same-format file trimming
+ * trim — same-format file trimming
  * ======================================================================= */
 
-export interface SlimOptions extends CommonOptions {
+export interface TrimOptions extends CommonOptions {
   /** Variable names to keep. Names from `scan().variable_names`. */
   variables: string[];
   /** Inclusive lower time index. Omit to start at 0. */
@@ -283,8 +283,8 @@ export interface SlimOptions extends CommonOptions {
   bbox?: BBox;
 }
 
-export interface SlimResult {
-  /** Slimmed file bytes, same format as input. */
+export interface TrimResult {
+  /** Trimmed file bytes, same format as input. */
   bytes: Uint8Array;
   format: Format;
   /** Human-readable warnings (e.g. Zarr time-range boundary widening). */
@@ -298,9 +298,9 @@ export interface SlimResult {
 }
 
 /** Produce a smaller file in the same format containing only the selected variables/time range. */
-export function slim(source: Source, opts: SlimOptions): Promise<SlimResult>;
+export function trim(source: Source, opts: TrimOptions): Promise<TrimResult>;
 
-export class SlimError extends WebparsersError {}
+export class TrimError extends SciWridError {}
 
 declare const _default: {
   detectFormat: typeof detectFormat;
@@ -316,13 +316,13 @@ declare const _default: {
   RAMPS: typeof RAMPS;
   resolveRamp: typeof resolveRamp;
   sampleRamp: typeof sampleRamp;
-  slim: typeof slim;
-  WebparsersError: typeof WebparsersError;
+  trim: typeof trim;
+  SciWridError: typeof SciWridError;
   UnsupportedFormatError: typeof UnsupportedFormatError;
   VariableNotFoundError: typeof VariableNotFoundError;
   SourceError: typeof SourceError;
   ExtractError: typeof ExtractError;
-  SlimError: typeof SlimError;
+  TrimError: typeof TrimError;
   UnsupportedCRSError: typeof UnsupportedCRSError;
 };
 export default _default;

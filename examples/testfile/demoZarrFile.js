@@ -1,5 +1,5 @@
 /*
- * demoZarrFile.js — end-to-end demo of the webparsers library against a
+ * demoZarrFile.js — end-to-end demo of the SciWrid Toolkit library against a
  * Zarr v2 (zip) file.  Mirrors demoGrib2File.js so you can compare how the
  * same `scan` / `extract` / `extractOutput` calls drive both formats.
  *
