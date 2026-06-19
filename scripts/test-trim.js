@@ -321,6 +321,18 @@ await test('GRIB2: unknown variable → VariableNotFoundError', async () => {
   assert(err instanceof VariableNotFoundError);
 });
 
+await test('GRIB2: bbox trim throws clearly', async () => {
+  if (!hasGrb) return 'skip';
+  const data = new Uint8Array(readFileSync(grbPath));
+  const meta = await scan(data);
+  const v = meta.variables.find(x => x.supported)?.name;
+  let err;
+  try { await trim(data, { variables: [v], bbox: [-100, 30, -80, 45] }); }
+  catch (e) { err = e; }
+  assert(err instanceof TrimError && /bbox.*not supported.*grib2/i.test(err.message),
+    'expected clear bbox unsupported TrimError, got ' + (err && err.message));
+});
+
 /* ---------------- NetCDF3 ---------------- */
 
 console.log('\n[netcdf3]');
@@ -361,6 +373,15 @@ await test('NetCDF3: unknown variable → VariableNotFoundError', async () => {
   try { await trim(fx, { variables: ['NOPE'] }); }
   catch (e) { err = e; }
   assert(err instanceof VariableNotFoundError);
+});
+
+await test('NetCDF3: bbox trim throws clearly', async () => {
+  const fx = buildNC3Fixture();
+  let err;
+  try { await trim(fx, { variables: ['tas'], bbox: [-100, 30, -80, 45] }); }
+  catch (e) { err = e; }
+  assert(err instanceof TrimError && /bbox.*not supported.*netcdf3/i.test(err.message),
+    'expected clear bbox unsupported TrimError, got ' + (err && err.message));
 });
 
 /* ---------------- Zarr ---------------- */
