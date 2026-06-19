@@ -86,5 +86,53 @@ await test('same value buckets identically (pan no-op detection)', async () => {
   assertEq(resolutionBucket(513), resolutionBucket(519), 'near-equal px share a bucket');
 });
 
+console.log('[mercatorWarpGrid]');
+
+// Build a 1-column equirectangular grid whose value at each row IS that row's
+// source latitude, so a warped row's value reads back as the latitude it samples.
+async function latGrid(minLat, maxLat, H = 2048) {
+  const data = new Float32Array(H);
+  for (let r = 0; r < H; r++) data[r] = maxLat - ((r + 0.5) / H) * (maxLat - minLat);
+  return { data, width: 1, height: H, bbox: [-180, minLat, 180, maxLat] };
+}
+
+await test('equator stays centered; poles map to the Mercator-clamped edges', async () => {
+  const { mercatorWarpGrid, MERCATOR_MAX_LAT } = await import('../examples/map-demo-bbox.js');
+  const H = 2048;
+  const w = mercatorWarpGrid(await latGrid(-90, 90, H));
+  assert(Math.abs(w.data[H >> 1]) < 0.3, `middle row should be ~equator, got ${w.data[H >> 1]}`);
+  assert(Math.abs(w.data[0] - MERCATOR_MAX_LAT) < 0.3, `top row should be ~+${MERCATOR_MAX_LAT}, got ${w.data[0]}`);
+  assert(Math.abs(w.data[H - 1] + MERCATOR_MAX_LAT) < 0.3, `bottom row should be ~-${MERCATOR_MAX_LAT}, got ${w.data[H - 1]}`);
+});
+
+await test('mid-latitude data is pushed poleward vs the equirect (linear) placement', async () => {
+  const { mercatorWarpGrid } = await import('../examples/map-demo-bbox.js');
+  const H = 2048;
+  const w = mercatorWarpGrid(await latGrid(-90, 90, H));
+  // Output row H/4 sits at linear latitude +42.5 in the clamped box, but in
+  // Mercator that screen position is a HIGHER latitude — so the value there
+  // (the latitude actually sampled) must exceed the linear 42.5.
+  const linearLatAtQuarter = 42.526; // 85.05 - 0.25*170.1
+  assert(w.data[H >> 2] > linearLatAtQuarter + 5,
+    `expected reprojected lat well above linear ${linearLatAtQuarter}, got ${w.data[H >> 2]}`);
+});
+
+await test('rows stay monotonically north→south after warp', async () => {
+  const { mercatorWarpGrid } = await import('../examples/map-demo-bbox.js');
+  const w = mercatorWarpGrid(await latGrid(-90, 90, 512));
+  let ok = true;
+  for (let r = 1; r < w.height; r++) if (w.data[r] > w.data[r - 1] + 1e-6) { ok = false; break; }
+  assert(ok, 'warped rows must be non-increasing in latitude (north→south)');
+});
+
+await test('near-equator sub-box is barely changed (small Mercator distortion)', async () => {
+  const { mercatorWarpGrid } = await import('../examples/map-demo-bbox.js');
+  const H = 1024;
+  const w = mercatorWarpGrid(await latGrid(-10, 10, H));
+  // Within ±10°, Mercator ≈ linear, so the middle row stays ~equator and the
+  // shift is sub-degree — matching the "sub-box renders fine" observation.
+  assert(Math.abs(w.data[H >> 1]) < 0.1, `middle ~equator, got ${w.data[H >> 1]}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
