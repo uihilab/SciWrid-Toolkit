@@ -494,13 +494,13 @@
     </div>
   </details>
 
-  <!-- 5. Trim — keep only selected variables (and an optional time slice) -->
+  <!-- 5. Trim — keep only selected variables (and optional time/bbox slices) -->
   <details class="section" id="section-trim" open>
     <summary><span class="label">5. Trim — same-format file trimming</span></summary>
-    <code>await trim(file, { variables, t1, t2 })</code><br>
+    <code>await trim(file, { variables, t1, t2, bbox })</code><br>
     <span class="muted">
-      Byte-cut for GRIB2 / NetCDF3 / Zarr (no decode). h5wasm writer for NetCDF4.
-      Zarr time slice widens to chunk boundaries — see warnings.
+      Byte-cut for GRIB2 / NetCDF3 / Zarr where possible. h5wasm writer for NetCDF4.
+      Bbox trim is supported for Zarr / NetCDF4 / TIFF.
       Stored and DEFLATE-compressed Zarr zip entries are supported.
     </span><br><br>
     <button id="btn-trim-scan">Scan & list variables</button>
@@ -511,6 +511,11 @@
     <div class="row" style="margin-top:.75rem;">
       <label>t1: <input type="number" id="trim-t1" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
       <label>t2: <input type="number" id="trim-t2" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
+      <label><input type="checkbox" id="trim-use-bbox"> bbox</label>
+      <label>minLon: <input type="number" id="trim-minlon" value="-100" step="any" style="width:88px;"></label>
+      <label>minLat: <input type="number" id="trim-minlat" value="30" step="any" style="width:88px;"></label>
+      <label>maxLon: <input type="number" id="trim-maxlon" value="-80" step="any" style="width:88px;"></label>
+      <label>maxLat: <input type="number" id="trim-maxlat" value="45" step="any" style="width:88px;"></label>
       <button id="btn-trim">Trim</button>
       <button id="btn-trim-download" disabled>Download trimmed file</button>
       <span id="trim-status" class="muted"></span>
@@ -905,6 +910,13 @@
         const meta = await scan(f);
         // Unused: trimScan = meta;
         out.innerHTML = ` <span class="success">${meta.format}</span> · ${meta.total_variables} variables`;
+        if (Array.isArray(meta.bbox) && meta.bbox.length === 4) {
+          const [minLon, minLat, maxLon, maxLat] = meta.bbox;
+          $('trim-minlon').value = minLon;
+          $('trim-minlat').value = minLat;
+          $('trim-maxlon').value = maxLon;
+          $('trim-maxlat').value = maxLat;
+        }
         for (const v of meta.variables) {
           const wrap = document.createElement('label');
           wrap.style.cssText = 'display:flex; gap:.4rem; align-items:center;' +
@@ -942,6 +954,18 @@
         const opts  = { variables: checked };
         if (t1raw !== '') opts.t1 = parseInt(t1raw, 10);
         if (t2raw !== '') opts.t2 = parseInt(t2raw, 10);
+        if ($('trim-use-bbox').checked) {
+          opts.bbox = [
+            parseFloat($('trim-minlon').value),
+            parseFloat($('trim-minlat').value),
+            parseFloat($('trim-maxlon').value),
+            parseFloat($('trim-maxlat').value),
+          ];
+          if (opts.bbox.some(v => !Number.isFinite(v)))
+            throw new TrimError('bbox: enter all four numbers.');
+          if (!(opts.bbox[2] > opts.bbox[0]) || !(opts.bbox[3] > opts.bbox[1]))
+            throw new TrimError('bbox: max must be greater than min.');
+        }
 
         status.innerHTML = ' trimming…';
         const t0 = performance.now();
@@ -982,7 +1006,7 @@
       const f = fileInput.files[0];
       const stem = (f?.name || 'file').replace(/\.[^.]+$/, '');
       const ext  = (f?.name || '').match(/\.[^.]+$/)?.[0] ||
-                   ({ grib2:'.grb2', netcdf3:'.nc3', netcdf4:'.nc', zarr:'.zip' }[trimResult.format] || '.bin');
+                   ({ grib2:'.grb2', netcdf3:'.nc3', netcdf4:'.nc', zarr:'.zip', tiff:'.tif' }[trimResult.format] || '.bin');
       const mime = trimResult.format === 'zarr'    ? 'application/zip'
                  : trimResult.format === 'netcdf4' ? 'application/x-hdf'
                  : 'application/octet-stream';
