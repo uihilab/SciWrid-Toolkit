@@ -909,7 +909,14 @@
         out.textContent = ' scanning…';
         const meta = await scan(f);
         // Unused: trimScan = meta;
-        out.innerHTML = ` <span class="success">${meta.format}</span> · ${meta.total_variables} variables`;
+        const bboxSupported = ['zarr', 'netcdf4', 'tiff'].includes(meta.format);
+        $('trim-use-bbox').disabled = !bboxSupported;
+        if (!bboxSupported) $('trim-use-bbox').checked = false;
+        $('trim-use-bbox').title = bboxSupported
+          ? 'Enable spatial bbox trimming for this format.'
+          : 'Bbox trim is supported for Zarr, NetCDF4, and TIFF only.';
+        out.innerHTML = ` <span class="success">${meta.format}</span> · ${meta.total_variables} variables` +
+          (bboxSupported ? '' : ' · bbox trim unavailable');
         if (Array.isArray(meta.bbox) && meta.bbox.length === 4) {
           const [minLon, minLat, maxLon, maxLat] = meta.bbox;
           $('trim-minlon').value = minLon;
