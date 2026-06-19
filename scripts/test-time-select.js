@@ -86,7 +86,7 @@ const gfsPath = resolve(__dirname, '..', 'examples', 'timeseries', 'gfs_timeseri
 
 await test('extract({ date }) equals extract({ t1, t2 }) for the same step', async () => {
   if (!existsSync(gfsPath)) return 'skip';
-  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const { scan, extract } = await import('../lib/sciwrid-api.js');
   const bytes = new Uint8Array(readFileSync(gfsPath));
   const variable = 'Pressure reduced to MSL';
   const meta = await scan(bytes);
@@ -100,17 +100,17 @@ await test('extract({ date }) equals extract({ t1, t2 }) for the same step', asy
 
 await test('extract throws when date and t1 are both given', async () => {
   if (!existsSync(gfsPath)) return 'skip';
-  const { extract, WebparsersError } = await import('../lib/webparsers-api.js');
+  const { extract, SciWridError } = await import('../lib/sciwrid-api.js');
   const bytes = new Uint8Array(readFileSync(gfsPath));
   let err = null;
   try { await extract(bytes, { variable: 'Pressure reduced to MSL', date: '2026-04-14T06:00:00Z', t1: 0 }); }
   catch (e) { err = e; }
-  assert(err instanceof WebparsersError, `wrong/no error: ${err}`);
+  assert(err instanceof SciWridError, `wrong/no error: ${err}`);
 });
 
 await test('extractGrid({ date }) equals extractGrid({ time }) for the same step', async () => {
   if (!existsSync(gfsPath)) return 'skip';
-  const { scan, extractGrid } = await import('../lib/webparsers-api.js');
+  const { scan, extractGrid } = await import('../lib/sciwrid-api.js');
   const bytes = new Uint8Array(readFileSync(gfsPath));
   const variable = 'Pressure reduced to MSL';
   const meta = await scan(bytes);
@@ -129,7 +129,7 @@ await test('extractGrid({ date }) equals extractGrid({ time }) for the same step
 
 await test('extractOutput({ date }) equals extractOutput({ t1, t2 })', async () => {
   if (!existsSync(gfsPath)) return 'skip';
-  const { scan, extractOutput } = await import('../lib/webparsers-api.js');
+  const { scan, extractOutput } = await import('../lib/sciwrid-api.js');
   const bytes = new Uint8Array(readFileSync(gfsPath));
   const variable = 'Pressure reduced to MSL';
   const meta = await scan(bytes);
@@ -142,7 +142,7 @@ await test('extractOutput({ date }) equals extractOutput({ t1, t2 })', async () 
 
 await test('extractGridOutput({ date }) equals extractGridOutput({ time })', async () => {
   if (!existsSync(gfsPath)) return 'skip';
-  const { scan, extractGridOutput } = await import('../lib/webparsers-api.js');
+  const { scan, extractGridOutput } = await import('../lib/sciwrid-api.js');
   const bytes = new Uint8Array(readFileSync(gfsPath));
   const variable = 'Pressure reduced to MSL';
   const meta = await scan(bytes);
@@ -184,7 +184,7 @@ await test('resolveRangeIndices falls back to nearest when window is empty', asy
 
 await test('extract({ dateRange: [day, day] }) covers all that-day steps', async () => {
   if (!existsSync(gfsPath)) return 'skip';
-  const { scan, extract } = await import('../lib/webparsers-api.js');
+  const { scan, extract } = await import('../lib/sciwrid-api.js');
   const bytes = new Uint8Array(readFileSync(gfsPath));
   const variable = 'Pressure reduced to MSL';
   const meta = await scan(bytes);
@@ -203,7 +203,7 @@ await test('extract({ dateRange: [day, day] }) covers all that-day steps', async
 console.log('\n[scan timeRange]');
 await test('scan() exposes timeRange + per-axis start/end', async () => {
   if (!existsSync(gfsPath)) return 'skip';
-  const { scan } = await import('../lib/webparsers-api.js');
+  const { scan } = await import('../lib/sciwrid-api.js');
   const meta = await scan(new Uint8Array(readFileSync(gfsPath)));
   assert(meta.timeRange && meta.timeRange.start && meta.timeRange.end, 'timeRange missing');
   assert(meta.timeRange.start <= meta.timeRange.end, 'start should be <= end');

@@ -13,21 +13,21 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-import { scan } from '../lib/webparsers-api.js';
+import { scan } from '../lib/sciwrid-api.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root      = resolve(__dirname, '..');
 
 /* ---- Load the WASM factory (same pattern as test-api.js) -------------- */
 function loadWasmFactory() {
-  const code = readFileSync(resolve(root, 'wasm/webparsers.js'), 'utf8');
+  const code = readFileSync(resolve(root, 'wasm/sciwrid.js'), 'utf8');
   const m = { exports: {} };
   // eslint-disable-next-line no-new-func
   new Function('module', 'exports', code)(m, m.exports);
   return m.exports.default ?? m.exports;
 }
 const rawFactory  = loadWasmFactory();
-const wasmBinary  = readFileSync(resolve(root, 'wasm/webparsers.wasm'));
+const wasmBinary  = readFileSync(resolve(root, 'wasm/sciwrid.wasm'));
 const wasmFactory = () => rawFactory({ wasmBinary });
 
 /* ---- Pick a file ------------------------------------------------------ */

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>webparsers — map demo (drop any file, see it on a map)</title>
+  <title>SciWrid Toolkit — map demo (drop any file, see it on a map)</title>
 
   <!-- MapLibre GL JS via CDN — no npm install required for demo users. -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" />
@@ -65,6 +65,14 @@
       background: linear-gradient(90deg, var(--brand), oklch(from var(--brand) l c h / 0) 75%);
     }
     .sb-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
+    .brand-link {
+      display: inline-flex; flex: 0 0 30px; text-decoration: none;
+      border-radius: calc(var(--radius) - 2px);
+      transition: transform .1s ease, filter .15s ease;
+    }
+    .brand-link:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    .brand-link:active { transform: translateY(0); }
+    .brand-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
     .brand-mark {
       width: 30px; height: 30px; flex: 0 0 30px;
       display: inline-grid; place-items: center;
@@ -138,8 +146,11 @@
   <div id="app">
     <aside id="sidebar">
       <div class="sb-head">
-        <span class="brand-mark">WP</span>
-        <h1>webparsers map demo</h1>
+        <a class="brand-link" href="index.html" aria-label="Back to SciWrid Toolkit examples"
+           title="Back to SciWrid Toolkit examples">
+          <span class="brand-mark">SW</span>
+        </a>
+        <h1>SciWrid Toolkit map demo</h1>
         <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
       </div>
       <p class="muted">
@@ -176,6 +187,29 @@
         <div class="ticks"><span id="legend-min">–</span><span id="legend-max">–</span></div>
       </div>
 
+      <div id="extract" hidden>
+        <label>Extract area (bbox)</label>
+        <div class="muted" id="ext-coverage">-</div>
+        <div style="display:flex; gap:.4rem; margin-top:.3rem;">
+          <label style="flex:1; margin:.2rem 0;">Min Lat
+            <input type="number" id="ext-min-lat" step="any" style="width:100%;">
+          </label>
+          <label style="flex:1; margin:.2rem 0;">Max Lat
+            <input type="number" id="ext-max-lat" step="any" style="width:100%;">
+          </label>
+        </div>
+        <div style="display:flex; gap:.4rem; margin-top:.3rem;">
+          <label style="flex:1; margin:.2rem 0;">Min Lon
+            <input type="number" id="ext-min-lon" step="any" style="width:100%;">
+          </label>
+          <label style="flex:1; margin:.2rem 0;">Max Lon
+            <input type="number" id="ext-max-lon" step="any" style="width:100%;">
+          </label>
+        </div>
+        <button id="ext-btn" type="button" style="margin-top:.5rem;" disabled>Render area</button>
+        <div id="ext-msg" class="muted" style="margin-top:.4rem;">-</div>
+      </div>
+
       <div id="query" hidden>
         <label>Point query</label>
         <div class="muted" id="q-bounds">–</div>
@@ -189,6 +223,8 @@
         </div>
         <button id="q-btn">Query value</button>
         <div id="q-result" class="muted" style="margin-top:.4rem;">–</div>
+        <div id="q-bbox-debug" class="muted"
+             style="margin-top:.5rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.5; white-space:pre;">–</div>
       </div>
 
       <div id="status" class="muted">Pick a file to begin.</div>

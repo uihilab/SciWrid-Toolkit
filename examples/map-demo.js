@@ -7,6 +7,7 @@
 
 import { scan, extract } from '../index.js';
 import { resolveRamp, sampleRamp } from '../lib/render/index.js';
+import { validateBbox, resolutionBucket } from './map-demo-bbox.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -16,6 +17,9 @@ let lastSource = null;
 let boundsAssumed = false; // true when the file exposes no real bbox (GRIB2/NetCDF/Zarr)
 let timeAxis = null;   // { kind, values } for the active variable; values are display labels
 let renderToken = 0;   // bumped each refresh; stale worker responses are discarded
+let extractBbox = null; // [minLon,minLat,maxLon,maxLat] - chosen extract region
+let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-extract
+const MERCATOR_MAX_LAT = 85.05112878;
 
 /* ── render worker ──────────────────────────────────────────────────────── */
 // extractGrid + gridToImageData run off the main thread so pan/zoom stays
@@ -58,18 +62,37 @@ function updateOpacityLabel() {
 }
 
 /* ── bbox helpers ───────────────────────────────────────────────────────── */
-// Intersection of two [minLon, minLat, maxLon, maxLat] boxes, or null.
-function intersectBbox(a, b) {
-  const minLon = Math.max(a[0], b[0]);
-  const minLat = Math.max(a[1], b[1]);
-  const maxLon = Math.min(a[2], b[2]);
-  const maxLat = Math.min(a[3], b[3]);
-  if (maxLon <= minLon || maxLat <= minLat) return null;
-  return [minLon, minLat, maxLon, maxLat];
+function clampMercatorLat(lat) {
+  return Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, lat));
+}
+
+function normalizeDisplayLon(lon) {
+  return ((((lon + 180) % 360) + 360) % 360) - 180;
+}
+
+function displayBbox([minLon, minLat, maxLon, maxLat]) {
+  let dMinLon = minLon, dMaxLon = maxLon;
+  const span = maxLon - minLon;
+  if (minLon >= 0 && maxLon > 180 && span > 180) {
+    dMinLon = minLon - 180;
+    dMaxLon = maxLon - 180;
+  } else if (minLon < -180 || maxLon > 180) {
+    dMinLon = normalizeDisplayLon(minLon);
+    dMaxLon = normalizeDisplayLon(maxLon);
+    if (dMaxLon <= dMinLon) {
+      dMinLon = Math.max(-180, dMinLon - 360);
+      dMaxLon = Math.min(180, dMaxLon);
+    }
+  }
+  dMinLon = Math.max(-180, Math.min(180, dMinLon));
+  dMaxLon = Math.max(-180, Math.min(180, dMaxLon));
+  if (dMaxLon <= dMinLon) { dMinLon = -180; dMaxLon = 180; }
+  return [dMinLon, clampMercatorLat(minLat), dMaxLon, clampMercatorLat(maxLat)];
 }
 
 // MapLibre ImageSource wants 4 corner coords, clockwise from top-left.
-function bboxToCoords([minLon, minLat, maxLon, maxLat]) {
+function bboxToCoords(bbox) {
+  const [minLon, minLat, maxLon, maxLat] = displayBbox(bbox);
   return [
     [minLon, maxLat], // top-left
     [maxLon, maxLat], // top-right
@@ -80,7 +103,7 @@ function bboxToCoords([minLon, minLat, maxLon, maxLat]) {
 
 function fitMapToBbox(bbox) {
   if (!bbox) return;
-  const [minLon, minLat, maxLon, maxLat] = bbox;
+  const [minLon, minLat, maxLon, maxLat] = displayBbox(bbox);
   map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 30, duration: 0 });
 }
 
@@ -158,26 +181,102 @@ function fmtNum(v) {
   return v.toFixed(2);
 }
 
-/* ── render the current variable into a MapLibre ImageSource ────────────── */
-async function refreshLayer() {
-  if (!lastSource || !lastScan) return;
+/* --- extract-area bbox selection ---------------------------------------- */
+function prefillExtractInputs(coverage) {
+  const [minLon, minLat, maxLon, maxLat] = coverage;
+  $('ext-coverage').textContent =
+    `Coverage: Lat ${fmtNum(minLat)} ... ${fmtNum(maxLat)}  /  Lon ${fmtNum(minLon)} ... ${fmtNum(maxLon)}` +
+    (boundsAssumed ? '  (assumed - file exposes no bounds)' : '');
+  const set = (id, val, lo, hi) => {
+    const el = $(id);
+    el.value = val;
+    el.min = lo;
+    el.max = hi;
+  };
+  set('ext-min-lat', minLat, minLat, maxLat);
+  set('ext-max-lat', maxLat, minLat, maxLat);
+  set('ext-min-lon', minLon, minLon, maxLon);
+  set('ext-max-lon', maxLon, minLon, maxLon);
+}
+
+function readExtractInputs() {
+  return {
+    minLat: parseFloat($('ext-min-lat').value),
+    maxLat: parseFloat($('ext-max-lat').value),
+    minLon: parseFloat($('ext-min-lon').value),
+    maxLon: parseFloat($('ext-max-lon').value),
+  };
+}
+
+function validateAndSketch() {
+  if (!lastScan) return null;
+  const { bbox, error } = validateBbox(readExtractInputs(), lastScan.bbox);
+  const msg = $('ext-msg');
+  if (error) {
+    $('ext-btn').disabled = true;
+    msg.textContent = error;
+    msg.className = 'muted';
+    clearBboxSketch();
+    return null;
+  }
+  $('ext-btn').disabled = false;
+  msg.textContent = 'Box ready - click Render area.';
+  msg.className = 'muted';
+  drawBboxSketch(bbox);
+  return bbox;
+}
+
+function drawBboxSketch(bbox) {
+  if (!map || !map.isStyleLoaded()) return;
+  const [minLon, minLat, maxLon, maxLat] = displayBbox(bbox);
+  const ring = [[minLon, minLat], [maxLon, minLat], [maxLon, maxLat], [minLon, maxLat], [minLon, minLat]];
+  const data = { type: 'Feature', geometry: { type: 'LineString', coordinates: ring }, properties: {} };
+  if (map.getSource('bbox-sketch')) {
+    map.getSource('bbox-sketch').setData(data);
+  } else {
+    map.addSource('bbox-sketch', { type: 'geojson', data });
+    map.addLayer({
+      id: 'bbox-sketch-line', type: 'line', source: 'bbox-sketch',
+      paint: { 'line-color': '#e23', 'line-width': 1.5, 'line-dasharray': [2, 2] },
+    });
+  }
+}
+
+function clearBboxSketch() {
+  if (map && map.getLayer('bbox-sketch-line')) {
+    map.removeLayer('bbox-sketch-line');
+    map.removeSource('bbox-sketch');
+  }
+}
+
+function bboxPixelSize(bbox) {
+  const [minLon, minLat, maxLon, maxLat] = displayBbox(bbox);
+  const clampDim = (px, fallback) => {
+    const n = Math.round(Math.abs(px));
+    return Number.isFinite(n) && n > 0
+      ? Math.min(1024, Math.max(64, n))
+      : Math.min(1024, Math.max(64, Math.round(fallback) || 512));
+  };
+  const tl = map.project([minLon, maxLat]);
+  const br = map.project([maxLon, minLat]);
+  const canvas = map.getCanvas();
+  const w = clampDim(br.x - tl.x, canvas?.clientWidth);
+  const h = clampDim(br.y - tl.y, canvas?.clientHeight);
+  return { w, h };
+}
+
+/* --- render the chosen bbox into a MapLibre ImageSource ----------------- */
+async function refreshLayer({ force = false } = {}) {
+  if (!lastSource || !lastScan || !extractBbox) return;
   const variable = $('variable').value;
   const ramp     = $('ramp').value;
   if (!variable) return;
 
-  const b = map.getBounds();
-  const viewportBbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-  const bbox = intersectBbox(viewportBbox, lastScan.bbox);
-  if (!bbox) {
-    setStatus('Viewport is outside the file coverage.', 'busy');
-    if (map.getLayer('data-layer')) { map.removeLayer('data-layer'); map.removeSource('data-source'); }
-    return;
-  }
-
-  // Keep output under 1024² to avoid multi-MB grids.
-  const px = Math.min(1024, Math.max(64, Math.round(map.getCanvas().clientWidth)));
-  const py = Math.min(1024, Math.max(64, Math.round(map.getCanvas().clientHeight)));
-
+  const bbox = extractBbox;
+  const { w: px, h: py } = bboxPixelSize(bbox);
+  const bucket = `${resolutionBucket(px)}x${resolutionBucket(py)}`;
+  if (!force && bucket === lastBucket) return;
+  lastBucket = bucket;
   const token = ++renderToken;
   // Drop any earlier in-flight request — its response will be ignored.
   for (const [id, slot] of pending) {
@@ -229,8 +328,17 @@ $('file').addEventListener('change', async (e) => {
     populateVariablePicker(lastScan.variable_names || []);
     populateTimePicker(lastScan, $('variable').value);
     updateQueryUI();
+
+    extractBbox = null;
+    lastBucket = null;
+    if (map.getLayer('data-layer')) { map.removeLayer('data-layer'); map.removeSource('data-source'); }
+
     fitMapToBbox(lastScan.bbox);
-    await refreshLayer();
+
+    $('extract').hidden = false;
+    prefillExtractInputs(lastScan.bbox);
+    validateAndSketch();
+    setStatus('Set an area and click "Render area".', '');
   } catch (err) {
     setStatus('Error: ' + err.message, 'error');
     console.error(err);
@@ -240,10 +348,22 @@ $('file').addEventListener('change', async (e) => {
 $('variable').addEventListener('change', () => {
   populateTimePicker(lastScan, $('variable').value);
   updateQueryUI();
-  refreshLayer();
+  refreshLayer({ force: true });
 });
-$('time').addEventListener('change', refreshLayer);
-$('ramp').addEventListener('change', refreshLayer);
+$('time').addEventListener('change', () => refreshLayer({ force: true }));
+$('ramp').addEventListener('change', () => refreshLayer({ force: true }));
+
+for (const id of ['ext-min-lat', 'ext-max-lat', 'ext-min-lon', 'ext-max-lon']) {
+  $(id).addEventListener('input', validateAndSketch);
+}
+$('ext-btn').addEventListener('click', () => {
+  const bbox = validateAndSketch();
+  if (!bbox) return;
+  extractBbox = bbox;
+  lastBucket = null;
+  fitMapToBbox(bbox);
+  refreshLayer({ force: true });
+});
 
 // Layer opacity — live-update the existing raster without re-rendering the grid.
 $('opacity').addEventListener('input', () => {
@@ -280,6 +400,22 @@ function updateQueryUI() {
     lonIn.value = ((minLon + maxLon) / 2).toFixed(3);
   $('q-result').textContent = '–';
   $('q-result').className = 'muted';
+  drawBboxDebug();
+}
+
+// Debug readout: print the raw bbox min/max so the data extent can be
+// eyeballed against the map. Shows whether bounds are real or assumed.
+function drawBboxDebug() {
+  const el = $('q-bbox-debug');
+  if (!el) return;
+  const b = lastScan?.bbox;
+  if (!Array.isArray(b) || b.length !== 4) { el.textContent = '–'; return; }
+  const [minLon, minLat, maxLon, maxLat] = b;
+  el.textContent =
+    `bbox ${boundsAssumed ? '(ASSUMED global)' : '(from file)'}\n` +
+    `  lon min ${minLon.toFixed(4)}   max ${maxLon.toFixed(4)}\n` +
+    `  lat min ${minLat.toFixed(4)}   max ${maxLat.toFixed(4)}\n` +
+    `  span  ${(maxLon - minLon).toFixed(4)}° × ${(maxLat - minLat).toFixed(4)}°`;
 }
 
 // Run a point query and show the value in the sidebar (+ optional map popup).
@@ -369,7 +505,7 @@ function init() {
   map.addControl(new maplibregl.NavigationControl(), 'top-right');
   map.on('load', () => {
     attachClickQuery();
-    map.on('moveend', refreshLayer); // re-render on pan/zoom
+    map.on('moveend', () => { if (extractBbox) refreshLayer(); });
   });
 }
 

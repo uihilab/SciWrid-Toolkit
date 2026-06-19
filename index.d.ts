@@ -1,5 +1,5 @@
 /**
- * Type definitions for the webparsers library.
+ * Type definitions for the SciWrid Toolkit library.
  */
 
 // Re-export all types and function signatures from the internal API module.
@@ -27,9 +27,9 @@ export type {
   RampName,
   RenderOptions,
   GridImageData,
-  SlimOptions,
-  SlimResult,
-} from './lib/webparsers-api.js';
+  TrimOptions,
+  TrimResult,
+} from './lib/sciwrid-api.js';
 
 export {
   scan,
@@ -45,18 +45,18 @@ export {
   resolveRamp,
   sampleRamp,
   detectFormat,
-  slim,
-  WebparsersError,
+  trim,
+  SciWridError,
   UnsupportedFormatError,
   VariableNotFoundError,
   SourceError,
   ExtractError,
-  SlimError,
+  TrimError,
   UnsupportedCRSError,
-} from './lib/webparsers-api.js';
+} from './lib/sciwrid-api.js';
 
 // Low-level class API
-export { webparsers as WebParsers } from './lib/webparsers-lib.js';
+export { SciWridToolkit } from './lib/sciwrid-lib.js';
 
-import type { default as _default } from './lib/webparsers-lib.js';
+import type { default as _default } from './lib/sciwrid-lib.js';
 export default _default;

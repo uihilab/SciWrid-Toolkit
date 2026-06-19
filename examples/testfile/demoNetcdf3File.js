@@ -1,5 +1,5 @@
 /*
- * demoNetcdf3File.js — end-to-end demo of the webparsers library against a
+ * demoNetcdf3File.js — end-to-end demo of the SciWrid Toolkit library against a
  * NetCDF3 Classic file.  Mirrors demoGrib2File.js / demoZarrFile.js so you
  * can compare how the same `scan` / `extract` calls drive every format.
  *

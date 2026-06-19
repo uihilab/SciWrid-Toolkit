@@ -450,8 +450,8 @@ function shell({ title, kicker, heroTitle, lead, pills, navActive, toc, body }) 
   <header class="site-header">
     <div class="site-header-inner">
       <a class="brand" href="/">
-        <span class="brand-mark">wp</span>
-        <span><strong>webparsers</strong><span>documentation</span></span>
+        <span class="brand-mark">SW</span>
+        <span><strong>SciWrid Toolkit</strong><span>documentation</span></span>
       </a>
       <nav class="site-nav" aria-label="Primary">
         ${navLink('/docs/api.html', 'API', 'api')}
@@ -540,9 +540,9 @@ async function build(srcRel, outRel, { kicker, navActive, pills }) {
     .map((b) => ({ id: slug(b.text), text: b.text }));
 
   const html = shell({
-    title: `webparsers — ${navActive === 'api' ? 'API reference' : 'README'}`,
+    title: `SciWrid Toolkit — ${navActive === 'api' ? 'API reference' : 'README'}`,
     kicker,
-    heroTitle: heroTitle || 'webparsers',
+    heroTitle: heroTitle || 'sciwrid-toolkit',
     lead,
     pills,
     navActive,

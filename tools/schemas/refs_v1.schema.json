@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema",
-  "title": "Webparsers Normalized Refs v1",
-  "description": "Sprint 1 normalized refs schema for the webparsers C runtime query engine. One refs file = one variable = one source dataset. The C runtime loads this file once and runs many queries against it without loading the full source data.",
+  "title": "SciWrid Toolkit Normalized Refs v1",
+  "description": "Sprint 1 normalized refs schema for the SciWrid Toolkit C runtime query engine. One refs file = one variable = one source dataset. The C runtime loads this file once and runs many queries against it without loading the full source data.",
   "type": "object",
   "required": ["version", "source_path", "variable", "coordinates", "chunk_index"],
   "additionalProperties": false,

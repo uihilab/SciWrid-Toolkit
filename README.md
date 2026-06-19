@@ -1,4 +1,4 @@
-# webparsers
+# SciWrid Toolkit
 
 JavaScript / TypeScript library for parsing meteorological and geospatial data formats — **GRIB2**, **NetCDF3**, **NetCDF4 / HDF5**, **Zarr v2**, and **TIFF / GeoTIFF (including Cloud-Optimized GeoTIFFs)** — in the browser, Web Workers, and Node 18+. Powered by a pure-C engine compiled to WebAssembly via Emscripten.
 
@@ -11,7 +11,7 @@ npm install git+https://github.com/uihilab/webparsers.git
 ```
 
 > You do **not** need Python or Emscripten to install, use, or bundle this
-> library - the compiled `webparsers.wasm` ships in the package. Python +
+> library - the compiled `sciwrid.wasm` ships in the package. Python +
 > Emscripten are only needed to *recompile* the WASM from its C sources.
 
 End users do **not** need to install peer compression libraries — `h5wasm` (NetCDF4) and `numcodecs` (Zarr blosc/zstd/lz4) are lazy-loaded from jsdelivr on first use.
@@ -29,7 +29,7 @@ End users do **not** need to install peer compression libraries — `h5wasm` (Ne
 ## Quick start
 
 ```js
-import { scan, extract, extractGrid, gridToGeoTIFF, gridToImageData, slim } from 'webparsers';
+import { scan, extract, extractGrid, gridToGeoTIFF, gridToImageData, trim } from 'sciwrid-toolkit';
 
 // 1. Inspect a file
 const meta = await scan(file);          // file: Uint8Array | Blob | File | URL | string
@@ -67,8 +67,8 @@ map.addLayer({ id: 'data', type: 'raster', source: 'data' });
 // Need a PNG instead (server-side, <img> src)? `await gridToPNG(grid, { ramp })`.
 // Full drop-a-file MapLibre demo: examples/map-demo.html (npm run demo:web)
 
-// 5. Slim a huge file in-place — keep only what you need, same format out
-const trimmed = await slim(file, {
+// 5. Trim a huge file in-place — keep only what you need, same format out
+const trimmed = await trim(file, {
   variables: ['TMP', 'UGRD'],     // names from scan().variable_names
   t1: 0, t2: 23,                  // optional time-axis slice
 });
@@ -89,15 +89,15 @@ import {
   extractGrid, extractGridOutput, gridToJSON, gridToGeoTIFF,
   gridToImageData, gridToPNG,        // map rendering: Float32 grid → RGBA / PNG
   RAMPS, resolveRamp, sampleRamp,    // color ramps (viridis/plasma/grayscale/RdBu)
-  slim,
+  trim,
 
   // Class API (advanced — reuse one instance across many extracts)
-  WebParsers,
+  SciWridToolkit,
 
-  // Typed errors (all extend WebparsersError)
-  WebparsersError, UnsupportedFormatError, VariableNotFoundError,
-  SourceError, ExtractError, SlimError, UnsupportedCRSError,
-} from 'webparsers';
+  // Typed errors (all extend SciWridError)
+  SciWridError, UnsupportedFormatError, VariableNotFoundError,
+  SourceError, ExtractError, TrimError, UnsupportedCRSError,
+} from 'sciwrid-toolkit';
 ```
 
 Anything inside `wasm/` is internal and may change without notice.
@@ -105,25 +105,25 @@ Anything inside `wasm/` is internal and may change without notice.
 ## Project layout
 
 ```
-webparsers/
+sciwrid-toolkit/
 ├── index.js            ← public entry point
 ├── index.d.ts          ← TypeScript types
 ├── lib/                ← JavaScript library source (internal — do not import directly)
-│   ├── webparsers-lib.js   class implementation
-│   ├── webparsers-api.js   functional API
-│   ├── webparsers-api.d.ts TypeScript types
+│   ├── sciwrid-lib.js   class implementation
+│   ├── sciwrid-api.js   functional API
+│   ├── sciwrid-api.d.ts TypeScript types
 │   ├── errors.js           typed error classes
 │   ├── grid-output.js      GeoTIFF / JSON serialisers
 │   ├── render/             color ramps + Float32 grid → RGBA / PNG
-│   ├── slim/               in-place file trimming (per-format)
+│   ├── trim/               in-place file trimming (per-format)
 │   ├── tiff/               TIFF / GeoTIFF reader (+ COG over HTTP Range)
 │   ├── zarr/               Zarr v2 reader (zip, compressors, filters)
 │   ├── kerchunk/           Kerchunk / reference-store reader
 │   ├── time-decoder.js     CF time-axis decoding
 │   └── time-select.js      date → nearest timestep selection
 ├── wasm/               ← WASM artifacts + C build (internal)
-│   ├── webparsers.wasm     compiled C core (~193 KB)
-│   ├── webparsers.js       Emscripten loader
+│   ├── sciwrid.wasm     compiled C core (~193 KB)
+│   ├── sciwrid.js       Emscripten loader
 │   ├── wasm_api.c          C bindings
 │   └── build.py            build script
 ├── worker/             ← Web Worker for parallel bbox extraction
@@ -160,7 +160,7 @@ npm run test:grid       # extractGrid (parallel bbox)
 npm run test:zarr       # Zarr path
 npm run test:tiff       # TIFF / GeoTIFF
 npm run test:tiff-range # COG over HTTP Range
-npm run test:slim       # slim() across all formats
+npm run test:trim       # trim() across all formats
 npm run test:time       # CF time-axis decoding
 npm run test:time-select# date → nearest-timestep selection
 npm run test:render     # color ramps + gridToImageData / gridToPNG
@@ -183,7 +183,7 @@ The `demo:web` server hosts several pages:
 - **Point + bbox extraction** — `extract`, `extractGrid` (parallel workers, abortable, progress).
 - **CF time axis** — decode timesteps; select a timestep by `date` (nearest match); `timeRange` / per-axis start–end exposed by `scan`.
 - **Output** — `gridToGeoTIFF`, `gridToJSON`, `gridToImageData` / `gridToPNG` (viridis / plasma / grayscale / RdBu ramps).
-- **`slim()`** — in-place file trimming across GRIB2 / NetCDF3 / NetCDF4 / Zarr.
+- **`trim()`** — in-place file trimming across GRIB2 / NetCDF3 / NetCDF4 / Zarr.
 
 ### ⚠️ Not yet supported
 - Zarr filters (`fixedscaleoffset`, `delta`, …).
@@ -193,11 +193,11 @@ The `demo:web` server hosts several pages:
 
 ### Sprint 7 — `api-demo` UX + large-file testing
 1. **Improve the `api-demo` UX** so users can comfortably test the library end-to-end — clearer scan/extract flows, better feedback, and easier inspection of results.
-2. **Heavy testing on large files** — exercise the existing pipeline (streaming scan, COG HTTP Range reads, parallel `extractGrid`, `slim`) against big real-world inputs to validate performance and memory behavior.
+2. **Heavy testing on large files** — exercise the existing pipeline (streaming scan, COG HTTP Range reads, parallel `extractGrid`, `trim`) against big real-world inputs to validate performance and memory behavior.
 
 ## Building
 
-The library ships a **prebuilt `webparsers.wasm`** in the repo, so neither end
+The library ships a **prebuilt `sciwrid.wasm`** in the repo, so neither end
 users nor most contributors need Python or Emscripten.
 
 There are two independent stages:
@@ -205,14 +205,14 @@ There are two independent stages:
 | Command | What it does | When you need it | Requires |
 |---|---|---|---|
 | `npm run build` | Bundles the JS and copies the prebuilt `.wasm` into `dist/` (the publishable package). | Every time you publish to npm. | Node 18+ only |
-| `npm run build:wasm` | Recompiles the C sources to `webparsers.wasm`. | Only when you change the C in `formats/` or `wasm/`. | Emscripten (`emcc`) on `PATH` |
+| `npm run build:wasm` | Recompiles the C sources to `sciwrid.wasm`. | Only when you change the C in `formats/` or `wasm/`. | Emscripten (`emcc`) on `PATH` |
 
 ```bash
 # Package for npm (pure Node - no Python, no Emscripten):
 npm run build        # writes dist/
 
 # Recompile the WASM (only when C sources changed):
-npm run build:wasm   # writes wasm/webparsers.wasm (commit the result)
+npm run build:wasm   # writes wasm/sciwrid.wasm (commit the result)
 ```
 
 The repo is kept **un-built**: `dist/` is gitignored and regenerated by
