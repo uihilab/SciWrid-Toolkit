@@ -11,13 +11,17 @@
 
 import { extractGrid, gridToImageData } from '../index.js';
 import { autoRange } from '../lib/render/index.js';
+import { mercatorWarpGrid } from './map-demo-bbox.js';
 
 self.onmessage = async (e) => {
   const { requestId, source, variable, bbox, width, height, ramp, time } = e.data;
   try {
     const grid = await extractGrid(source, { variable, bbox, width, height, workers: 0, time });
-    const range = autoRange(grid.data);
-    const image = gridToImageData(grid, { ramp });
+    // Reproject equirectangular rows → Web-Mercator so the raster lines up with
+    // the Mercator basemap (otherwise it drifts poleward at large lat extents).
+    const warped = mercatorWarpGrid(grid);
+    const range = autoRange(warped.data);
+    const image = gridToImageData(warped, { ramp });
     self.postMessage({ requestId, image, range }, [image.data.buffer]);
   } catch (err) {
     self.postMessage({ requestId, error: err && err.message ? err.message : String(err) });
