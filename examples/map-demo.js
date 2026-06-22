@@ -21,6 +21,47 @@ let extractBbox = null; // [minLon,minLat,maxLon,maxLat] - chosen extract region
 let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-extract
 const MERCATOR_MAX_LAT = 85.05112878;
 
+function fileMeta(file, extra = {}) {
+  return { file: file.name, bytes: file.size ?? file.byteLength ?? 0, ...extra };
+}
+
+async function recordPerf(op, meta, fn) {
+  const timestamp = new Date().toISOString();
+  const perfStart = performance.now();
+  const wallStart = Date.now();
+  try {
+    const result = await fn();
+    console.log(`[perf] ${op}`, {
+      op,
+      ...meta,
+      timestamp,
+      perfMs: performance.now() - perfStart,
+      wallMs: Date.now() - wallStart,
+    });
+    return result;
+  } catch (e) {
+    if ((e?.message || String(e)) === 'superseded') {
+      console.log(`[perf] ${op} (superseded)`, {
+        op,
+        ...meta,
+        timestamp,
+        perfMs: performance.now() - perfStart,
+        wallMs: Date.now() - wallStart,
+      });
+      throw e;
+    }
+    console.log(`[perf] ${op} (failed)`, {
+      op,
+      ...meta,
+      timestamp,
+      perfMs: performance.now() - perfStart,
+      wallMs: Date.now() - wallStart,
+      error: e?.message || String(e),
+    });
+    throw e;
+  }
+}
+
 /* ── render worker ──────────────────────────────────────────────────────── */
 // extractGrid + gridToImageData run off the main thread so pan/zoom stays
 // smooth. Each request carries the current renderToken; responses with a stale
@@ -29,7 +70,8 @@ const worker = new Worker(new URL('./map-demo.worker.js', import.meta.url), { ty
 const pending = new Map(); // token → { resolve, reject }
 
 worker.onmessage = (e) => {
-  const { requestId, image, range, error } = e.data;
+  const { requestId, image, range, error, perf } = e.data;
+  if (perf) console.log('[perf] map-worker:render', perf);
   const slot = pending.get(requestId);
   if (!slot) return;            // already superseded / unknown
   pending.delete(requestId);
@@ -117,6 +159,15 @@ function populateVariablePicker(names) {
     sel.appendChild(opt);
   }
   sel.disabled = names.length === 0;
+}
+
+function mapVariableNames(meta) {
+  const vars = Array.isArray(meta?.variables) ? meta.variables : [];
+  const supported = vars
+    .filter(v => v.supported !== false)
+    .map(v => v.name)
+    .filter(Boolean);
+  return supported.length ? supported : (meta.variable_names || []);
 }
 
 /* ── time picker ────────────────────────────────────────────────────────── */
@@ -285,9 +336,11 @@ async function refreshLayer({ force = false } = {}) {
   setStatus('Rendering…', 'busy');
   try {
     const time = parseInt($('time').value, 10) || 0;
-    const { image: img, range } = await renderInWorker(token, {
+    const { image: img, range } = await recordPerf('map:renderLayer', fileMeta(lastSource, {
+      variable, width: px, height: py, time, bbox,
+    }), () => renderInWorker(token, {
       source: lastSource, variable, bbox, width: px, height: py, ramp, time,
-    });
+    }));
     if (token !== renderToken) return; // a newer refresh superseded us
 
     const canvas = document.createElement('canvas');
@@ -305,6 +358,7 @@ async function refreshLayer({ force = false } = {}) {
     drawLegend(ramp, range?.vmin, range?.vmax);
     setStatus(`${variable} — ${img.width}×${img.height}`, 'ok');
   } catch (e) {
+    if ((e?.message || String(e)) === 'superseded') return;
     if (token !== renderToken) return;
     setStatus('Error: ' + e.message, 'error');
     console.error(e);
@@ -318,14 +372,14 @@ $('file').addEventListener('change', async (e) => {
   lastSource = file;
   setStatus('Scanning…', 'busy');
   try {
-    lastScan = await scan(file);
+    lastScan = await recordPerf('map:scan', fileMeta(file), () => scan(file));
     // TIFF exposes a real bbox from the file's geokeys. GRIB2/NetCDF/Zarr do
     // not surface geographic bounds to JS, so we fall back to global and flag
     // the bounds as assumed.
     const hasBbox = Array.isArray(lastScan.bbox) && lastScan.bbox.length === 4;
     boundsAssumed = !hasBbox;
     if (!hasBbox) lastScan.bbox = [-180, -90, 180, 90];
-    populateVariablePicker(lastScan.variable_names || []);
+    populateVariablePicker(mapVariableNames(lastScan));
     populateTimePicker(lastScan, $('variable').value);
     updateQueryUI();
 

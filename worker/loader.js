@@ -14,6 +14,8 @@
  * per worker — no per-chunk add/remove dance, no listener leaks on Node.
  */
 
+import { isOutsideCoverage, isOutsideLonRange, nearestIdx, normalizeLon } from './sample.js';
+
 /* ------------------------------------------------------------------ */
 /* createWorker                                                        */
 /* ------------------------------------------------------------------ */
@@ -221,40 +223,19 @@ export function inlineExtract(state, onProgress) {
   const out = new Float32Array(width * height);
   const total = width * height;
 
-  function nearest(coords, target, asc) {
-    const n = coords.length;
-    if (n === 1) return 0;
-    if (asc) {
-      if (target <= coords[0])   return 0;
-      if (target >= coords[n-1]) return n - 1;
-    } else {
-      if (target >= coords[0])   return 0;
-      if (target <= coords[n-1]) return n - 1;
-    }
-    let lo = 0, hi = n - 1;
-    while (hi - lo > 1) {
-      const mid = (lo + hi) >> 1;
-      const v = coords[mid];
-      if ((asc && v < target) || (!asc && v > target)) lo = mid; else hi = mid;
-    }
-    return Math.abs(coords[lo] - target) <= Math.abs(coords[hi] - target) ? lo : hi;
-  }
-  function normLon(lon) {
-    const [mn, mx] = lonRange;
-    if (lon >= mn && lon <= mx) return lon;
-    if (lon + 360 >= mn && lon + 360 <= mx) return lon + 360;
-    if (lon - 360 >= mn && lon - 360 <= mx) return lon - 360;
-    return lon;
-  }
-
   for (let y = 0; y < height; y++) {
     const lat = maxLat - (y + 0.5) * dy;
-    const iy  = nearest(lats, lat, latsAscending);
+    const latOutside = isOutsideCoverage(lats, lat);
+    const iy = latOutside ? -1 : nearestIdx(lats, lat, latsAscending);
     const rowBase = iy * nx;
     const outBase = y * width;
     for (let x = 0; x < width; x++) {
-      const lon = normLon(minLon + (x + 0.5) * dx);
-      const ix  = nearest(lons, lon, lonsAscending);
+      const lon = normalizeLon(minLon + (x + 0.5) * dx, lonRange);
+      if (latOutside || isOutsideLonRange(lon, lonRange) || isOutsideCoverage(lons, lon)) {
+        out[outBase + x] = NaN;
+        continue;
+      }
+      const ix  = nearestIdx(lons, lon, lonsAscending);
       out[outBase + x] = data[rowBase + ix];
     }
     if (onProgress) onProgress({ done: (y + 1) * width, total });

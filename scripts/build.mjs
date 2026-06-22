@@ -53,6 +53,7 @@ async function main() {
   const assets = [
     ['wasm/sciwrid.wasm', 'sciwrid.wasm'],
     ['wasm/sciwrid.js', 'sciwrid.js'],
+    ['worker/sample.js', 'sample.js'],
     ['worker/worker.js', 'worker.js'],
     ['worker/loader.js', 'loader.js'],
   ];
@@ -70,7 +71,7 @@ async function main() {
    * where lib/sciwrid-lib.js ships in the package). */
   await copyFile(r('lib/sciwrid-lib.js'), d('sciwrid-lib.js'));
 
-  console.log('build: wrote dist/ (index.js, sciwrid.js, sciwrid.wasm, worker.js, loader.js, *.d.ts)');
+  console.log('build: wrote dist/ (index.js, sciwrid.js, sciwrid.wasm, sample.js, worker.js, loader.js, *.d.ts)');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
