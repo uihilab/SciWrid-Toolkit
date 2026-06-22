@@ -29,6 +29,7 @@ import {
   gridToGeoTIFF,
   VariableNotFoundError,
 } from '../lib/sciwrid-api.js';
+import { inlineExtract } from '../worker/loader.js';
 
 /* Emscripten module is ES-module style (EXPORT_ES6=1) — import directly. */
 import SciWridToolkit from '../wasm/sciwrid.js';
@@ -71,6 +72,22 @@ function buffersEqual(a, b) {
     if (av !== bv) return false;
   }
   return true;
+}
+function findTiffTag(buf, tagId) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const ifdOffset = dv.getUint32(4, true);
+  const entries = dv.getUint16(ifdOffset, true);
+  for (let i = 0; i < entries; i++) {
+    const p = ifdOffset + 2 + i * 12;
+    const id = dv.getUint16(p, true);
+    if (id !== tagId) continue;
+    return {
+      type: dv.getUint16(p + 2, true),
+      count: dv.getUint32(p + 4, true),
+      valueOffset: dv.getUint32(p + 8, true),
+    };
+  }
+  return null;
 }
 
 /* ---- Fixture selection ---- */
@@ -115,6 +132,33 @@ function deriveBBox() {
 }
 const bbox = deriveBBox();
 const width = 4, height = 4;
+
+await test('inlineExtract masks output cells outside source coverage', async () => {
+  const state = {
+    lats: new Float32Array([30, 31, 32]),
+    lons: new Float32Array([-94, -93, -92]),
+    data: new Float32Array([
+      1, 2, 3,
+      4, 5, 6,
+      7, 8, 9,
+    ]),
+    ny: 3,
+    nx: 3,
+    latsAscending: true,
+    lonsAscending: true,
+    lonRange: [-94, -92],
+    bbox: [-95, 29, -91, 33],
+    width: 8,
+    height: 8,
+  };
+  const out = inlineExtract(state);
+  assert(Number.isNaN(out[0]), 'top-left outside cell should be NaN');
+  assert(Number.isNaN(out[7]), 'top-right outside cell should be NaN');
+  assert(Number.isNaN(out[56]), 'bottom-left outside cell should be NaN');
+  assert(Number.isNaN(out[63]), 'bottom-right outside cell should be NaN');
+  assert(Number.isFinite(out[2 * state.width + 2]), 'interior cell should be finite');
+  assert(Number.isFinite(out[5 * state.width + 5]), 'interior cell should be finite');
+});
 
 /* ---- Test 1: parity vs per-point extract ---- */
 let referenceGrid;
@@ -221,6 +265,23 @@ await test('gridToGeoTIFF emits valid TIFF magic + correct strip size', async ()
   assert(buf[0] === 0x49 && buf[1] === 0x49, `byte order: ${buf[0]},${buf[1]}`);
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   assert(dv.getUint16(2, true) === 42, `tiff magic: ${dv.getUint16(2, true)}`);
+  const nodata = findTiffTag(buf, 42113);
+  assert(nodata, 'missing GDAL_NODATA tag');
+  assert(nodata.type === 2 && nodata.count === 4,
+    `bad GDAL_NODATA tag shape: ${JSON.stringify(nodata)}`);
+  const text = String.fromCharCode(...buf.slice(nodata.valueOffset, nodata.valueOffset + nodata.count));
+  assert(text === 'nan\0', `GDAL_NODATA=${JSON.stringify(text)}`);
+});
+
+await test('gridToGeoTIFF omits GDAL_NODATA for integer dtype', async () => {
+  const grid = {
+    width: 2,
+    height: 2,
+    bbox: [10, 20, 12, 22],
+    data: new Float32Array([1, NaN, 3, 4]),
+  };
+  const buf = await gridToGeoTIFF(grid, { dtype: 'int16' });
+  assert(!findTiffTag(buf, 42113), 'integer GeoTIFF should not carry GDAL_NODATA=nan');
 });
 
 /* ---- Test 7: gridToGeoTIFF multi-band ---- */

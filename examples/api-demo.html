@@ -396,6 +396,7 @@
         <a href="#section-extract">Extract</a>
         <a href="#section-grid">Grid</a>
         <a href="#section-trim">Trim</a>
+        <a href="#section-benchmark">Benchmark</a>
       </nav>
       <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme"></button>
     </div>
@@ -427,7 +428,7 @@
   <details class="section" id="section-file" open>
     <summary><span class="label">1. Pick a file</span></summary>
     <span class="muted">GRIB2 (.grb2 / .grib2), NetCDF3 (.nc3), NetCDF4 / HDF5 (.nc), or Zarr v2 (zipped store, .zip / .zarr)</span><br><br>
-    <input type="file" id="file" accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr">
+    <input type="file" id="file" accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr" multiple>
     <button id="btn-detect">detectFormat()</button>
     <span id="detect-out"></span>
   </details>
@@ -523,6 +524,23 @@
     <pre id="trim-out">(no trim yet)</pre>
   </details>
 
+  <!-- 6. Benchmark -->
+  <details class="section" id="section-benchmark">
+    <summary><span class="label">6. Benchmark - batch timing</span></summary>
+    <div class="row">
+      <label>Operation:
+        <select id="bench-op">
+          <option value="scan">scan</option>
+          <option value="extract">extract</option>
+          <option value="extractGrid">extractGrid</option>
+          <option value="trim">trim</option>
+        </select>
+      </label>
+      <button id="btn-bench">Run batch</button>
+    </div>
+    <pre id="bench-status">(no batch yet)</pre>
+  </details>
+
   </main>
 
   <!-- No import map needed: the lib loads h5wasm from jsdelivr CDN on demand.
@@ -565,6 +583,150 @@
       if (!f) throw new SciWridError('Pick a file first.');
       return f;
     }
+    function selectedFiles() {
+      return [...fileInput.files];
+    }
+    function fileMeta(file, extra = {}) {
+      return { file: file.name, bytes: file.size ?? file.byteLength ?? 0, ...extra };
+    }
+    function summarizePerfResult(value) {
+      if (value == null) return value;
+      if (typeof value === 'string') {
+        return { type: 'string', chars: value.length, preview: value.slice(0, 160) };
+      }
+      if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
+        const bytes = value.byteLength ?? value.length ?? 0;
+        return { type: value.constructor?.name || 'bytes', bytes };
+      }
+      if (ArrayBuffer.isView(value)) {
+        return { type: value.constructor?.name || 'typed-array', length: value.length, bytes: value.byteLength };
+      }
+      if (typeof value !== 'object') return value;
+      if (value.result && value.result.data && ArrayBuffer.isView(value.result.data)) {
+        return { result: summarizePerfResult(value.result), range: value.range };
+      }
+      if (value.r && value.r.stats) {
+        return {
+          trim: summarizePerfResult(value.r),
+          trimmedScan: summarizePerfResult(value.trimmedScan),
+        };
+      }
+      if (value.data && ArrayBuffer.isView(value.data)) {
+        return {
+          variable: value.variable,
+          width: value.width,
+          height: value.height,
+          time: value.time,
+          bbox: value.bbox,
+          data: { type: value.data.constructor?.name || 'typed-array', length: value.data.length, bytes: value.data.byteLength },
+        };
+      }
+      if (value.variables && Array.isArray(value.variables)) {
+        return {
+          format: value.format,
+          total_variables: value.total_variables,
+          supported_variables: value.supported_variables,
+          variables: value.variables.length,
+          timeRange: value.timeRange,
+          bbox: value.bbox,
+        };
+      }
+      if (value.stats) {
+        return {
+          format: value.format,
+          stats: value.stats,
+          warnings: value.warnings?.length || 0,
+          bytes: value.bytes?.byteLength ?? value.bytes?.length,
+        };
+      }
+      return value;
+    }
+    function memorySnapshot() {
+      const m = performance.memory;
+      return m ? {
+        jsHeapSizeLimit: m.jsHeapSizeLimit,
+        usedJSHeapSize: m.usedJSHeapSize,
+        totalJSHeapSize: m.totalJSHeapSize,
+      } : null;
+    }
+    async function recordPerf(op, meta, fn) {
+      const { phase = 'total', memoryOnFailure = false, ...loggedMeta } = meta || {};
+      const timestamp = new Date().toISOString();
+      const perfStart = performance.now();
+      const wallStart = Date.now();
+      const phases = {};
+      let phaseName = phase;
+      let phaseStart = perfStart;
+      const mark = (name) => {
+        const now = performance.now();
+        phases[phaseName] = (phases[phaseName] || 0) + (now - phaseStart);
+        phaseName = name;
+        phaseStart = now;
+      };
+      try {
+        const result = await fn(mark);
+        const perfEnd = performance.now();
+        const wallEnd = Date.now();
+        phases[phaseName] = (phases[phaseName] || 0) + (perfEnd - phaseStart);
+        const timing = {
+          op,
+          ...loggedMeta,
+          timestamp,
+          perfMs: perfEnd - perfStart,
+          wallMs: wallEnd - wallStart,
+          phases,
+        };
+        console.log(`[perf] ${op}`, { ...timing, result: summarizePerfResult(result) });
+        return { result, timing };
+      } catch (e) {
+        const perfEnd = performance.now();
+        const wallEnd = Date.now();
+        phases[phaseName] = (phases[phaseName] || 0) + (perfEnd - phaseStart);
+        const timing = {
+          op,
+          ...loggedMeta,
+          timestamp,
+          perfMs: perfEnd - perfStart,
+          wallMs: wallEnd - wallStart,
+          phases,
+          error: e?.message || String(e),
+        };
+        if (memoryOnFailure) timing.memoryAfter = memorySnapshot();
+        console.log(`[perf] ${op} (failed)`, timing);
+        throw e;
+      }
+    }
+    function product(values) {
+      return values.reduce((n, v) => n * (Number(v) || 0), 1);
+    }
+    function renderEstimate(file, opts, meta = lastScan) {
+      const variable = meta?.variables?.find(v => v.name === opts.variable);
+      const shape = Array.isArray(variable?.shape) ? variable.shape.map(Number) : [];
+      const elements = shape.length ? product(shape) : null;
+      const estFloat32Bytes = elements == null ? null : elements * 4;
+      const copies = 3;
+      const estPeakBytes = estFloat32Bytes == null ? null : (file.size || 0) + estFloat32Bytes * copies;
+      const mem = memorySnapshot();
+      const arrayLimit = 2 * 1024 * 1024 * 1024;
+      let verdict = 'likely ok';
+      if (estFloat32Bytes == null) verdict = 'unknown';
+      else if (estFloat32Bytes >= arrayLimit || (mem?.jsHeapSizeLimit && estPeakBytes >= mem.jsHeapSizeLimit)) verdict = 'likely fail';
+      else if (estFloat32Bytes >= arrayLimit * 0.75 || (mem?.jsHeapSizeLimit && estPeakBytes >= mem.jsHeapSizeLimit * 0.75)) verdict = 'near limit';
+      const estimate = {
+        ...fileMeta(file),
+        variable: opts.variable,
+        shape,
+        ndims: variable?.ndims ?? shape.length,
+        elements,
+        estFloat32Bytes,
+        estPeakBytes,
+        copies,
+        ...mem,
+        verdict,
+      };
+      console.log('[perf] render-estimate', estimate);
+      return estimate;
+    }
     function resetResultsForNewFile() {
       lastScan = null;
       // Unused: trimScan = null;
@@ -576,6 +738,7 @@
       $('trim-out').textContent = '(no trim yet)';
       $('trim-scan-out').textContent = '';
       $('trim-vars').innerHTML = '';
+      $('bench-status').textContent = '(no batch yet)';
       $('btn-trim-download').disabled = true;
     }
 
@@ -586,7 +749,7 @@
       const out = $('detect-out');
       try {
         const f = requireFile();
-        const fmt = await detectFormat(f);
+        const { result: fmt } = await recordPerf('detectFormat', fileMeta(f), () => detectFormat(f));
         out.innerHTML = `<span class="success">→ ${fmt ?? 'unknown'}</span>`;
         log('detectFormat', fmt);
       } catch (e) {
@@ -602,7 +765,7 @@
       out.textContent = 'Scanning…';
       try {
         const f = requireFile();
-        const meta = await scan(f);
+        const { result: meta } = await recordPerf('scan', fileMeta(f), () => scan(f));
         lastScan = meta;
         log('scan result', meta);
         const head = meta.variables.slice(0, 21);
@@ -627,6 +790,13 @@
           timeBlock + `\n` +
           `Variables [0]..[${Math.min(20, meta.variables.length - 1)}]:\n\n` +
           lines.join('\n') + tail;
+        if (Array.isArray(meta.bbox) && meta.bbox.length === 4) {
+          const [minLon, minLat, maxLon, maxLat] = meta.bbox;
+          $('g-minlon').value = minLon;
+          $('g-minlat').value = minLat;
+          $('g-maxlon').value = maxLon;
+          $('g-maxlat').value = maxLat;
+        }
       } catch (e) {
         show(out, 'Error: ' + e.message, 'error');
         console.error(e);
@@ -634,9 +804,9 @@
     });
 
     /* extract ----------------------------------------------------------- */
-    function buildExtractOpts() {
+    function buildExtractOpts(meta = lastScan) {
       const variable = $('ex-var').value.trim()
-        || (lastScan?.variables.find(v => v.supported)?.name);
+        || (meta?.variables.find(v => v.supported)?.name);
       if (!variable) throw new SciWridError('Run scan() first or type a variable name.');
       const opts = {
         variable,
@@ -658,7 +828,7 @@
       try {
         const f = requireFile();
         const opts = buildExtractOpts();
-        const result = await extract(f, opts);
+        const { result } = await recordPerf('extract', fileMeta(f, { variable: opts.variable }), () => extract(f, opts));
         log(`extract(${opts.variable})`, result);
         show(out, result);
       } catch (e) {
@@ -673,7 +843,7 @@
       try {
         const f = requireFile();
         const opts = buildExtractOpts();
-        const csv = await extractOutput(f, opts, 'csv');
+        const { result: csv } = await recordPerf('extractOutput', fileMeta(f, { variable: opts.variable, output: 'csv' }), () => extractOutput(f, opts, 'csv'));
         log(`extractOutput("csv")`, csv);
         show(out, csv);
       } catch (e) {
@@ -688,7 +858,7 @@
       try {
         const f = requireFile();
         const opts = buildExtractOpts();
-        const json = await extractOutput(f, opts, 'json');
+        const { result: json } = await recordPerf('extractOutput', fileMeta(f, { variable: opts.variable, output: 'json' }), () => extractOutput(f, opts, 'json'));
         log(`extractOutput("json")`, json);
         show(out, json);
       } catch (e) {
@@ -711,7 +881,7 @@
       try {
         const f = requireFile();
         const opts = buildExtractOpts();
-        const csv = await extractOutput(f, opts, 'csv');
+        const { result: csv } = await recordPerf('extractOutput', fileMeta(f, { variable: opts.variable, output: 'csv', download: true }), () => extractOutput(f, opts, 'csv'));
         show(out, csv);
         const name = `${extractFileStem(opts)}.csv`;
         saveBlob(csv, 'text/csv;charset=utf-8', name);
@@ -728,7 +898,7 @@
       try {
         const f = requireFile();
         const opts = buildExtractOpts();
-        const json = await extractOutput(f, opts, 'json');
+        const { result: json } = await recordPerf('extractOutput', fileMeta(f, { variable: opts.variable, output: 'json', download: true }), () => extractOutput(f, opts, 'json'));
         show(out, json);
         const name = `${extractFileStem(opts)}.json`;
         saveBlob(json, 'application/json;charset=utf-8', name);
@@ -740,9 +910,9 @@
     });
 
     /* extractGrid ------------------------------------------------------- */
-    function buildGridOpts() {
+    function buildGridOpts(meta = lastScan) {
       const variable = $('g-var').value.trim()
-        || (lastScan?.variables.find(v => v.supported)?.name);
+        || (meta?.variables.find(v => v.supported)?.name);
       if (!variable) throw new SciWridError('Run scan() first or type a variable name.');
       const opts = {
         variable,
@@ -824,19 +994,36 @@
       lastGrid = null;
 
       gridAbort = new AbortController();
-      const t0 = performance.now();
+      let renderFile = null;
+      let renderOpts = null;
       try {
         const f    = requireFile();
         const opts = buildGridOpts();
-        const result = await extractGrid(f, {
-          ...opts,
-          signal: gridAbort.signal,
-          onProgress: ({ done, total }) => {
-            progress.textContent = ` ${Math.floor(100 * done / total)}%  (${done}/${total})`;
-          },
+        renderFile = f;
+        renderOpts = opts;
+        renderEstimate(f, opts);
+        const { result: rendered, timing } = await recordPerf('extractGrid', fileMeta(f, {
+          variable: opts.variable,
+          width: opts.width,
+          height: opts.height,
+          workers: opts.workers,
+          phase: 'build',
+          memoryOnFailure: true,
+        }), async (mark) => {
+          const result = await extractGrid(f, {
+            ...opts,
+            signal: gridAbort.signal,
+            onProgress: ({ done, total }) => {
+              progress.textContent = ` ${Math.floor(100 * done / total)}%  (${done}/${total})`;
+            },
+          });
+          mark('render');
+          const range = renderHeatmap(canvas, result.data, result.width, result.height);
+          return { result, range };
         });
-        const ms = (performance.now() - t0).toFixed(0);
-        const { min, max } = renderHeatmap(canvas, result.data, result.width, result.height);
+        console.log('[perf] render-memory-after', { ...fileMeta(f), variable: opts.variable, memory: memorySnapshot() });
+        const { result, range: { min, max } } = rendered;
+        const ms = (timing.phases.build ?? timing.perfMs).toFixed(0);
         log('extractGrid result', result);
         out.textContent =
           `Variable:  ${result.variable}\n` +
@@ -851,6 +1038,9 @@
         jsonBtn.disabled = false;
         tiffBtn.disabled = false;
       } catch (e) {
+        if (renderFile && renderOpts) {
+          console.log('[perf] render-memory-after', { ...fileMeta(renderFile), variable: renderOpts.variable, memory: memorySnapshot() });
+        }
         if (e?.name === 'AbortError' || /abort|dispose/i.test(e?.message || '')) {
           show(out, 'Aborted.', 'warn');
         } else {
@@ -898,6 +1088,31 @@
     // Unused: let trimScan = null;
     let trimResult = null;   /* last TrimResult */
 
+    function buildTrimOpts() {
+      const checked = [...$('trim-vars').querySelectorAll('input[type=checkbox]:checked')]
+                        .map(c => c.value);
+      if (!checked.length) throw new TrimError('Pick at least one variable.');
+
+      const t1raw = $('trim-t1').value.trim();
+      const t2raw = $('trim-t2').value.trim();
+      const opts  = { variables: checked };
+      if (t1raw !== '') opts.t1 = parseInt(t1raw, 10);
+      if (t2raw !== '') opts.t2 = parseInt(t2raw, 10);
+      if ($('trim-use-bbox').checked) {
+        opts.bbox = [
+          parseFloat($('trim-minlon').value),
+          parseFloat($('trim-minlat').value),
+          parseFloat($('trim-maxlon').value),
+          parseFloat($('trim-maxlat').value),
+        ];
+        if (opts.bbox.some(v => !Number.isFinite(v)))
+          throw new TrimError('bbox: enter all four numbers.');
+        if (!(opts.bbox[2] > opts.bbox[0]) || !(opts.bbox[3] > opts.bbox[1]))
+          throw new TrimError('bbox: max must be greater than min.');
+      }
+      return opts;
+    }
+
     $('btn-trim-scan').addEventListener('click', async () => {
       const out  = $('trim-scan-out');
       const list = $('trim-vars');
@@ -907,7 +1122,7 @@
       try {
         const f = requireFile();
         out.textContent = ' scanning…';
-        const meta = await scan(f);
+        const { result: meta } = await recordPerf('scan', fileMeta(f, { source: 'trim-scan' }), () => scan(f));
         // Unused: trimScan = meta;
         const bboxSupported = ['zarr', 'netcdf4', 'tiff'].includes(meta.format);
         $('trim-use-bbox').disabled = !bboxSupported;
@@ -923,6 +1138,10 @@
           $('trim-minlat').value = minLat;
           $('trim-maxlon').value = maxLon;
           $('trim-maxlat').value = maxLat;
+          $('g-minlon').value = minLon;
+          $('g-minlat').value = minLat;
+          $('g-maxlon').value = maxLon;
+          $('g-maxlat').value = maxLat;
         }
         for (const v of meta.variables) {
           const wrap = document.createElement('label');
@@ -952,34 +1171,21 @@
       $('btn-trim-download').disabled = true;
       try {
         const f = requireFile();
-        const checked = [...$('trim-vars').querySelectorAll('input[type=checkbox]:checked')]
-                          .map(c => c.value);
-        if (!checked.length) throw new TrimError('Pick at least one variable.');
-
-        const t1raw = $('trim-t1').value.trim();
-        const t2raw = $('trim-t2').value.trim();
-        const opts  = { variables: checked };
-        if (t1raw !== '') opts.t1 = parseInt(t1raw, 10);
-        if (t2raw !== '') opts.t2 = parseInt(t2raw, 10);
-        if ($('trim-use-bbox').checked) {
-          opts.bbox = [
-            parseFloat($('trim-minlon').value),
-            parseFloat($('trim-minlat').value),
-            parseFloat($('trim-maxlon').value),
-            parseFloat($('trim-maxlat').value),
-          ];
-          if (opts.bbox.some(v => !Number.isFinite(v)))
-            throw new TrimError('bbox: enter all four numbers.');
-          if (!(opts.bbox[2] > opts.bbox[0]) || !(opts.bbox[3] > opts.bbox[1]))
-            throw new TrimError('bbox: max must be greater than min.');
-        }
+        const opts = buildTrimOpts();
 
         status.innerHTML = ' trimming…';
-        const t0 = performance.now();
-        const r = await trim(f, opts);
-        const ms = (performance.now() - t0).toFixed(0);
+        const { result: trimRun, timing } = await recordPerf('trim', fileMeta(f, {
+          variables: opts.variables.length,
+          phase: 'trim',
+        }), async (mark) => {
+          const r = await trim(f, opts);
+          mark('rescan');
+          const trimmedScan = await scan(r.bytes);
+          return { r, trimmedScan };
+        });
+        const { r, trimmedScan } = trimRun;
+        const ms = (timing.phases.trim ?? timing.perfMs).toFixed(0);
         trimResult = r;
-        const trimmedScan = await scan(r.bytes);
 
         const pct = ((r.stats.outputSize / r.stats.inputSize) * 100).toFixed(1);
         const warn = r.warnings.length
@@ -1019,6 +1225,124 @@
                  : 'application/octet-stream';
       saveBlob(trimResult.bytes, mime, `${stem}_trim${ext}`);
       log('Saved trimmed file', `${stem}_trim${ext} (${trimResult.bytes.length} bytes)`);
+    });
+
+    /* ===== Benchmark =================================================== */
+    function timingRow(timing) {
+      return {
+        file: timing.file,
+        bytes: timing.bytes,
+        perfMs: timing.perfMs,
+        wallMs: timing.wallMs,
+        ...timing.phases,
+      };
+    }
+    function timingStats(values) {
+      const total = values.reduce((n, v) => n + v, 0);
+      return {
+        total,
+        mean: values.length ? total / values.length : 0,
+        min: values.length ? Math.min(...values) : 0,
+        max: values.length ? Math.max(...values) : 0,
+      };
+    }
+    async function batchMeta(file) {
+      if (file === fileInput.files[0] && lastScan) return lastScan;
+      return await scan(file);
+    }
+    async function runBatchOperation(op, file) {
+      if (op === 'scan') {
+        return await recordPerf('scan', fileMeta(file, { batch: true }), () => scan(file));
+      }
+      if (op === 'extract') {
+        const meta = await batchMeta(file);
+        const opts = buildExtractOpts(meta);
+        return await recordPerf('extract', fileMeta(file, { batch: true, variable: opts.variable }), () => extract(file, opts));
+      }
+      if (op === 'extractGrid') {
+        const meta = await batchMeta(file);
+        const opts = buildGridOpts(meta);
+        renderEstimate(file, opts, meta);
+        try {
+          return await recordPerf('extractGrid', fileMeta(file, {
+            batch: true,
+            variable: opts.variable,
+            width: opts.width,
+            height: opts.height,
+            workers: opts.workers,
+            phase: 'build',
+            memoryOnFailure: true,
+          }), async (mark) => {
+            const result = await extractGrid(file, opts);
+            mark('render');
+            renderHeatmap($('g-canvas'), result.data, result.width, result.height);
+            return result;
+          });
+        } finally {
+          console.log('[perf] render-memory-after', { ...fileMeta(file), variable: opts.variable, memory: memorySnapshot() });
+        }
+      }
+      if (op === 'trim') {
+        const opts = buildTrimOpts();
+        return await recordPerf('trim', fileMeta(file, {
+          batch: true,
+          variables: opts.variables.length,
+          phase: 'trim',
+        }), async (mark) => {
+          const r = await trim(file, opts);
+          mark('rescan');
+          const trimmedScan = await scan(r.bytes);
+          return { r, trimmedScan };
+        });
+      }
+      throw new SciWridError(`Unknown benchmark operation: ${op}`);
+    }
+    function logBatchAggregate(op, rows, failures) {
+      const totalBytes = rows.reduce((n, row) => n + row.bytes, 0);
+      const perf = timingStats(rows.map(row => row.perfMs));
+      const wall = timingStats(rows.map(row => row.wallMs));
+      const throughputMBps = perf.total > 0 ? (totalBytes / 1e6) / (perf.total / 1000) : 0;
+      console.table(rows);
+      console.log(`[perf] batch:${op}`, {
+        op,
+        files: rows.length + failures,
+        succeeded: rows.length,
+        failed: failures,
+        totalBytes,
+        perfMs: perf,
+        wallMs: wall,
+        throughputMBps,
+      });
+    }
+    $('btn-bench').addEventListener('click', async () => {
+      const files = selectedFiles();
+      const status = $('bench-status');
+      const btn = $('btn-bench');
+      const op = $('bench-op').value;
+      if (!files.length) {
+        status.textContent = 'Pick one or more files first.';
+        return;
+      }
+      const rows = [];
+      let failures = 0;
+      btn.disabled = true;
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          status.textContent = `Running ${op} for file ${i + 1}/${files.length}: ${file.name}`;
+          try {
+            const { timing } = await runBatchOperation(op, file);
+            rows.push(timingRow(timing));
+          } catch (e) {
+            failures++;
+            console.error(e);
+          }
+        }
+        logBatchAggregate(op, rows, failures);
+        status.textContent = `Done: ${rows.length} succeeded, ${failures} failed. See console for timings.`;
+      } finally {
+        btn.disabled = false;
+      }
     });
 
     /* Expose for console hacking */

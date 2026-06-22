@@ -27,6 +27,8 @@
 /* Cross-runtime shim: browser Worker vs Node worker_threads          */
 /* Detection: Node has `process.versions.node`; browsers do not.       */
 /* ------------------------------------------------------------------ */
+import { isOutsideCoverage, isOutsideLonRange } from './sample.js';
+
 const _isNode = typeof process !== 'undefined' && !!(process.versions && process.versions.node);
 
 let _post, _onMessage;
@@ -101,11 +103,16 @@ function handleChunk(msg) {
   for (let y = y0; y < y1; y++) {
     /* Row 0 is at maxLat (north-up) */
     const lat = maxLat - (y + 0.5) * dy;
-    const iy = nearestIdx(lats, lat, latsAscending);
+    const latOutside = isOutsideCoverage(lats, lat);
+    const iy = latOutside ? -1 : nearestIdx(lats, lat, latsAscending);
     const rowBase = iy * nx;
     const outRowBase = (y - y0) * width;
     for (let x = 0; x < width; x++) {
       const lon = normalizeLon(minLon + (x + 0.5) * dx, lonRange);
+      if (latOutside || isOutsideLonRange(lon, lonRange) || isOutsideCoverage(lons, lon)) {
+        out[outRowBase + x] = NaN;
+        continue;
+      }
       const ix = nearestIdx(lons, lon, lonsAscending);
       out[outRowBase + x] = data[rowBase + ix];
     }
