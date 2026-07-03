@@ -50,6 +50,41 @@ async function test(name, fn) {
 
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
 
+async function buildNC4Fixture() {
+  let h5mod;
+  try { h5mod = await import('h5wasm'); }
+  catch (_) { return null; }
+  const h5 = h5mod.default ?? h5mod;
+  const { FS } = await h5.ready;
+
+  const fname = `_api_nc4_${Date.now()}.nc`;
+  const NT = 5, NY = 3, NX = 4;
+  const f = new h5.File(fname, 'w');
+
+  const tas = new Float32Array(NT * NY * NX);
+  for (let t = 0; t < NT; t++)
+    for (let y = 0; y < NY; y++)
+      for (let x = 0; x < NX; x++)
+        tas[t * NY * NX + y * NX + x] = 100 + t * 100 + y * 10 + x;
+  const ds = f.create_dataset({ name: 'tas', data: tas, shape: [NT, NY, NX], dtype: '<f4' });
+  ds.create_attribute('units', 'K');
+
+  const time = new Float64Array(NT);
+  for (let i = 0; i < NT; i++) time[i] = i * 3600;
+  const tds = f.create_dataset({ name: 'time', data: time, shape: [NT], dtype: '<f8' });
+  tds.create_attribute('units', 'seconds since 2025-01-01');
+
+  const lat = new Float32Array([30, 35, 40]);
+  const lon = new Float32Array([-100, -95, -90, -85]);
+  f.create_dataset({ name: 'lat', data: lat, shape: [NY], dtype: '<f4' });
+  f.create_dataset({ name: 'lon', data: lon, shape: [NX], dtype: '<f4' });
+
+  f.flush(); f.close();
+  const bytes = new Uint8Array(FS.readFile(fname));
+  FS.unlink(fname);
+  return { bytes, h5 };
+}
+
 /* ---- Fixtures --------------------------------------------------------- */
 const FIXTURES = [
   { format: 'grib2',   name: 'GRIB2 (CONUS)',  path: 'examples/conus_20240202_24h.grb2' },
@@ -118,6 +153,37 @@ await test('UnsupportedFormatError on garbage bytes', async () => {
 await test('detectFormat returns null on garbage', async () => {
   const f = await detectFormat(new Uint8Array([0, 1, 2, 3]));
   assert(f === null, `expected null, got ${f}`);
+});
+
+console.log('\n[netcdf4 native slices]');
+
+await test('NetCDF4 extract uses h5wasm hyperslabs for requested time range', async () => {
+  const fx = await buildNC4Fixture();
+  if (!fx) return 'skip';
+
+  const calls = [];
+  const proto = fx.h5.Dataset.prototype;
+  const original = proto.slice;
+  proto.slice = function(ranges) {
+    calls.push({ path: this.path, ranges: JSON.parse(JSON.stringify(ranges)) });
+    return original.call(this, ranges);
+  };
+  try {
+    const result = await extract(fx.bytes, { ...wf, variable: 'tas', lat: 35, lon: -95, t1: 1, t2: 2 });
+    const vals = result.timeseries.map((p) => p.value);
+    assert(JSON.stringify(vals) === '[211,311]', 'expected [211,311], got ' + JSON.stringify(vals));
+  } finally {
+    proto.slice = original;
+  }
+
+  const tasCall = calls.find((c) => c.path === '/tas');
+  const timeCall = calls.find((c) => c.path === '/time');
+  assert(tasCall, 'expected tas slice call');
+  assert(timeCall, 'expected time slice call');
+  assert(JSON.stringify(tasCall.ranges[0]) === '[1,3]',
+    'expected tas time range [1,3], got ' + JSON.stringify(tasCall.ranges));
+  assert(JSON.stringify(timeCall.ranges[0]) === '[1,3]',
+    'expected time range [1,3], got ' + JSON.stringify(timeCall.ranges));
 });
 
 /* ---- Summary ---------------------------------------------------------- */
