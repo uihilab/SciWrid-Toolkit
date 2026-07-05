@@ -387,12 +387,54 @@ static int grib2_decode_one_field(const uint8_t* data, const grib2_msg_t* m,
 }
 
 EMSCRIPTEN_KEEPALIVE
-refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
+refs_dataset_t* wp_grid_coords(wp_scan_result_t* s, int var_index) {
     if (!s || var_index < 0 || var_index >= s->n_vars) return NULL;
     wp_var_info_t* vi = &s->vars[var_index];
-    const uint8_t* data = s->grb_data;
-    grib2_msg_t* msgs = s->msgs;
-    int n_msgs = s->n_msgs;
+    const uint8_t* data = s->grb_data; grib2_msg_t* msgs = s->msgs; int n_msgs = s->n_msgs;
+
+    int first_idx = -1;
+    for (int i = 0; i < n_msgs; i++)
+        if (msgs[i].param_cat == vi->cat && msgs[i].param_num == vi->num) { first_idx = i; break; }
+    if (first_idx < 0) return NULL;
+
+    grib2_grid_t g;
+    if (grib2_parse_grid(vi, data + msgs[first_idx].sec3_off,
+                         (uint32_t)msgs[first_idx].sec3_len, &g) != 0) return NULL;
+    uint32_t nx = g.nx, ny = g.ny, ref_npts = nx * ny;
+
+    int* sel = (int*)malloc((size_t)n_msgs * sizeof(int));
+    if (!sel) return NULL;
+    int sel_cnt = 0;
+    for (int i = 0; i < n_msgs; i++) {
+        if (msgs[i].param_cat != vi->cat || msgs[i].param_num != vi->num) continue;
+        uint32_t npts = (msgs[i].sec5_len >= 9) ? be32(data + msgs[i].sec5_off + 5) : 0;
+        if (npts == ref_npts || msgs[i].sec6_off != 0) sel[sel_cnt++] = i;
+    }
+    if (sel_cnt == 0) { free(sel); return NULL; }
+    uint32_t nt = (uint32_t)sel_cnt;
+
+    float *lats, *lons, *lat2d, *lon2d; int is_curv;
+    if (grib2_build_coords(&g, &lats, &lons, &lat2d, &lon2d, &is_curv) != 0) { free(sel); return NULL; }
+    int64_t* times = (int64_t*)malloc(nt * sizeof(int64_t));
+    if (!times) { free(sel); free(lats); free(lons); free(lat2d); free(lon2d); return NULL; }
+    for (uint32_t t = 0; t < nt; t++) {
+        grib2_msg_t* m = &msgs[sel[t]];
+        times[t] = parse_sec1_reftime(data + m->sec1_off, (uint32_t)m->sec1_len)
+                 + parse_sec4_forecast_offset(data + m->sec4_off, (uint32_t)m->sec4_len);
+    }
+    free(sel);
+    const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
+    if (is_curv)
+        return refs_open_from_arrays_2d(var_name, nx, ny, nt, lat2d, lon2d, times, NULL);
+    return refs_open_from_arrays(var_name, nx, ny, nt, lats, lons, times, NULL);
+}
+
+EMSCRIPTEN_KEEPALIVE
+refs_dataset_t* wp_normalize_range(wp_scan_result_t* s, int var_index,
+                                   int32_t t1, int32_t t2, int32_t iy, int32_t ix) {
+    if (!s || var_index < 0 || var_index >= s->n_vars) return NULL;
+    wp_var_info_t* vi = &s->vars[var_index];
+    const uint8_t* data = s->grb_data; grib2_msg_t* msgs = s->msgs; int n_msgs = s->n_msgs;
 
     int first_idx = -1;
     for (int i = 0; i < n_msgs; i++)
@@ -410,38 +452,77 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
     for (int i = 0; i < n_msgs; i++) {
         if (msgs[i].param_cat != vi->cat || msgs[i].param_num != vi->num) continue;
         uint32_t npts = (msgs[i].sec5_len >= 9) ? be32(data + msgs[i].sec5_off + 5) : 0;
-        int has_bitmap = (msgs[i].sec6_off != 0);
-        if (npts == ref_npts || has_bitmap) sel[sel_cnt++] = i;
+        if (npts == ref_npts || msgs[i].sec6_off != 0) sel[sel_cnt++] = i;
     }
     if (sel_cnt == 0) { free(sel); return NULL; }
-    uint32_t nt = (uint32_t)sel_cnt;
+    uint32_t nt_total = (uint32_t)sel_cnt;
+
+    /* clamp the window */
+    if (t1 < 0) t1 = 0;
+    if (t2 < 0 || t2 > (int32_t)nt_total - 1) t2 = (int32_t)nt_total - 1;
+    if (t1 > t2) t1 = t2;
+    uint32_t w0 = (uint32_t)t1, nt = (uint32_t)(t2 - t1 + 1);
+
+    int point_reduce = (iy >= 0 && ix >= 0 && (uint32_t)iy < ny && (uint32_t)ix < nx);
 
     float *lats, *lons, *lat2d, *lon2d; int is_curv;
     if (grib2_build_coords(&g, &lats, &lons, &lat2d, &lon2d, &is_curv) != 0) { free(sel); return NULL; }
 
     int64_t* times = (int64_t*)malloc(nt * sizeof(int64_t));
-    float* all_data = (float*)malloc((size_t)nt * n_pts * sizeof(float));
     float* chunk = (float*)malloc(n_pts * sizeof(float));
-    if (!times || !all_data || !chunk) {
-        free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
-        free(times); free(all_data); free(chunk); return NULL;
+    if (!times || !chunk) {
+        free(sel); free(lats); free(lons); free(lat2d); free(lon2d); free(times); free(chunk);
+        return NULL;
     }
+
+    if (point_reduce) {
+        float* out = (float*)malloc(nt * sizeof(float));
+        if (!out) { free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
+                    free(times); free(chunk); return NULL; }
+        for (uint32_t t = 0; t < nt; t++) {
+            grib2_msg_t* m = &msgs[sel[w0 + t]];
+            times[t] = parse_sec1_reftime(data + m->sec1_off, (uint32_t)m->sec1_len)
+                     + parse_sec4_forecast_offset(data + m->sec4_off, (uint32_t)m->sec4_len);
+            if (grib2_decode_one_field(data, m, n_pts, chunk) != 0) {
+                free(out); free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
+                free(times); free(chunk); return NULL;
+            }
+            out[t] = chunk[(size_t)iy * nx + ix];
+        }
+        float clat = is_curv ? lat2d[(size_t)iy * nx + ix] : lats[iy];
+        float clon = is_curv ? lon2d[(size_t)iy * nx + ix] : lons[ix];
+        free(lats); free(lons); free(lat2d); free(lon2d); free(chunk); free(sel);
+        float* c_lat = (float*)malloc(sizeof(float)); float* c_lon = (float*)malloc(sizeof(float));
+        if (!c_lat || !c_lon) { free(c_lat); free(c_lon); free(times); free(out); return NULL; }
+        c_lat[0] = clat; c_lon[0] = clon;
+        const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
+        return refs_open_from_arrays(var_name, 1, 1, nt, c_lat, c_lon, times, out);
+    }
+
+    /* windowed full decode */
+    float* all_data = (float*)malloc((size_t)nt * n_pts * sizeof(float));
+    if (!all_data) { free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
+                     free(times); free(chunk); return NULL; }
     for (uint32_t t = 0; t < nt; t++) {
-        grib2_msg_t* m = &msgs[sel[t]];
+        grib2_msg_t* m = &msgs[sel[w0 + t]];
         times[t] = parse_sec1_reftime(data + m->sec1_off, (uint32_t)m->sec1_len)
                  + parse_sec4_forecast_offset(data + m->sec4_off, (uint32_t)m->sec4_len);
         if (grib2_decode_one_field(data, m, n_pts, chunk) != 0) {
-            free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
-            free(times); free(all_data); free(chunk); return NULL;
+            free(all_data); free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
+            free(times); free(chunk); return NULL;
         }
         memcpy(all_data + (size_t)t * n_pts, chunk, n_pts * sizeof(float));
     }
     free(chunk); free(sel);
-
     const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
     if (is_curv)
         return refs_open_from_arrays_2d(var_name, nx, ny, nt, lat2d, lon2d, times, all_data);
     return refs_open_from_arrays(var_name, nx, ny, nt, lats, lons, times, all_data);
+}
+
+EMSCRIPTEN_KEEPALIVE
+refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
+    return wp_normalize_range(s, var_index, 0, INT32_MAX, -1, -1);
 }
 
 /* =========================================================================
