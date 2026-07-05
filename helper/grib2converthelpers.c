@@ -203,6 +203,57 @@ int parse_sec3_lambert(const uint8_t* sec, uint32_t sec_len,
 }
 
 /* =========================================================================
+ * Section 3, Template 20 – Polar Stereographic
+ * Same octet offsets as Lambert for the shared fields; no Latin1/Latin2.
+ * ======================================================================= */
+int parse_sec3_polar(const uint8_t* sec, uint32_t sec_len, grid_polar_t* g) {
+    if (sec_len < 65) {
+        fprintf(stderr,
+                "  Error: Section 3 too short for polar stereographic (%u bytes, need 65)\n",
+                sec_len);
+        return -1;
+    }
+    uint16_t tmpl = be16(sec + 12);
+    if (tmpl != 20) {
+        fprintf(stderr,
+                "  Error: grid template %u is not polar stereographic (20)\n", tmpl);
+        return -1;
+    }
+
+    /* Shape of earth (octet 15 = sec+14); scaled spherical radius sec+15..19 */
+    uint8_t shape = sec[14];
+    double R = 6371229.0;
+    if (shape == 1) {
+        uint8_t  sf = sec[15];
+        uint32_t sv = be32(sec + 16);
+        if (sv != 0 && sv != 0xFFFFFFFFu) {
+            double val = (double)sv;
+            if (sf != 0 && sf != 0xFF) val /= pow(10.0, (double)sf);
+            R = val;
+        }
+    }
+    g->earth_radius = R;
+
+    g->nx            = be32(sec + 30);
+    g->ny            = be32(sec + 34);
+    g->lat1          = grib2_i32(sec + 38) / 1e6;
+    g->lon1          = grib2_i32(sec + 42) / 1e6;
+    g->lad           = grib2_i32(sec + 47) / 1e6;
+    g->lov           = grib2_i32(sec + 51) / 1e6;
+    g->dx            = (double)be32(sec + 55) / 1e3;  /* mm to m */
+    g->dy            = (double)be32(sec + 59) / 1e3;
+    g->proj_flag     = sec[63];
+    g->scanning_mode = sec[64];
+
+    if (g->nx == 0 || g->ny == 0 || g->nx > 100000 || g->ny > 100000) {
+        fprintf(stderr,
+                "  Error: implausible polar grid size %ux%u\n", g->nx, g->ny);
+        return -1;
+    }
+    return 0;
+}
+
+/* =========================================================================
  * Section 3, Template 101 – General Unstructured Grid (ICON / DWD)
  *
  * Length-driven parse: the Section 3 *length* field is the single source of
@@ -357,6 +408,48 @@ int lambert_compute_latlon(const grid_lambert_t* g,
         }
     }
 
+    return 0;
+}
+
+/* =========================================================================
+ * Polar Stereographic projection: (i,j) grid index → (lat,lon)
+ * Spherical Earth, true scale at LaD, central meridian LoV.
+ * Reference: WMO Manual on Codes Vol I.2, GDT 3.20; NCEP wgrib2 polar_stereo.
+ * Output order: lats[j*nx+i], lons[j*nx+i].
+ * ======================================================================= */
+int polar_stereo_compute_latlon(const grid_polar_t* g, float* lats, float* lons) {
+    const double DEG2RAD = M_PI / 180.0;
+    const double RAD2DEG = 180.0 / M_PI;
+    double R    = (g->earth_radius > 0.0) ? g->earth_radius : 6371229.0;
+    double h    = (g->proj_flag & 0x80) ? -1.0 : 1.0;   /* +1 north pole, -1 south */
+    double phic = g->lad  * DEG2RAD;
+    double lov  = g->lov  * DEG2RAD;
+    double phi0 = g->lat1 * DEG2RAD;
+    double lam0 = g->lon1 * DEG2RAD;
+
+    double K    = R * (1.0 + sin(h * phic));
+    double rho0 = K * tan(M_PI / 4.0 - h * phi0 / 2.0);
+    double x0   =  rho0 * sin(lam0 - lov);
+    double y0   = -h * rho0 * cos(lam0 - lov);
+
+    double sx = (g->scanning_mode & 0x80) ? -1.0 : 1.0;  /* +i unless -i bit set */
+    double sy = (g->scanning_mode & 0x40) ? 1.0 : -1.0;  /* +j (S->N) if 0x40 set */
+
+    for (uint32_t j = 0; j < g->ny; j++) {
+        for (uint32_t i = 0; i < g->nx; i++) {
+            double X = x0 + sx * g->dx * (double)i;
+            double Y = y0 + sy * g->dy * (double)j;
+            double rho = sqrt(X * X + Y * Y);
+            double phi = h * (M_PI / 2.0) - 2.0 * h * atan2(rho, K);
+            double lam = lov + atan2(X, -h * Y);
+            double lat = phi * RAD2DEG;
+            double lon = lam * RAD2DEG;
+            while (lon > 180.0)  lon -= 360.0;
+            while (lon < -180.0) lon += 360.0;
+            lats[(size_t)j * g->nx + i] = (float)lat;
+            lons[(size_t)j * g->nx + i] = (float)lon;
+        }
+    }
     return 0;
 }
 

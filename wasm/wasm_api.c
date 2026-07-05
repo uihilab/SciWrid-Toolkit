@@ -185,7 +185,7 @@ char* wp_scan_get_vars_json(const wp_scan_result_t* s) {
                i, name, v->cat, v->num,
                v->grid_tmpl, v->data_tmpl,
                v->nx, v->ny, v->count,
-               (v->grid_tmpl == 0 || v->grid_tmpl == 40 || v->grid_tmpl == 30 || v->grid_tmpl == 101) ? "true" : "false",
+               (v->grid_tmpl == 0 || v->grid_tmpl == 40 || v->grid_tmpl == 30 || v->grid_tmpl == 101 || v->grid_tmpl == 20) ? "true" : "false",
                (i + 1 < s->n_vars) ? "," : "");
     }
     APPEND("]\n");
@@ -253,7 +253,7 @@ char* wp_scan_messages_layout(const wp_scan_result_t* s) {
                     name_esc, sizeof(name_esc));
 
         int supported = (gtmpl == 0 || gtmpl == 30 ||
-                         gtmpl == 40 || gtmpl == 101);
+                         gtmpl == 40 || gtmpl == 101 || gtmpl == 20);
 
         MAPPEND("  {\"index\": %d, \"start\": %llu, \"len\": %llu, "
                 "\"cat\": %u, \"num\": %u, \"name\": %s, "
@@ -293,7 +293,8 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
     /* Support grid templates 0, 40 (regular lat/lon), 30 (Lambert),
      * and 101 (general unstructured — ICON / DWD) */
     if (vi->grid_tmpl != 0 && vi->grid_tmpl != 40 &&
-        vi->grid_tmpl != 30 && vi->grid_tmpl != 101)
+        vi->grid_tmpl != 30 && vi->grid_tmpl != 101 &&
+        vi->grid_tmpl != 20)
         return NULL;
 
     /* Find first matching message */
@@ -310,12 +311,20 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
     uint32_t nx, ny;
     int is_lambert      = (vi->grid_tmpl == 30);
     int is_unstructured = (vi->grid_tmpl == 101);
+    int is_polar        = (vi->grid_tmpl == 20);
 
     grid_latlon_t       grid_ll;
     grid_lambert_t      grid_lc;
     grid_unstructured_t grid_un;
+    grid_polar_t        grid_ps;
 
-    if (is_unstructured) {
+    if (is_polar) {
+        if (parse_sec3_polar(data + msgs[first_idx].sec3_off,
+                             (uint32_t)msgs[first_idx].sec3_len, &grid_ps) != 0)
+            return NULL;
+        nx = grid_ps.nx;
+        ny = grid_ps.ny;
+    } else if (is_unstructured) {
         if (parse_sec3_unstructured(data + msgs[first_idx].sec3_off,
                                     (uint32_t)msgs[first_idx].sec3_len,
                                     &grid_un) != 0)
@@ -409,7 +418,7 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
             lons[i] = full_lons[i];
         free(full_lats);
         free(full_lons);
-    } else {
+    } else if (!is_polar) {
         /* Regular lat/lon: build evenly-spaced arrays */
         for (uint32_t j = 0; j < ny; j++) {
             if (grid_ll.scanning_mode & 0x40)
@@ -506,6 +515,23 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
 
     /* Create dataset directly using the open_from_arrays function */
     const char* var_name = grib2_get_variable_name(target_cat, target_num);
+
+    if (is_polar) {
+        /* Curvilinear grid: store the full 2D lat/lon and use 2D nearest.
+         * The 1D lats/lons placeholders are unused for polar — free them. */
+        float* lat2d = (float*)malloc((size_t)n_pts * sizeof(float));
+        float* lon2d = (float*)malloc((size_t)n_pts * sizeof(float));
+        if (!lat2d || !lon2d ||
+            polar_stereo_compute_latlon(&grid_ps, lat2d, lon2d) != 0) {
+            free(lat2d); free(lon2d);
+            free(lats); free(lons); free(times); free(all_data);
+            return NULL;
+        }
+        free(lats); free(lons);
+        return refs_open_from_arrays_2d(
+            var_name, nx, ny, nt, lat2d, lon2d, times, all_data);
+    }
+
     refs_dataset_t* ds = refs_open_from_arrays(
         var_name, nx, ny, nt, lats, lons, times, all_data);
 
@@ -1020,6 +1046,24 @@ uint32_t wp_ny(const refs_dataset_t* ds) { return refs_ny(ds); }
 
 EMSCRIPTEN_KEEPALIVE
 uint32_t wp_nt(const refs_dataset_t* ds) { return refs_nt(ds); }
+
+EMSCRIPTEN_KEEPALIVE
+int wp_is_curvilinear(const refs_dataset_t* ds) { return refs_is_curvilinear(ds); }
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t wp_find_nearest_cell(const refs_dataset_t* ds, double lat, double lon) {
+    return refs_find_nearest_cell(ds, lat, lon);
+}
+
+EMSCRIPTEN_KEEPALIVE
+float wp_cell_lat(const refs_dataset_t* ds, uint32_t iy, uint32_t ix) {
+    return refs_cell_lat(ds, iy, ix);
+}
+
+EMSCRIPTEN_KEEPALIVE
+float wp_cell_lon(const refs_dataset_t* ds, uint32_t iy, uint32_t ix) {
+    return refs_cell_lon(ds, iy, ix);
+}
 
 /* ---- Pointer accessors for parallel bbox grid extraction (extractGrid) ----
  *

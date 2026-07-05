@@ -25,6 +25,9 @@ struct refs_dataset {
     uint32_t nx, ny, nt;
     float*   lats;          /* [ny] */
     float*   lons;          /* [nx] */
+    float*   lat2d;         /* [ny*nx], NULL unless curvilinear */
+    float*   lon2d;         /* [ny*nx], NULL unless curvilinear */
+    int      is_curvilinear;
     int64_t* times;         /* [nt] */
     FILE*    bin_f;         /* open handle to .bin file (NULL if buffer mode) */
     const uint8_t* bin_buf; /* pointer to bin data in memory (NULL if file mode) */
@@ -275,6 +278,8 @@ void refs_close(refs_dataset_t* ds) {
     free(ds->times);
     free(ds->lats);
     free(ds->lons);
+    free(ds->lat2d);
+    free(ds->lon2d);
     free(ds);
 }
 
@@ -617,6 +622,55 @@ refs_dataset_t* refs_open_from_arrays(const char* var_name,
     return ds;
 }
 
+/* Curvilinear (projected) grid: stores full 2D lat/lon instead of 1D axes. */
+refs_dataset_t* refs_open_from_arrays_2d(const char* var_name,
+                                         uint32_t nx, uint32_t ny, uint32_t nt,
+                                         float* lat2d, float* lon2d,
+                                         int64_t* times, float* data) {
+    refs_dataset_t* ds = (refs_dataset_t*)calloc(1, sizeof(refs_dataset_t));
+    if (!ds) return NULL;
+    ds->var_name = (char*)malloc(strlen(var_name) + 1);
+    strcpy(ds->var_name, var_name);
+    ds->nx = nx; ds->ny = ny; ds->nt = nt;
+    ds->lats = NULL; ds->lons = NULL;      /* curvilinear: no 1D axes */
+    ds->lat2d = lat2d; ds->lon2d = lon2d;
+    ds->is_curvilinear = 1;
+    ds->times = times;
+    ds->bin_f = NULL;
+    ds->bin_buf = (const uint8_t*)data;
+    ds->bin_buf_len = nt * ny * nx * sizeof(float);
+    ds->owns_bin_buf = 1;
+    ds->is_timeseries = (nt > 1 && times[0] != times[nt - 1]) ? 1 : 0;
+    return ds;
+}
+
+int refs_is_curvilinear(const refs_dataset_t* ds) { return ds ? ds->is_curvilinear : 0; }
+
+float refs_cell_lat(const refs_dataset_t* ds, uint32_t iy, uint32_t ix) {
+    if (ds->is_curvilinear) return ds->lat2d[(size_t)iy * ds->nx + ix];
+    return ds->lats ? ds->lats[iy] : 0.0f;
+}
+float refs_cell_lon(const refs_dataset_t* ds, uint32_t iy, uint32_t ix) {
+    if (ds->is_curvilinear) return ds->lon2d[(size_t)iy * ds->nx + ix];
+    return ds->lons ? ds->lons[ix] : 0.0f;
+}
+
+/* Brute-force great-circle nearest over the full 2D coords. Returns iy*nx+ix. */
+uint32_t refs_find_nearest_cell(const refs_dataset_t* ds, double lat, double lon) {
+    const double DEG2RAD = 3.14159265358979323846 / 180.0;
+    double la = lat * DEG2RAD, lo = lon * DEG2RAD;
+    double sla = sin(la), cla = cos(la);
+    uint32_t best = 0; double best_c = -2.0;   /* maximise cos(angular distance) */
+    size_t n = (size_t)ds->ny * ds->nx;
+    for (size_t k = 0; k < n; k++) {
+        double gla = (double)ds->lat2d[k] * DEG2RAD;
+        double glo = (double)ds->lon2d[k] * DEG2RAD;
+        double c = sla * sin(gla) + cla * cos(gla) * cos(glo - lo);
+        if (c > best_c) { best_c = c; best = (uint32_t)k; }
+    }
+    return best;
+}
+
 /* Query to a dynamically allocated string (for WASM — no FILE*) */
 char* refs_query_to_string(refs_dataset_t* ds,
                            const uint32_t* time_indices, uint32_t time_count,
@@ -668,8 +722,13 @@ char* refs_query_to_string(refs_dataset_t* ds,
             ds->nx, ds->ny, ds->nt);
 
     if (single_point) {
-        APPENDF("  \"location\": { \"lat\": %.4f, \"lon\": %.4f },\n",
-                (double)ds->lats[lat_start], (double)ds->lons[lon_start]);
+        double loc_lat = ds->is_curvilinear
+            ? (double)ds->lat2d[(size_t)lat_start * ds->nx + lon_start]
+            : (double)ds->lats[lat_start];
+        double loc_lon = ds->is_curvilinear
+            ? (double)ds->lon2d[(size_t)lat_start * ds->nx + lon_start]
+            : (double)ds->lons[lon_start];
+        APPENDF("  \"location\": { \"lat\": %.4f, \"lon\": %.4f },\n", loc_lat, loc_lon);
         APPENDF("  \"timeseries\": [\n");
 
         int first = 1;
@@ -700,13 +759,17 @@ char* refs_query_to_string(refs_dataset_t* ds,
                 for (uint32_t i = lon_start; i < lon_end; i++) {
                     if (!first) APPENDF(",\n");
                     first = 0;
+                    double cell_lat = ds->is_curvilinear
+                        ? (double)ds->lat2d[(size_t)j * ds->nx + i] : (double)ds->lats[j];
+                    double cell_lon = ds->is_curvilinear
+                        ? (double)ds->lon2d[(size_t)j * ds->nx + i] : (double)ds->lons[i];
                     double val = (double)chunk[j * ds->nx + i];
                     if (val != val || val > 1e37 || val < -1e37)  /* NaN or fill */
                         APPENDF("    {\"time\": \"%s\", \"lat\": %.4f, \"lon\": %.4f, \"value\": null}",
-                                ts, (double)ds->lats[j], (double)ds->lons[i]);
+                                ts, cell_lat, cell_lon);
                     else
                         APPENDF("    {\"time\": \"%s\", \"lat\": %.4f, \"lon\": %.4f, \"value\": %.6g}",
-                                ts, (double)ds->lats[j], (double)ds->lons[i], val);
+                                ts, cell_lat, cell_lon, val);
                 }
             }
         }

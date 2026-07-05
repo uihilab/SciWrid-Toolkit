@@ -16,6 +16,7 @@ cmd = [
     "'_wp_close','_wp_nx','_wp_ny','_wp_nt',"
     "'_wp_ds_lats_ptr','_wp_ds_lons_ptr','_wp_ds_data_ptr',"
     "'_wp_find_nearest_lat','_wp_find_nearest_lon','_wp_query','_wp_free','_wp_malloc','_wp_memcpy',"
+    "'_wp_is_curvilinear','_wp_find_nearest_cell','_wp_cell_lat','_wp_cell_lon',"
     "'_malloc','_free']",
     "-sALLOW_MEMORY_GROWTH=1",
     "-sMODULARIZE=1",

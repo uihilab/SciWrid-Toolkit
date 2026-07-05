@@ -84,4 +84,14 @@ refs_dataset_t* refs_open_from_arrays(const char* var_name,
                                       float* lats, float* lons,
                                       int64_t* times, float* data);
 
+/* Curvilinear variant: takes ownership of full 2D lat/lon (each [ny*nx]). */
+refs_dataset_t* refs_open_from_arrays_2d(const char* var_name,
+                                         uint32_t nx, uint32_t ny, uint32_t nt,
+                                         float* lat2d, float* lon2d,
+                                         int64_t* times, float* data);
+int      refs_is_curvilinear(const refs_dataset_t* ds);
+uint32_t refs_find_nearest_cell(const refs_dataset_t* ds, double lat, double lon);
+float    refs_cell_lat(const refs_dataset_t* ds, uint32_t iy, uint32_t ix);
+float    refs_cell_lon(const refs_dataset_t* ds, uint32_t iy, uint32_t ix);
+
 #endif /* QUERY_REFS_H */
