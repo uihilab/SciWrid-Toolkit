@@ -525,6 +525,68 @@ refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
     return wp_normalize_range(s, var_index, 0, INT32_MAX, -1, -1);
 }
 
+/* Curvilinear (polar) grid window export: decode timestep tt and resample onto
+ * a width×height bbox grid via the exact inverse projection (O(1) per pixel).
+ * Returns a malloc'd width*height Float32 buffer (NaN outside the grid); caller
+ * frees via wp_free. NULL if the variable is not a polar grid. */
+EMSCRIPTEN_KEEPALIVE
+float* wp_grid_resample_polar(wp_scan_result_t* s, int var_index, int32_t tt,
+                              double minLon, double minLat, double maxLon, double maxLat,
+                              int32_t width, int32_t height) {
+    if (!s || var_index < 0 || var_index >= s->n_vars) return NULL;
+    if (width <= 0 || height <= 0) return NULL;
+    wp_var_info_t* vi = &s->vars[var_index];
+    const uint8_t* data = s->grb_data; grib2_msg_t* msgs = s->msgs; int n_msgs = s->n_msgs;
+
+    int first_idx = -1;
+    for (int i = 0; i < n_msgs; i++)
+        if (msgs[i].param_cat == vi->cat && msgs[i].param_num == vi->num) { first_idx = i; break; }
+    if (first_idx < 0) return NULL;
+
+    grib2_grid_t g;
+    if (grib2_parse_grid(vi, data + msgs[first_idx].sec3_off,
+                         (uint32_t)msgs[first_idx].sec3_len, &g) != 0) return NULL;
+    if (g.kind != 3) return NULL;             /* polar only */
+    uint32_t nx = g.nx, ny = g.ny, n_pts = nx * ny, ref_npts = n_pts;
+
+    int* sel = (int*)malloc((size_t)n_msgs * sizeof(int));
+    if (!sel) return NULL;
+    int sel_cnt = 0;
+    for (int i = 0; i < n_msgs; i++) {
+        if (msgs[i].param_cat != vi->cat || msgs[i].param_num != vi->num) continue;
+        uint32_t npts = (msgs[i].sec5_len >= 9) ? be32(data + msgs[i].sec5_off + 5) : 0;
+        if (npts == ref_npts || msgs[i].sec6_off != 0) sel[sel_cnt++] = i;
+    }
+    if (sel_cnt == 0) { free(sel); return NULL; }
+    if (tt < 0) tt = 0;
+    if (tt > sel_cnt - 1) tt = sel_cnt - 1;
+
+    float* field = (float*)malloc((size_t)n_pts * sizeof(float));
+    if (!field) { free(sel); return NULL; }
+    if (grib2_decode_one_field(data, &msgs[sel[tt]], n_pts, field) != 0) {
+        free(field); free(sel); return NULL;
+    }
+    free(sel);
+
+    float* out = (float*)malloc((size_t)width * height * sizeof(float));
+    if (!out) { free(field); return NULL; }
+    double dx = (maxLon - minLon) / width, dy = (maxLat - minLat) / height;
+    for (int y = 0; y < height; y++) {
+        double lat = maxLat - (y + 0.5) * dy;
+        for (int x = 0; x < width; x++) {
+            double lon = minLon + (x + 0.5) * dx;
+            double fi, fj;
+            polar_stereo_inverse(&g.ps, lat, lon, &fi, &fj);
+            long ii = (long)floor(fi + 0.5), jj = (long)floor(fj + 0.5);
+            out[(size_t)y * width + x] =
+                (ii >= 0 && ii < (long)nx && jj >= 0 && jj < (long)ny)
+                ? field[(size_t)jj * nx + ii] : NAN;
+        }
+    }
+    free(field);
+    return out;
+}
+
 /* =========================================================================
  * Step 3: Free scan result
  * ======================================================================= */

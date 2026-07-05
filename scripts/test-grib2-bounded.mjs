@@ -56,5 +56,40 @@ try {
   big.close();
 } catch (e) { ok(false, `1GB point extract threw: ${e.message}`); }
 
+// --- OOM fix: extractGrid on a large rung (single timestep) ---
+try {
+  const big2 = new SciWridToolkit();
+  await big2.read(new Uint8Array(readFileSync(BIG)));
+  const bv2 = big2.vars.find(x => x.supported) || big2.vars[0];
+  const grid = await big2.extractGrid({ variable: bv2.name,
+    bbox: [-105, 37, -95, 43], width: 32, height: 32, t: 0 });
+  const cells = grid.data || grid.sliceData || (grid.variables && grid.variables[0].data);
+  ok(cells && cells.length === 32 * 32, `1GB extractGrid returned ${cells ? cells.length : 0} cells (no OOM)`);
+  big2.close();
+} catch (e) { ok(false, `1GB extractGrid threw: ${e.message}`); }
+
+// --- curvilinear extractGrid correctness: pixels match point extract (eccodes-verified) ---
+try {
+  const gk = new SciWridToolkit();
+  await gk.read(new Uint8Array(readFileSync(FILE)));
+  const gv = gk.vars.find(x => x.supported) || gk.vars[0];
+  const W = 8, H = 8, gbbox = [-100, 38, -92, 44];
+  const g = await gk.extractGrid({ variable: gv.name, bbox: gbbox, width: W, height: H, t: 0 });
+  const [mnLon, mnLat, , mxLat] = gbbox;
+  const dx = (gbbox[2] - mnLon) / W, dy = (mxLat - mnLat) / H;
+  let match = 0, tot = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const plat = mxLat - (y + 0.5) * dy, plon = mnLon + (x + 0.5) * dx;
+    const pe = await gk.extract({ variable: gv.name, lat: plat, lon: plon, t1: 0, t2: 0 });
+    const pv = pe.timeseries[0].value, gvv = g.data[y * W + x];
+    tot++;
+    const bothMasked = pv == null && Number.isNaN(gvv);
+    const bothNum = pv != null && !Number.isNaN(gvv) && Math.abs(pv - gvv) <= 1e-3;
+    if (bothMasked || bothNum) match++;
+  }
+  ok(match / tot >= 0.85, `curvilinear grid vs point extract: ${match}/${tot} pixels match`);
+  gk.close();
+} catch (e) { ok(false, `curvilinear grid correctness threw: ${e.message}`); }
+
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');
 process.exit(failed ? 1 : 0);

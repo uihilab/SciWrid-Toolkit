@@ -211,6 +211,11 @@ int lambert_compute_latlon(const grid_lambert_t* g,
 int polar_stereo_compute_latlon(const grid_polar_t* g,
                                 float* lats, float* lons);
 
+/* Inverse polar stereographic: (lat,lon in degrees) → fractional grid (i,j).
+ * Round to nearest int for the covering cell; caller checks 0<=i<nx, 0<=j<ny. */
+int polar_stereo_inverse(const grid_polar_t* g, double lat, double lon,
+                         double* fi, double* fj);
+
 /* Data decoders */
 int decode_simple (const uint8_t* payload, uint32_t payload_len,
                    const packing_t* pk, float* out);

@@ -453,6 +453,33 @@ int polar_stereo_compute_latlon(const grid_polar_t* g, float* lats, float* lons)
     return 0;
 }
 
+/* Inverse of polar_stereo_compute_latlon: (lat,lon) → fractional grid (i,j). */
+int polar_stereo_inverse(const grid_polar_t* g, double lat, double lon,
+                         double* fi, double* fj) {
+    const double DEG2RAD = M_PI / 180.0;
+    double R    = (g->earth_radius > 0.0) ? g->earth_radius : 6371229.0;
+    double h    = (g->proj_flag & 0x80) ? -1.0 : 1.0;
+    double phic = g->lad  * DEG2RAD;
+    double lov  = g->lov  * DEG2RAD;
+    double phi0 = g->lat1 * DEG2RAD;
+    double lam0 = g->lon1 * DEG2RAD;
+
+    double K    = R * (1.0 + sin(h * phic));
+    double rho0 = K * tan(M_PI / 4.0 - h * phi0 / 2.0);
+    double x0   =  rho0 * sin(lam0 - lov);
+    double y0   = -h * rho0 * cos(lam0 - lov);
+    double sx   = (g->scanning_mode & 0x80) ? -1.0 : 1.0;
+    double sy   = (g->scanning_mode & 0x40) ? 1.0 : -1.0;
+
+    double phi = lat * DEG2RAD, lam = lon * DEG2RAD;
+    double rho = K * tan(M_PI / 4.0 - h * phi / 2.0);
+    double X   =  rho * sin(lam - lov);
+    double Y   = -h * rho * cos(lam - lov);
+    *fi = (X - x0) / (sx * g->dx);
+    *fj = (Y - y0) / (sy * g->dy);
+    return 0;
+}
+
 /* =========================================================================
  * Section 5 – Data Representation (packing parameters)
  *
