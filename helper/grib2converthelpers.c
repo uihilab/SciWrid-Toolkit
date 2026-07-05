@@ -836,19 +836,22 @@ int decode_complex(const uint8_t* payload, uint32_t payload_len,
     }
 
     /*
-     * Only NG-1 group lengths are stored in the bitstream.
-     * The last group's length comes from Section 5 (last_group_len).
+     * The bitstream stores a scaled length field for ALL NG groups. The last
+     * group's TRUE length comes from Section 5 (last_group_len), but its stored
+     * field still occupies bits_group_len bits that must be stepped over before
+     * the (octet-aligned) values sub-section — otherwise the values section is
+     * read one field too early. (Failing to advance past the last length field
+     * mis-decoded order-1 spatial-differencing fields, e.g. NCEP Stage IV.)
      */
     uint32_t total_check = 0;
-    for (uint32_t g = 0; g < NG - 1; g++) {
+    for (uint32_t g = 0; g < NG; g++) {
         uint32_t raw = (pk->bits_group_len > 0)
                        ? extract_bits(p, p_len, bit_off, pk->bits_group_len) : 0;
-        gl[g] = pk->ref_group_len + raw * pk->len_increment;
         bit_off += pk->bits_group_len;
+        gl[g] = (g == NG - 1) ? pk->last_group_len
+                              : pk->ref_group_len + raw * pk->len_increment;
         total_check += gl[g];
     }
-    gl[NG - 1] = pk->last_group_len;
-    total_check += pk->last_group_len;
     bit_off = OCTET_ALIGN(bit_off);   /* align before values */
 
     if (total_check != N) {
