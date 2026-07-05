@@ -42,5 +42,19 @@ const got = series.timeseries[0].value;
 ok(Math.abs(got - p.value) <= 1e-3, `point-reduce value ${got} ≈ ${p.value}`);
 w.ccall('wp_close', null, ['number'], [ds]);
 kit.close();
+
+// --- OOM fix: public-API point extract on a large rung that OOMs today ---
+const BIG = process.env.GRIB2_BIG_FILE || 'E:/grib2/stage4_1gb.grib2';
+try {
+  const big = new SciWridToolkit();
+  await big.read(new Uint8Array(readFileSync(BIG)));
+  const bv = big.vars.find(x => x.supported) || big.vars[0];
+  const wet = ref.points.find(q => q.value && q.value > 0.01);
+  const out = await big.extract({ variable: bv.name, lat: wet.queryLat, lon: wet.queryLon });
+  const s = out.timeseries || (out.variables && out.variables[0].timeseries);
+  ok(Array.isArray(s) && s.length > 0, `1GB point extract returned ${s ? s.length : 0} steps (no OOM)`);
+  big.close();
+} catch (e) { ok(false, `1GB point extract threw: ${e.message}`); }
+
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');
 process.exit(failed ? 1 : 0);
