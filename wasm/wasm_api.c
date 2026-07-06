@@ -587,6 +587,32 @@ float* wp_grid_resample_polar(wp_scan_result_t* s, int var_index, int32_t tt,
     return out;
 }
 
+/* Decode ONE message's field and return the value at grid cell (iy,ix), with no
+ * coordinate build, dataset, or JSON. Used by the range-native streaming loop,
+ * where the cell is already known — avoids re-projecting the whole grid and
+ * re-marshalling per message. Returns NaN on any error / fill (caller → null). */
+EMSCRIPTEN_KEEPALIVE
+double wp_scan_decode_cell(wp_scan_result_t* s, int var_index, int32_t iy, int32_t ix) {
+    if (!s || var_index < 0 || var_index >= s->n_vars) return NAN;
+    wp_var_info_t* vi = &s->vars[var_index];
+    const uint8_t* data = s->grb_data; grib2_msg_t* msgs = s->msgs; int n_msgs = s->n_msgs;
+    int first = -1;
+    for (int i = 0; i < n_msgs; i++)
+        if (msgs[i].param_cat == vi->cat && msgs[i].param_num == vi->num) { first = i; break; }
+    if (first < 0) return NAN;
+    grib2_grid_t g;
+    if (grib2_parse_grid(vi, data + msgs[first].sec3_off,
+                         (uint32_t)msgs[first].sec3_len, &g) != 0) return NAN;
+    uint32_t nx = g.nx, ny = g.ny, n_pts = nx * ny;
+    if (iy < 0 || ix < 0 || (uint32_t)iy >= ny || (uint32_t)ix >= nx) return NAN;
+    float* chunk = (float*)malloc((size_t)n_pts * sizeof(float));
+    if (!chunk) return NAN;
+    if (grib2_decode_one_field(data, &msgs[first], n_pts, chunk) != 0) { free(chunk); return NAN; }
+    float v = chunk[(size_t)iy * nx + ix];
+    free(chunk);
+    return (double)v;
+}
+
 /* =========================================================================
  * Step 3: Free scan result
  * ======================================================================= */
