@@ -65,5 +65,38 @@ if (!existsSync(FILE)) { console.error('missing', FILE); process.exit(1); }
   } finally { server.close(); }
 }
 
+// Task 3: single-time value matches oracle; time-range matches whole-file; transfer is tiny.
+{
+  const { grib2RangePointExtract } = await import('../lib/grib2/grib2-range.js');
+  const { SciWridToolkit } = await import('../lib/sciwrid-lib.js');
+  const ref = JSON.parse(readFileSync(REF, 'utf8'));
+  const wet = ref.points.find(q => q.value && q.value > 0.01);
+
+  const { server, port, size } = await startFileRangeServer(FILE);
+  try {
+    const url = `http://127.0.0.1:${port}/f.grib2`;
+    const kit = new SciWridToolkit();
+    await kit.read(new Uint8Array(readFileSync(FILE)));
+    const vname = (kit.vars.find(x => x.supported) || kit.vars[0]).name;
+    const whole = await kit.extract({ variable: vname, lat: wet.queryLat, lon: wet.queryLon });
+    const wholeSeries = whole.timeseries || whole.variables[0].timeseries;
+
+    const one = await grib2RangePointExtract(url, { variable: vname, lat: wet.queryLat, lon: wet.queryLon, t1: 0, t2: 0 });
+    ok(one && one.timeseries.length === 1, 'single-time returns 1 step');
+    ok(one && Math.abs(one.timeseries[0].value - wholeSeries[0].value) <= 1e-3,
+       `single-time value ${one && one.timeseries[0].value} ≈ whole-file ${wholeSeries[0].value}`);
+    ok(one && one._stats.bytes < size * 0.05, `single-time transfer ${one && (100 * one._stats.bytes / size).toFixed(2)}% ≪ 5%`);
+
+    const rng = await grib2RangePointExtract(url, { variable: vname, lat: wet.queryLat, lon: wet.queryLon, t1: 0, t2: 3 });
+    ok(rng && rng.timeseries.length === 4, 'range returns 4 steps');
+    const same = rng && rng.timeseries.every((s, i) => {
+      const w = wholeSeries[i].value;
+      return (s.value == null && w == null) || (s.value != null && w != null && Math.abs(s.value - w) <= 1e-3);
+    });
+    ok(same, 'range values match whole-file (file order)');
+    kit.close();
+  } finally { server.close(); }
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');
 process.exit(failed ? 1 : 0);
