@@ -47,5 +47,23 @@ if (!existsSync(FILE)) { console.error('missing', FILE); process.exit(1); }
   } finally { server.close(); }
 }
 
+// Task 2: index stage4_50mb.
+{
+  const { GrbRangeReader } = await import('../lib/grib2/grb-range-reader.js');
+  const { indexMessages } = await import('../lib/grib2/grib2-index.js');
+  const { server, port, size } = await startFileRangeServer(FILE);
+  try {
+    const r = new GrbRangeReader(`http://127.0.0.1:${port}/f.grib2`);
+    const { messages, bytesRead } = await indexMessages(r);
+    ok(messages.length === 173, `indexed ${messages.length} messages (expect 173)`);
+    ok(messages.every(m => m.cat === messages[0].cat && m.num === messages[0].num),
+       'single variable (uniform cat/num)');
+    const last = messages[messages.length - 1];
+    ok(last.offset + last.length === size, 'offsets + lengths tile the file exactly');
+    ok(messages.every(m => m.time > 0), 'times parsed (unix seconds) for every message');
+    ok(bytesRead < size * 0.05, `index pulled ${(100 * bytesRead / size).toFixed(2)}% of file (headers only)`);
+  } finally { server.close(); }
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');
 process.exit(failed ? 1 : 0);
