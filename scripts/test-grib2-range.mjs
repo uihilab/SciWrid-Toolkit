@@ -98,5 +98,38 @@ if (!existsSync(FILE)) { console.error('missing', FILE); process.exit(1); }
   } finally { server.close(); }
 }
 
+// Task 4: public extract() dispatches to range; 1.5GB full-timeseries works; fallback intact.
+{
+  const { extract } = await import('../lib/sciwrid-api.js');
+  const { SciWridToolkit } = await import('../lib/sciwrid-lib.js');
+  const ref = JSON.parse(readFileSync(REF, 'utf8'));
+  const wet = ref.points.find(q => q.value && q.value > 0.01);
+
+  {
+    const { server, port } = await startFileRangeServer(FILE);
+    try {
+      const kit = new SciWridToolkit(); await kit.read(new Uint8Array(readFileSync(FILE)));
+      const vname = (kit.vars.find(x => x.supported) || kit.vars[0]).name; kit.close();
+      const out = await extract(`http://127.0.0.1:${port}/f.grib2`,
+        { variable: vname, lat: wet.queryLat, lon: wet.queryLon, t1: 0, t2: 0 });
+      ok(out && out._stats && out.timeseries.length === 1, 'extract() used the range path');
+      ok(out && Math.abs(out.timeseries[0].value - wet.value) <= 1e-3, 'public range value matches oracle');
+    } finally { server.close(); }
+  }
+
+  if (existsSync(BIG)) {
+    const { server, port } = await startFileRangeServer(BIG);
+    try {
+      const kitB = new SciWridToolkit(); await kitB.read(new Uint8Array(readFileSync(FILE)));
+      const vname = (kitB.vars.find(x => x.supported) || kitB.vars[0]).name; kitB.close();
+      const out = await extract(`http://127.0.0.1:${port}/big.grib2`,
+        { variable: vname, lat: wet.queryLat, lon: wet.queryLon, t1: 0, t2: 0 });
+      ok(out && out.timeseries.length === 1 && out.timeseries[0].value != null,
+         `1.5GB single-time over range: value=${out && out.timeseries[0].value}`);
+      ok(out && out._stats.bytes < 20e6, `1.5GB pulled ${out && (out._stats.bytes/1e6).toFixed(1)} MB (index + 1 msg)`);
+    } finally { server.close(); }
+  } else { console.log('skip 1.5GB (fixture missing)'); }
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');
 process.exit(failed ? 1 : 0);
