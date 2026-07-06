@@ -131,5 +131,35 @@ if (!existsSync(FILE)) { console.error('missing', FILE); process.exit(1); }
   } else { console.log('skip 1.5GB (fixture missing)'); }
 }
 
+// Follow-up: local seekable source — extract from a LOCAL path without loading
+// the whole file (fixes local 1.5GB, which the whole-file path OOMs).
+{
+  const { extract } = await import('../lib/sciwrid-api.js');
+  const { grib2RangePointExtractFile } = await import('../lib/grib2/grib2-range.js');
+  const { SciWridToolkit } = await import('../lib/sciwrid-lib.js');
+  const ref = JSON.parse(readFileSync(REF, 'utf8'));
+  const wet = ref.points.find(q => q.value && q.value > 0.01);
+
+  const kit = new SciWridToolkit(); await kit.read(new Uint8Array(readFileSync(FILE)));
+  const vname = (kit.vars.find(x => x.supported) || kit.vars[0]).name; kit.close();
+
+  // direct file reader on the small file, value matches oracle
+  const one = await grib2RangePointExtractFile(FILE,
+    { variable: vname, lat: wet.queryLat, lon: wet.queryLon, t1: 0, t2: 0 }, {});
+  ok(one && Math.abs(one.timeseries[0].value - wet.value) <= 1e-3, `local file value ${one && one.timeseries[0].value} ≈ ${wet.value}`);
+  ok(one && one._stats.bytes < statSync(FILE).size * 0.05, `local read ${one && (100*one._stats.bytes/statSync(FILE).size).toFixed(2)}% (headers + 1 msg)`);
+
+  // public extract() with a bare LOCAL PATH routes through the local range path
+  const viaApi = await extract(FILE, { variable: vname, lat: wet.queryLat, lon: wet.queryLon, t1: 0, t2: 0 });
+  ok(viaApi && viaApi._stats && Math.abs(viaApi.timeseries[0].value - wet.value) <= 1e-3, 'extract(localPath) used the local range path');
+
+  // the whole reason: a 1.5GB LOCAL file works (whole-file read() OOMs it)
+  if (existsSync(BIG)) {
+    const big = await extract(BIG, { variable: vname, lat: wet.queryLat, lon: wet.queryLon, t1: 0, t2: 0 });
+    ok(big && big.timeseries.length === 1 && big.timeseries[0].value != null,
+       `1.5GB LOCAL file over range: value=${big && big.timeseries[0].value}`);
+  } else { console.log('skip 1.5GB local (fixture missing)'); }
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED');
 process.exit(failed ? 1 : 0);
