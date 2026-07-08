@@ -73,5 +73,27 @@ const cols = (order) => [
 write('sorted_time.parquet', cols(idx), undefined, { rowGroupSize: 4 });
 write('unsorted_time.parquet', cols(shuffled), undefined, { rowGroupSize: 4 });
 
+// large_sorted: a real mesh (20 lats × 15 lons = 300 cells) over 200 hourly timesteps,
+// SORTED by time with one timestamp per row group (rowGroupSize = 300). ~60k rows / ~1 MB
+// — comfortably larger than the 64 KiB footer window, so a time-scoped query genuinely
+// transfers only the covering row groups' column chunks (the range-native proof). Tight
+// per-group time statistics let a date query prune to a handful of groups. INT64 = BigInt.
+const BASE = 1704067200; // 2024-01-01T00:00:00Z
+const gLats = Array.from({ length: 20 }, (_, i) => 10 + i * 0.5);
+const gLons = Array.from({ length: 15 }, (_, i) => i * 0.5);
+const lgLat = [], lgLon = [], lgT = [], lgV = [];
+for (let t = 0; t < 200; t++) {
+  const sec = BASE + t * 3600;
+  for (let a = 0; a < gLats.length; a++) for (let o = 0; o < gLons.length; o++) {
+    lgLat.push(gLats[a]); lgLon.push(gLons[o]); lgT.push(BigInt(sec)); lgV.push(t * 1000 + a * 10 + o);
+  }
+}
+write('large_sorted.parquet', [
+  { name: 'lat', data: lgLat, type: 'DOUBLE' },
+  { name: 'lon', data: lgLon, type: 'DOUBLE' },
+  { name: 'time', data: lgT, type: 'INT64' },
+  { name: 'v', data: lgV, type: 'DOUBLE' },
+], undefined, { rowGroupSize: 300 });
+
 console.log('parquet fixtures written to', OUT);
 
