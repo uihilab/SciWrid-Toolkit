@@ -476,6 +476,74 @@ function attachClickQuery() {
   map.on('click', (e) => doPointQuery(e.lngLat.lat, e.lngLat.lng, { popup: true }));
 }
 
+/* Instructions walkthrough. */
+const HELP_STEPS = [
+  {
+    title: 'Upload a file',
+    body: 'Choose a supported GRIB2, NetCDF, Zarr-zip, or TIFF file from the File picker in the sidebar.',
+  },
+  {
+    title: 'Scan the data',
+    body: 'The toolkit scans the file locally and fills in the variables and time steps it contains.',
+  },
+  {
+    title: 'Choose what to display',
+    body: 'Select a variable, time step, color ramp, and layer opacity for the map.',
+  },
+  {
+    title: 'Set the map area',
+    body: 'Enter a bounding box and choose Render area. Moving the map refreshes the visible data at an appropriate resolution.',
+  },
+  {
+    title: 'Inspect values',
+    body: 'Click the map or enter latitude and longitude values to query the underlying data point.',
+  },
+  {
+    title: 'Try the bundled example',
+    body: 'Load the included GFS forecast file to scan it and render its first variable automatically.',
+  },
+];
+
+let helpIndex = 0;
+let helpReturnFocus = null;
+
+function renderHelpStep() {
+  const step = HELP_STEPS[helpIndex];
+  $('help-step-counter').textContent = `Step ${helpIndex + 1} / ${HELP_STEPS.length}`;
+  $('help-title').textContent = step.title;
+  $('help-body').textContent = step.body;
+  $('help-back').disabled = helpIndex === 0;
+  $('help-next').hidden = helpIndex === HELP_STEPS.length - 1;
+  $('help-example').hidden = helpIndex !== HELP_STEPS.length - 1;
+}
+
+function openHelp() {
+  helpIndex = 0;
+  helpReturnFocus = document.activeElement;
+  renderHelpStep();
+  $('help-overlay').hidden = false;
+  $('help-close').focus();
+}
+
+function closeHelp() {
+  $('help-overlay').hidden = true;
+  helpReturnFocus?.focus();
+}
+
+$('help-btn').addEventListener('click', openHelp);
+$('help-close').addEventListener('click', closeHelp);
+$('help-back').addEventListener('click', () => {
+  if (helpIndex > 0) { helpIndex -= 1; renderHelpStep(); }
+});
+$('help-next').addEventListener('click', () => {
+  if (helpIndex < HELP_STEPS.length - 1) { helpIndex += 1; renderHelpStep(); }
+});
+$('help-overlay').addEventListener('click', (event) => {
+  if (event.target === $('help-overlay')) closeHelp();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !$('help-overlay').hidden) closeHelp();
+});
 /* ── boot ───────────────────────────────────────────────────────────────── */
 function init() {
   map = new maplibregl.Map({
