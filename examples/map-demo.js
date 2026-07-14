@@ -312,9 +312,8 @@ async function refreshLayer({ force = false } = {}) {
 }
 
 /* ── file handling ──────────────────────────────────────────────────────── */
-$('file').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+async function loadSource(file) {
+  if (!file) return null;
   lastSource = file;
   setStatus('Scanning…', 'busy');
   try {
@@ -339,11 +338,15 @@ $('file').addEventListener('change', async (e) => {
     prefillExtractInputs(lastScan.bbox);
     validateAndSketch();
     setStatus('Set an area and click "Render area".', '');
+    return lastScan;
   } catch (err) {
     setStatus('Error: ' + err.message, 'error');
     console.error(err);
+    return null;
   }
-});
+}
+
+$('file').addEventListener('change', (e) => loadSource(e.target.files[0]));
 
 $('variable').addEventListener('change', () => {
   populateTimePicker(lastScan, $('variable').value);
