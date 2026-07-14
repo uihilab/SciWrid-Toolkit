@@ -544,6 +544,32 @@ $('help-overlay').addEventListener('click', (event) => {
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !$('help-overlay').hidden) closeHelp();
 });
+async function runExample() {
+  setStatus('Loading example... (40 MB)', 'busy');
+  let file;
+  try {
+    const response = await fetch('./timeseries/gfs.t06z.pgrb2.1p00.f000');
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const blob = await response.blob();
+    file = new File([blob], 'gfs.t06z.pgrb2.1p00.f000', { type: blob.type });
+  } catch (err) {
+    setStatus('Error loading example: ' + err.message, 'error');
+    console.error(err);
+    return;
+  }
+
+  const scanResult = await loadSource(file);
+  if (!scanResult) return;
+  extractBbox = scanResult.bbox;
+  lastBucket = null;
+  fitMapToBbox(extractBbox);
+  await refreshLayer({ force: true });
+}
+
+$('help-view-example').addEventListener('click', () => {
+  closeHelp();
+  runExample();
+});
 /* ── boot ───────────────────────────────────────────────────────────────── */
 function init() {
   map = new maplibregl.Map({
