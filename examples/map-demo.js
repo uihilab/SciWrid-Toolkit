@@ -508,7 +508,7 @@ const HELP_STEPS = [
   },
   {
     title: 'Try the bundled example',
-    body: 'Load the included GFS forecast file to scan it and render its first variable automatically.',
+    body: 'Load the included GFS forecast ? four timesteps, three hours apart ? to scan and render it automatically. Then click the map and choose "Show analysis" to chart how the value changes over time.',
   },
 ];
 
@@ -552,14 +552,25 @@ document.addEventListener('keydown', (event) => {
   }
   if (event.key === 'Escape' && !$('analysis-panel').hidden) closeAnalysis();
 });
+// The bundled example joins four forecast hours into one 4-timestep GRIB2 file.
+const EXAMPLE_PARTS = [
+  './timeseries/gfs.t06z.pgrb2.1p00.f000',
+  './timeseries/gfs.t06z.pgrb2.1p00.f003',
+  './timeseries/gfs.t06z.pgrb2.1p00.f006',
+  './timeseries/gfs.t06z.pgrb2.1p00.f009',
+];
+
 async function runExample() {
-  setStatus('Loading example... (40 MB)', 'busy');
   let file;
   try {
-    const response = await fetch('./timeseries/gfs.t06z.pgrb2.1p00.f000');
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    const blob = await response.blob();
-    file = new File([blob], 'gfs.t06z.pgrb2.1p00.f000', { type: blob.type });
+    const blobs = [];
+    for (const [i, url] of EXAMPLE_PARTS.entries()) {
+      setStatus(`Loading example? (172 MB, ${i + 1}/${EXAMPLE_PARTS.length})`, 'busy');
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${url.split('/').pop()}: HTTP ${response.status}`);
+      blobs.push(await response.blob());
+    }
+    file = new File([new Blob(blobs)], 'gfs_timeseries.grb2');
   } catch (err) {
     setStatus('Error loading example: ' + err.message, 'error');
     console.error(err);
