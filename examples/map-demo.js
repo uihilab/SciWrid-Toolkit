@@ -1,4 +1,4 @@
-// examples/map-demo.js â€” MapLibre demo logic.
+// examples/map-demo.js Ã¢â‚¬â€ MapLibre demo logic.
 //
 // Drop any supported file, pick a variable + ramp, see it overlaid on a real
 // basemap, and click to read the underlying value. The heavy extractGrid call
@@ -19,22 +19,23 @@ let timeAxis = null;   // { kind, values } for the active variable; values are d
 let renderToken = 0;   // bumped each refresh; stale worker responses are discarded
 let extractBbox = null; // [minLon,minLat,maxLon,maxLat] - chosen extract region
 let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-extract
+let lastGrid = null;    // pre-warp grid from the last successful render
 const MERCATOR_MAX_LAT = 85.05112878;
 
-/* â”€â”€ render worker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ render worker Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 // extractGrid + gridToImageData run off the main thread so pan/zoom stays
 // smooth. Each request carries the current renderToken; responses with a stale
 // token are ignored (cancellation).
 const worker = new Worker(new URL('./map-demo.worker.js', import.meta.url), { type: 'module' });
-const pending = new Map(); // token â†’ { resolve, reject }
+const pending = new Map(); // token Ã¢â€ â€™ { resolve, reject }
 
 worker.onmessage = (e) => {
-  const { requestId, image, range, error } = e.data;
+  const { requestId, image, range, grid, error } = e.data;
   const slot = pending.get(requestId);
   if (!slot) return;            // already superseded / unknown
   pending.delete(requestId);
   if (error) slot.reject(new Error(error));
-  else slot.resolve({ image, range });
+  else slot.resolve({ image, range, grid });
 };
 
 function renderInWorker(token, payload) {
@@ -44,15 +45,15 @@ function renderInWorker(token, payload) {
   });
 }
 
-/* â”€â”€ status helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ status helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 function setStatus(msg, cls = '') {
   const el = $('status');
   el.textContent = msg;
   el.className = cls;
 }
 
-/* â”€â”€ layer opacity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-// Read the opacity slider (0â€“100) as a 0â€“1 raster-opacity, defaulting to 0.75.
+/* Ã¢â€â‚¬Ã¢â€â‚¬ layer opacity Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+// Read the opacity slider (0Ã¢â‚¬â€œ100) as a 0Ã¢â‚¬â€œ1 raster-opacity, defaulting to 0.75.
 function currentOpacity() {
   const v = parseInt($('opacity').value, 10);
   return Number.isFinite(v) ? v / 100 : 0.75;
@@ -61,7 +62,7 @@ function updateOpacityLabel() {
   $('opacity-val').textContent = `${parseInt($('opacity').value, 10) || 0}%`;
 }
 
-/* â”€â”€ bbox helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ bbox helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 function clampMercatorLat(lat) {
   return Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, lat));
 }
@@ -107,7 +108,7 @@ function fitMapToBbox(bbox) {
   map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 30, duration: 0 });
 }
 
-/* â”€â”€ variable picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ variable picker Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 function populateVariablePicker(names) {
   const sel = $('variable');
   sel.innerHTML = '';
@@ -119,15 +120,15 @@ function populateVariablePicker(names) {
   sel.disabled = names.length === 0;
 }
 
-/* â”€â”€ time picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-// Fill the time <select>. Real CF times â†’ ISO labels; synthetic/none â†’ indices.
+/* Ã¢â€â‚¬Ã¢â€â‚¬ time picker Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+// Fill the time <select>. Real CF times Ã¢â€ â€™ ISO labels; synthetic/none Ã¢â€ â€™ indices.
 function populateTimePicker(meta, variable) {
   const sel = $('time');
   sel.innerHTML = '';
   // File-level date coverage (meta.timeRange spans all axes; present whenever
   // the file has a time axis).
   const tr = meta.timeRange;
-  $('time-range').textContent = tr ? `Coverage: ${tr.start} â†’ ${tr.end}` : '';
+  $('time-range').textContent = tr ? `Coverage: ${tr.start} Ã¢â€ â€™ ${tr.end}` : '';
   const v = (meta.variables || []).find(x => x.name === variable);
   const values = v?.times?.values || meta.times?.values || null;
   if (values && values.length) {
@@ -152,7 +153,7 @@ function populateTimePicker(meta, variable) {
   sel.value = '0';
 }
 
-/* â”€â”€ legend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ legend Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 function drawLegend(rampName, vmin, vmax) {
   const wrap = $('legend');
   if (vmin == null || vmax == null) { wrap.hidden = true; return; }
@@ -175,7 +176,7 @@ function drawLegend(rampName, vmin, vmax) {
 }
 
 function fmtNum(v) {
-  if (!Number.isFinite(v)) return 'â€“';
+  if (!Number.isFinite(v)) return 'Ã¢â‚¬â€œ';
   const a = Math.abs(v);
   if (a !== 0 && (a < 1e-3 || a >= 1e5)) return v.toExponential(2);
   return v.toFixed(2);
@@ -278,17 +279,18 @@ async function refreshLayer({ force = false } = {}) {
   if (!force && bucket === lastBucket) return;
   lastBucket = bucket;
   const token = ++renderToken;
-  // Drop any earlier in-flight request â€” its response will be ignored.
+  // Drop any earlier in-flight request Ã¢â‚¬â€ its response will be ignored.
   for (const [id, slot] of pending) {
     if (id !== token) { pending.delete(id); slot.reject(new Error('superseded')); }
   }
-  setStatus('Renderingâ€¦', 'busy');
+  setStatus('RenderingÃ¢â‚¬Â¦', 'busy');
   try {
     const time = parseInt($('time').value, 10) || 0;
-    const { image: img, range } = await renderInWorker(token, {
+    const { image: img, range, grid } = await renderInWorker(token, {
       source: lastSource, variable, bbox, width: px, height: py, ramp, time,
     });
     if (token !== renderToken) return; // a newer refresh superseded us
+    lastGrid = grid ?? null;
 
     const canvas = document.createElement('canvas');
     canvas.width = img.width; canvas.height = img.height;
@@ -303,7 +305,7 @@ async function refreshLayer({ force = false } = {}) {
                      paint: { 'raster-opacity': currentOpacity() } });
     }
     drawLegend(ramp, range?.vmin, range?.vmax);
-    setStatus(`${variable} â€” ${img.width}Ã—${img.height}`, 'ok');
+    setStatus(`${variable} Ã¢â‚¬â€ ${img.width}Ãƒâ€”${img.height}`, 'ok');
   } catch (e) {
     if (token !== renderToken) return;
     setStatus('Error: ' + e.message, 'error');
@@ -311,11 +313,11 @@ async function refreshLayer({ force = false } = {}) {
   }
 }
 
-/* â”€â”€ file handling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ file handling Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 async function loadSource(file) {
   if (!file) return null;
   lastSource = file;
-  setStatus('Scanningâ€¦', 'busy');
+  setStatus('ScanningÃ¢â‚¬Â¦', 'busy');
   try {
     lastScan = await scan(file);
     // TIFF exposes a real bbox from the file's geokeys. GRIB2/NetCDF/Zarr do
@@ -330,6 +332,7 @@ async function loadSource(file) {
 
     extractBbox = null;
     lastBucket = null;
+    lastGrid = null;
     if (map.getLayer('data-layer')) { map.removeLayer('data-layer'); map.removeSource('data-source'); }
 
     fitMapToBbox(lastScan.bbox);
@@ -368,14 +371,14 @@ $('ext-btn').addEventListener('click', () => {
   refreshLayer({ force: true });
 });
 
-// Layer opacity â€” live-update the existing raster without re-rendering the grid.
+// Layer opacity Ã¢â‚¬â€ live-update the existing raster without re-rendering the grid.
 $('opacity').addEventListener('input', () => {
   updateOpacityLabel();
   if (map && map.getLayer('data-layer'))
     map.setPaintProperty('data-layer', 'raster-opacity', currentOpacity());
 });
 
-/* â”€â”€ point query (lat/lon inputs bounded by the variable's extent) â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ point query (lat/lon inputs bounded by the variable's extent) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 // bbox is [minLon, minLat, maxLon, maxLat]. For TIFF these are real file
 // bounds (in the file CRS); for other formats they're the assumed global box.
 function variableBounds() {
@@ -391,8 +394,8 @@ function updateQueryUI() {
   const { minLon, minLat, maxLon, maxLat, assumed } = variableBounds();
   $('query').hidden = false;
   $('q-bounds').textContent =
-    `Lat ${fmtNum(minLat)} â€¦ ${fmtNum(maxLat)}  Â·  Lon ${fmtNum(minLon)} â€¦ ${fmtNum(maxLon)}` +
-    (assumed ? '  (assumed â€” file exposes no bounds)' : '');
+    `Lat ${fmtNum(minLat)} Ã¢â‚¬Â¦ ${fmtNum(maxLat)}  Ã‚Â·  Lon ${fmtNum(minLon)} Ã¢â‚¬Â¦ ${fmtNum(maxLon)}` +
+    (assumed ? '  (assumed Ã¢â‚¬â€ file exposes no bounds)' : '');
   const latIn = $('q-lat'), lonIn = $('q-lon');
   latIn.min = minLat; latIn.max = maxLat;
   lonIn.min = minLon; lonIn.max = maxLon;
@@ -401,7 +404,7 @@ function updateQueryUI() {
     latIn.value = ((minLat + maxLat) / 2).toFixed(3);
   if (lonIn.value === '' || +lonIn.value < minLon || +lonIn.value > maxLon)
     lonIn.value = ((minLon + maxLon) / 2).toFixed(3);
-  $('q-result').textContent = 'â€“';
+  $('q-result').textContent = 'Ã¢â‚¬â€œ';
   $('q-result').className = 'muted';
   drawBboxDebug();
 }
@@ -412,13 +415,13 @@ function drawBboxDebug() {
   const el = $('q-bbox-debug');
   if (!el) return;
   const b = lastScan?.bbox;
-  if (!Array.isArray(b) || b.length !== 4) { el.textContent = 'â€“'; return; }
+  if (!Array.isArray(b) || b.length !== 4) { el.textContent = 'Ã¢â‚¬â€œ'; return; }
   const [minLon, minLat, maxLon, maxLat] = b;
   el.textContent =
     `bbox ${boundsAssumed ? '(ASSUMED global)' : '(from file)'}\n` +
     `  lon min ${minLon.toFixed(4)}   max ${maxLon.toFixed(4)}\n` +
     `  lat min ${minLat.toFixed(4)}   max ${maxLat.toFixed(4)}\n` +
-    `  span  ${(maxLon - minLon).toFixed(4)}Â° Ã— ${(maxLat - minLat).toFixed(4)}Â°`;
+    `  span  ${(maxLon - minLon).toFixed(4)}Ã‚Â° Ãƒâ€” ${(maxLat - minLat).toFixed(4)}Ã‚Â°`;
 }
 
 // Run a point query and show the value in the sidebar (+ optional map popup).
@@ -430,7 +433,7 @@ async function doPointQuery(lat, lon, { popup = false } = {}) {
   lon = clamp(lon, b.minLon, b.maxLon);
   $('q-lat').value = lat; $('q-lon').value = lon;
   const res = $('q-result');
-  res.textContent = 'Queryingâ€¦'; res.className = 'muted';
+  res.textContent = 'QueryingÃ¢â‚¬Â¦'; res.className = 'muted';
   try {
     const time = parseInt($('time').value, 10) || 0;
     const r = await extract(lastSource, { variable, lat, lon, t1: time, t2: time });
@@ -459,7 +462,7 @@ $('q-btn').addEventListener('click', () => {
 
 /* Normalize an extract() result to a single representative value.
  * Point queries return a top-level `value`; multi-timestep files return a
- * `timeseries` array â€” we show time index 0 to match the rendered layer. */
+ * `timeseries` array Ã¢â‚¬â€ we show time index 0 to match the rendered layer. */
 function pickValue(r) {
   if (!r) return { value: null, when: '' };
   if (r.value != null) return { value: r.value, when: '' };
@@ -470,7 +473,7 @@ function pickValue(r) {
   return { value: null, when: '' };
 }
 
-/* â”€â”€ click-to-query â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ click-to-query Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 // Clicking the map fills the lat/lon inputs and runs the same point query.
 function attachClickQuery() {
   map.on('click', (e) => doPointQuery(e.lngLat.lat, e.lngLat.lng, { popup: true }));
@@ -575,7 +578,7 @@ $('help-view-example').addEventListener('click', () => {
   closeHelp();
   runExample();
 });
-/* â”€â”€ boot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ boot Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 function init() {
   map = new maplibregl.Map({
     container: 'map',
