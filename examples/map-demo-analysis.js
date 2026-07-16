@@ -1,4 +1,4 @@
-// examples/map-demo-analysis.js — pure helpers for the "Show analysis" panel.
+// examples/map-demo-analysis.js â€” pure helpers for the "Show analysis" panel.
 // DOM-free helpers for stats, spatial transects, and extracted time series.
 
 export function computeStats(values) {
@@ -35,7 +35,7 @@ export function seriesFromGrid(grid, { lat, lon, axis = 'lon' } = {}) {
       xs.push(maxLat - frac * latSpan);
       ys.push(at(iy, ix));
     }
-    return { xs, ys, xLabel: 'Latitude (°N)' };
+    return { xs, ys, xLabel: 'Latitude (Â°N)' };
   }
 
   const iy = toIndex(latSpan === 0 ? 0 : (maxLat - lat) / latSpan, height);
@@ -45,7 +45,7 @@ export function seriesFromGrid(grid, { lat, lon, axis = 'lon' } = {}) {
     xs.push(minLon + frac * lonSpan);
     ys.push(at(iy, ix));
   }
-  return { xs, ys, xLabel: 'Longitude (°E)' };
+  return { xs, ys, xLabel: 'Longitude (Â°E)' };
 }
 
 export function seriesFromTimeseries(points) {
@@ -55,4 +55,32 @@ export function seriesFromTimeseries(points) {
     ys.push(typeof p.value === 'number' && Number.isFinite(p.value) ? p.value : NaN);
   }
   return { xs, ys, xLabel: 'Time (UTC)' };
+}
+/* ── chart ─────────────────────────────────────────────────────────────── */
+const PAD = { top: 10, right: 12, bottom: 26, left: 46 };
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function defaultFmt(v) { if (!Number.isFinite(v)) return '–'; const a=Math.abs(v); if (a!==0&&(a<1e-3||a>=1e5)) return v.toExponential(2); return v.toFixed(2); }
+export function renderChartSVG(series, opts = {}) {
+  const width=opts.width??480, height=opts.height??180;
+  const formatX=opts.formatX??((x)=>String(x)), formatY=opts.formatY??defaultFmt;
+  const { xs=[], ys=[], xLabel='' }=series??{};
+  const plotW=width-PAD.left-PAD.right, plotH=height-PAD.top-PAD.bottom;
+  const frame=`<line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top+plotH}" class="ac-axis"/>`+`<line x1="${PAD.left}" y1="${PAD.top+plotH}" x2="${PAD.left+plotW}" y2="${PAD.top+plotH}" class="ac-axis"/>`;
+  const open=`<svg viewBox="0 0 ${width} ${height}" class="ac-svg" role="img">`;
+  const finite=ys.filter((v)=>Number.isFinite(v));
+  if (!finite.length) return open+frame+`<text x="${width/2}" y="${height/2}" class="ac-note" text-anchor="middle">no data to plot</text></svg>`;
+  let vmin=Math.min(...finite), vmax=Math.max(...finite);
+  if (vmin===vmax) { vmin-=1; vmax+=1; }
+  const padY=(vmax-vmin)*0.05; vmin-=padY; vmax+=padY;
+  const n=ys.length;
+  const px=(i)=>PAD.left+(n<=1?plotW/2:(i/(n-1))*plotW);
+  const py=(v)=>PAD.top+plotH-((v-vmin)/(vmax-vmin))*plotH;
+  const runs=[]; let run=[];
+  ys.forEach((v,i)=>{ if(Number.isFinite(v)) run.push(`${px(i).toFixed(2)},${py(v).toFixed(2)}`); else { if(run.length) runs.push(run); run=[]; } });
+  if(run.length) runs.push(run);
+  const marks=runs.map((r)=>r.length===1?`<circle cx="${r[0].split(',')[0]}" cy="${r[0].split(',')[1]}" r="2.5" class="ac-dot"/>`:`<polyline points="${r.join(' ')}" class="ac-line"/>`).join('');
+  const yTicks=`<text x="${PAD.left-5}" y="${PAD.top+4}" class="ac-tick" text-anchor="end">${esc(formatY(vmax))}</text>`+`<text x="${PAD.left-5}" y="${PAD.top+plotH}" class="ac-tick" text-anchor="end">${esc(formatY(vmin))}</text>`;
+  const xTicks=`<text x="${PAD.left}" y="${height-12}" class="ac-tick" text-anchor="start">${esc(formatX(xs[0]))}</text>`+(n>1?`<text x="${PAD.left+plotW}" y="${height-12}" class="ac-tick" text-anchor="end">${esc(formatX(xs[n-1]))}</text>`:'');
+  const axisTitle=`<text x="${PAD.left+plotW/2}" y="${height-1}" class="ac-tick" text-anchor="middle">${esc(xLabel)}</text>`;
+  return open+frame+marks+yTicks+xTicks+axisTitle+'</svg>';
 }
