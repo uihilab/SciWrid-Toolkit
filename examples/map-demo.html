@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SciWrid Toolkit â€” map demo (drop any file, see it on a map)</title>
+  <title>SciWrid Toolkit Ã¢â‚¬â€ map demo (drop any file, see it on a map)</title>
 
-  <!-- MapLibre GL JS via CDN â€” no npm install required for demo users. -->
+  <!-- MapLibre GL JS via CDN Ã¢â‚¬â€ no npm install required for demo users. -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
@@ -124,13 +124,40 @@
     #sidebar button:hover { filter: brightness(1.08); }
     #sidebar button:active { transform: translateY(1px); }
     #sidebar #theme-toggle { background: transparent; color: var(--muted-foreground); }
+    #sidebar #analyze-btn { width: 100%; margin-top: .85rem; }
     #query { margin-top: 1rem; }
     #q-result.ok { color: var(--success); }
     #q-result.error { color: var(--destructive); }
     #legend { margin-top: 1rem; }
     #legend canvas { width: 100%; height: 14px; border: 1px solid var(--border); border-radius: 3px; display: block; }
     #legend .ticks { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted-foreground); margin-top: 2px; }
-    #map { flex: 1; height: 100%; }
+    #map { flex: 1; height: 100%; position: relative; }
+    #analysis-panel {
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+      height: 220px; padding: .6rem .8rem;
+      background: var(--card); color: var(--card-foreground);
+      border-top: 1px solid var(--border); box-shadow: 0 -4px 16px oklch(0 0 0 / .10);
+      display: flex; flex-direction: column; gap: .4rem;
+    }
+    #analysis-panel[hidden] { display: none; }
+    .ap-head { display: flex; align-items: center; gap: .5rem; }
+    #analysis-title { margin: 0; font-size: .82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ap-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden; }
+    .ap-toggle button { padding: 4px 9px; border: 0; cursor: pointer; background: transparent; color: var(--muted-foreground); font-family: inherit; font-size: 11px; font-weight: 600; }
+    .ap-toggle button[aria-pressed="true"] { background: var(--brand); color: var(--brand-foreground); }
+    .ap-toggle button:disabled { opacity: .4; cursor: not-allowed; }
+    #analysis-axis[hidden] { display: none; }
+    #analysis-close { margin-left: auto; background: transparent; border: 0; cursor: pointer; color: var(--muted-foreground); font-size: 16px; line-height: 1; padding: 2px 6px; }
+    #analysis-close:hover { color: var(--foreground); }
+    #analysis-chart { flex: 1; min-height: 0; }
+    .ac-svg { width: 100%; height: 100%; display: block; }
+    .ac-axis { stroke: var(--border); stroke-width: 1; }
+    .ac-line { fill: none; stroke: var(--brand); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+    .ac-dot { fill: var(--brand); }
+    .ac-tick { fill: var(--muted-foreground); font-size: 9px; font-family: var(--font-sans); }
+    .ac-note { fill: var(--muted-foreground); font-size: 11px; font-family: var(--font-sans); }
+    #analysis-stats { font-size: 11px; color: var(--muted-foreground); display: flex; flex-wrap: wrap; gap: .75rem; }
+    #analysis-stats b { color: var(--foreground); font-weight: 600; }
     #sidebar #help-btn {
       margin-left: auto; width: 32px; height: 32px; padding: 0;
       display: inline-grid; place-items: center;
@@ -214,7 +241,7 @@
         </a>
         <h1>SciWrid Toolkit map demo</h1>
         <button id="help-btn" type="button" aria-label="Open instructions" title="Instructions">?</button>
-        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">â—</button>
+        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">Ã¢â€”Â</button>
       </div>
       <p class="muted">
         Drop any supported file (GRIB2, NetCDF3/4, Zarr-zip, TIFF/COG), pick a
@@ -247,7 +274,7 @@
       <div id="legend" hidden>
         <label>Legend</label>
         <canvas id="legend-canvas" width="256" height="14"></canvas>
-        <div class="ticks"><span id="legend-min">â€“</span><span id="legend-max">â€“</span></div>
+        <div class="ticks"><span id="legend-min">Ã¢â‚¬â€œ</span><span id="legend-max">Ã¢â‚¬â€œ</span></div>
       </div>
 
       <div id="extract" hidden>
@@ -275,7 +302,7 @@
 
       <div id="query" hidden>
         <label>Point query</label>
-        <div class="muted" id="q-bounds">â€“</div>
+        <div class="muted" id="q-bounds">Ã¢â‚¬â€œ</div>
         <div style="display:flex; gap:.4rem; margin-top:.3rem;">
           <label style="flex:1; margin:.2rem 0;">Lat (Y)
             <input type="number" id="q-lat" step="any" style="width:100%;">
@@ -285,15 +312,34 @@
           </label>
         </div>
         <button id="q-btn">Query value</button>
-        <div id="q-result" class="muted" style="margin-top:.4rem;">â€“</div>
+        <div id="q-result" class="muted" style="margin-top:.4rem;">Ã¢â‚¬â€œ</div>
         <div id="q-bbox-debug" class="muted"
-             style="margin-top:.5rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.5; white-space:pre;">â€“</div>
+             style="margin-top:.5rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.5; white-space:pre;">Ã¢â‚¬â€œ</div>
       </div>
+
+      <button id="analyze-btn" type="button" hidden>Show analysis</button>
 
       <div id="status" class="muted">Pick a file to begin.</div>
     </aside>
 
-    <div id="map"></div>
+    <div id="map">
+      <section id="analysis-panel" hidden aria-labelledby="analysis-title">
+        <div class="ap-head">
+          <h2 id="analysis-title">Analysis</h2>
+          <div class="ap-toggle" role="group" aria-label="Analysis mode">
+            <button id="analysis-mode-time" type="button" aria-pressed="false">Over time</button>
+            <button id="analysis-mode-space" type="button" aria-pressed="false">Across space</button>
+          </div>
+          <div class="ap-toggle" id="analysis-axis" role="group" aria-label="Transect axis" hidden>
+            <button id="analysis-axis-lon" type="button" aria-pressed="true">Lon</button>
+            <button id="analysis-axis-lat" type="button" aria-pressed="false">Lat</button>
+          </div>
+          <button id="analysis-close" type="button" aria-label="Close analysis">&times;</button>
+        </div>
+        <div id="analysis-chart"></div>
+        <div id="analysis-stats"></div>
+      </section>
+    </div>
   </div>
   <div id="help-overlay" hidden>
     <section id="help-card" role="dialog" aria-modal="true" aria-labelledby="help-title">
@@ -311,13 +357,13 @@
     </section>
   </div>
 
-  <!-- Theme toggle â€” touches only the .dark class + localStorage. -->
+  <!-- Theme toggle Ã¢â‚¬â€ touches only the .dark class + localStorage. -->
   <script>
     (function () {
       var btn = document.getElementById('theme-toggle');
       function sync() {
         var dark = document.documentElement.classList.contains('dark');
-        btn.textContent = dark ? 'â˜€' : 'â—';
+        btn.textContent = dark ? 'Ã¢Ëœâ‚¬' : 'Ã¢â€”Â';
         btn.setAttribute('aria-pressed', String(dark));
       }
       btn.addEventListener('click', function () {
