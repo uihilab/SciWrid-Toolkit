@@ -1,4 +1,4 @@
-// examples/map-demo.js Ã¢â‚¬â€ MapLibre demo logic.
+// examples/map-demo.js — MapLibre demo logic.
 //
 // Drop any supported file, pick a variable + ramp, see it overlaid on a real
 // basemap, and click to read the underlying value. The heavy extractGrid call
@@ -8,6 +8,7 @@
 import { scan, extract } from '../index.js';
 import { resolveRamp, sampleRamp } from '../lib/render/index.js';
 import { validateBbox, resolutionBucket } from './map-demo-bbox.js';
+import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG } from './map-demo-analysis.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -22,12 +23,12 @@ let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-ext
 let lastGrid = null;    // pre-warp grid from the last successful render
 const MERCATOR_MAX_LAT = 85.05112878;
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ render worker Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── render worker ──────────────────────────────────────────────────────── */
 // extractGrid + gridToImageData run off the main thread so pan/zoom stays
 // smooth. Each request carries the current renderToken; responses with a stale
 // token are ignored (cancellation).
 const worker = new Worker(new URL('./map-demo.worker.js', import.meta.url), { type: 'module' });
-const pending = new Map(); // token Ã¢â€ â€™ { resolve, reject }
+const pending = new Map(); // token → { resolve, reject }
 
 worker.onmessage = (e) => {
   const { requestId, image, range, grid, error } = e.data;
@@ -45,15 +46,15 @@ function renderInWorker(token, payload) {
   });
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ status helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── status helpers ─────────────────────────────────────────────────────── */
 function setStatus(msg, cls = '') {
   const el = $('status');
   el.textContent = msg;
   el.className = cls;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ layer opacity Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
-// Read the opacity slider (0Ã¢â‚¬â€œ100) as a 0Ã¢â‚¬â€œ1 raster-opacity, defaulting to 0.75.
+/* ── layer opacity ──────────────────────────────────────────────────────── */
+// Read the opacity slider (0–100) as a 0–1 raster-opacity, defaulting to 0.75.
 function currentOpacity() {
   const v = parseInt($('opacity').value, 10);
   return Number.isFinite(v) ? v / 100 : 0.75;
@@ -62,7 +63,7 @@ function updateOpacityLabel() {
   $('opacity-val').textContent = `${parseInt($('opacity').value, 10) || 0}%`;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ bbox helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── bbox helpers ───────────────────────────────────────────────────────── */
 function clampMercatorLat(lat) {
   return Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, lat));
 }
@@ -108,7 +109,7 @@ function fitMapToBbox(bbox) {
   map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 30, duration: 0 });
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ variable picker Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── variable picker ────────────────────────────────────────────────────── */
 function populateVariablePicker(names) {
   const sel = $('variable');
   sel.innerHTML = '';
@@ -120,15 +121,15 @@ function populateVariablePicker(names) {
   sel.disabled = names.length === 0;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ time picker Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
-// Fill the time <select>. Real CF times Ã¢â€ â€™ ISO labels; synthetic/none Ã¢â€ â€™ indices.
+/* ── time picker ────────────────────────────────────────────────────────── */
+// Fill the time <select>. Real CF times → ISO labels; synthetic/none → indices.
 function populateTimePicker(meta, variable) {
   const sel = $('time');
   sel.innerHTML = '';
   // File-level date coverage (meta.timeRange spans all axes; present whenever
   // the file has a time axis).
   const tr = meta.timeRange;
-  $('time-range').textContent = tr ? `Coverage: ${tr.start} Ã¢â€ â€™ ${tr.end}` : '';
+  $('time-range').textContent = tr ? `Coverage: ${tr.start} → ${tr.end}` : '';
   const v = (meta.variables || []).find(x => x.name === variable);
   const values = v?.times?.values || meta.times?.values || null;
   if (values && values.length) {
@@ -153,7 +154,7 @@ function populateTimePicker(meta, variable) {
   sel.value = '0';
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ legend Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── legend ─────────────────────────────────────────────────────────────── */
 function drawLegend(rampName, vmin, vmax) {
   const wrap = $('legend');
   if (vmin == null || vmax == null) { wrap.hidden = true; return; }
@@ -176,7 +177,7 @@ function drawLegend(rampName, vmin, vmax) {
 }
 
 function fmtNum(v) {
-  if (!Number.isFinite(v)) return 'Ã¢â‚¬â€œ';
+  if (!Number.isFinite(v)) return '–';
   const a = Math.abs(v);
   if (a !== 0 && (a < 1e-3 || a >= 1e5)) return v.toExponential(2);
   return v.toFixed(2);
@@ -279,11 +280,11 @@ async function refreshLayer({ force = false } = {}) {
   if (!force && bucket === lastBucket) return;
   lastBucket = bucket;
   const token = ++renderToken;
-  // Drop any earlier in-flight request Ã¢â‚¬â€ its response will be ignored.
+  // Drop any earlier in-flight request — its response will be ignored.
   for (const [id, slot] of pending) {
     if (id !== token) { pending.delete(id); slot.reject(new Error('superseded')); }
   }
-  setStatus('RenderingÃ¢â‚¬Â¦', 'busy');
+  setStatus('Rendering…', 'busy');
   try {
     const time = parseInt($('time').value, 10) || 0;
     const { image: img, range, grid } = await renderInWorker(token, {
@@ -305,7 +306,8 @@ async function refreshLayer({ force = false } = {}) {
                      paint: { 'raster-opacity': currentOpacity() } });
     }
     drawLegend(ramp, range?.vmin, range?.vmax);
-    setStatus(`${variable} Ã¢â‚¬â€ ${img.width}Ãƒâ€”${img.height}`, 'ok');
+    $('analyze-btn').hidden = !lastGrid;
+    setStatus(`${variable} — ${img.width}×${img.height}`, 'ok');
   } catch (e) {
     if (token !== renderToken) return;
     setStatus('Error: ' + e.message, 'error');
@@ -313,11 +315,11 @@ async function refreshLayer({ force = false } = {}) {
   }
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ file handling Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── file handling ──────────────────────────────────────────────────────── */
 async function loadSource(file) {
   if (!file) return null;
   lastSource = file;
-  setStatus('ScanningÃ¢â‚¬Â¦', 'busy');
+  setStatus('Scanning…', 'busy');
   try {
     lastScan = await scan(file);
     // TIFF exposes a real bbox from the file's geokeys. GRIB2/NetCDF/Zarr do
@@ -333,6 +335,8 @@ async function loadSource(file) {
     extractBbox = null;
     lastBucket = null;
     lastGrid = null;
+    closeAnalysis();
+    $('analyze-btn').hidden = true;
     if (map.getLayer('data-layer')) { map.removeLayer('data-layer'); map.removeSource('data-source'); }
 
     fitMapToBbox(lastScan.bbox);
@@ -371,14 +375,14 @@ $('ext-btn').addEventListener('click', () => {
   refreshLayer({ force: true });
 });
 
-// Layer opacity Ã¢â‚¬â€ live-update the existing raster without re-rendering the grid.
+// Layer opacity — live-update the existing raster without re-rendering the grid.
 $('opacity').addEventListener('input', () => {
   updateOpacityLabel();
   if (map && map.getLayer('data-layer'))
     map.setPaintProperty('data-layer', 'raster-opacity', currentOpacity());
 });
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ point query (lat/lon inputs bounded by the variable's extent) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── point query (lat/lon inputs bounded by the variable's extent) ──────── */
 // bbox is [minLon, minLat, maxLon, maxLat]. For TIFF these are real file
 // bounds (in the file CRS); for other formats they're the assumed global box.
 function variableBounds() {
@@ -394,8 +398,8 @@ function updateQueryUI() {
   const { minLon, minLat, maxLon, maxLat, assumed } = variableBounds();
   $('query').hidden = false;
   $('q-bounds').textContent =
-    `Lat ${fmtNum(minLat)} Ã¢â‚¬Â¦ ${fmtNum(maxLat)}  Ã‚Â·  Lon ${fmtNum(minLon)} Ã¢â‚¬Â¦ ${fmtNum(maxLon)}` +
-    (assumed ? '  (assumed Ã¢â‚¬â€ file exposes no bounds)' : '');
+    `Lat ${fmtNum(minLat)} … ${fmtNum(maxLat)}  ·  Lon ${fmtNum(minLon)} … ${fmtNum(maxLon)}` +
+    (assumed ? '  (assumed — file exposes no bounds)' : '');
   const latIn = $('q-lat'), lonIn = $('q-lon');
   latIn.min = minLat; latIn.max = maxLat;
   lonIn.min = minLon; lonIn.max = maxLon;
@@ -404,7 +408,7 @@ function updateQueryUI() {
     latIn.value = ((minLat + maxLat) / 2).toFixed(3);
   if (lonIn.value === '' || +lonIn.value < minLon || +lonIn.value > maxLon)
     lonIn.value = ((minLon + maxLon) / 2).toFixed(3);
-  $('q-result').textContent = 'Ã¢â‚¬â€œ';
+  $('q-result').textContent = '–';
   $('q-result').className = 'muted';
   drawBboxDebug();
 }
@@ -415,13 +419,13 @@ function drawBboxDebug() {
   const el = $('q-bbox-debug');
   if (!el) return;
   const b = lastScan?.bbox;
-  if (!Array.isArray(b) || b.length !== 4) { el.textContent = 'Ã¢â‚¬â€œ'; return; }
+  if (!Array.isArray(b) || b.length !== 4) { el.textContent = '–'; return; }
   const [minLon, minLat, maxLon, maxLat] = b;
   el.textContent =
     `bbox ${boundsAssumed ? '(ASSUMED global)' : '(from file)'}\n` +
     `  lon min ${minLon.toFixed(4)}   max ${maxLon.toFixed(4)}\n` +
     `  lat min ${minLat.toFixed(4)}   max ${maxLat.toFixed(4)}\n` +
-    `  span  ${(maxLon - minLon).toFixed(4)}Ã‚Â° Ãƒâ€” ${(maxLat - minLat).toFixed(4)}Ã‚Â°`;
+    `  span  ${(maxLon - minLon).toFixed(4)}° × ${(maxLat - minLat).toFixed(4)}°`;
 }
 
 // Run a point query and show the value in the sidebar (+ optional map popup).
@@ -433,7 +437,7 @@ async function doPointQuery(lat, lon, { popup = false } = {}) {
   lon = clamp(lon, b.minLon, b.maxLon);
   $('q-lat').value = lat; $('q-lon').value = lon;
   const res = $('q-result');
-  res.textContent = 'QueryingÃ¢â‚¬Â¦'; res.className = 'muted';
+  res.textContent = 'Querying…'; res.className = 'muted';
   try {
     const time = parseInt($('time').value, 10) || 0;
     const r = await extract(lastSource, { variable, lat, lon, t1: time, t2: time });
@@ -454,6 +458,7 @@ async function doPointQuery(lat, lon, { popup = false } = {}) {
     res.textContent = 'Error: ' + err.message; res.className = 'error';
     console.error(err);
   }
+  if (!$('analysis-panel').hidden) refreshAnalysis();
 }
 
 $('q-btn').addEventListener('click', () => {
@@ -462,7 +467,7 @@ $('q-btn').addEventListener('click', () => {
 
 /* Normalize an extract() result to a single representative value.
  * Point queries return a top-level `value`; multi-timestep files return a
- * `timeseries` array Ã¢â‚¬â€ we show time index 0 to match the rendered layer. */
+ * `timeseries` array — we show time index 0 to match the rendered layer. */
 function pickValue(r) {
   if (!r) return { value: null, when: '' };
   if (r.value != null) return { value: r.value, when: '' };
@@ -473,7 +478,7 @@ function pickValue(r) {
   return { value: null, when: '' };
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ click-to-query Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── click-to-query ─────────────────────────────────────────────────────── */
 // Clicking the map fills the lat/lon inputs and runs the same point query.
 function attachClickQuery() {
   map.on('click', (e) => doPointQuery(e.lngLat.lat, e.lngLat.lng, { popup: true }));
@@ -535,22 +540,17 @@ function closeHelp() {
 
 $('help-btn').addEventListener('click', openHelp);
 $('help-close').addEventListener('click', closeHelp);
-function helpNext() {
-  if (helpIndex < HELP_STEPS.length - 1) { helpIndex += 1; renderHelpStep(); }
-}
-function helpBack() {
-  if (helpIndex > 0) { helpIndex -= 1; renderHelpStep(); }
-}
+function helpNext() { if (helpIndex < HELP_STEPS.length - 1) { helpIndex += 1; renderHelpStep(); } }
+function helpBack() { if (helpIndex > 0) { helpIndex -= 1; renderHelpStep(); } }
 $('help-back').addEventListener('click', helpBack);
 $('help-next').addEventListener('click', helpNext);
-$('help-overlay').addEventListener('click', (event) => {
-  if (event.target === $('help-overlay')) closeHelp();
-});
+$('help-overlay').addEventListener('click', (event) => { if (event.target === $('help-overlay')) closeHelp(); });
 document.addEventListener('keydown', (event) => {
-  if ($('help-overlay').hidden) return;
-  if (event.key === 'Escape') closeHelp();
-  else if (event.key === 'ArrowRight') helpNext();
-  else if (event.key === 'ArrowLeft') helpBack();
+  if (!$('help-overlay').hidden) {
+    if (event.key === 'Escape') closeHelp(); else if (event.key === 'ArrowRight') helpNext(); else if (event.key === 'ArrowLeft') helpBack();
+    return;
+  }
+  if (event.key === 'Escape' && !$('analysis-panel').hidden) closeAnalysis();
 });
 async function runExample() {
   setStatus('Loading example... (40 MB)', 'busy');
@@ -578,7 +578,25 @@ $('help-view-example').addEventListener('click', () => {
   closeHelp();
   runExample();
 });
-/* Ã¢â€â‚¬Ã¢â€â‚¬ boot Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ?? analysis panel ?????????????????????????????????????????????????????? */
+let analysisMode = 'time', analysisAxis = 'lon';
+function timeStepCount() { return timeAxis?.kind === 'real' ? (timeAxis.values?.length ?? 0) : 0; }
+const hasTimeAxis = () => timeStepCount() > 1;
+function setPressed(id, on) { $(id).setAttribute('aria-pressed', String(on)); }
+function renderStats(stats, extra) { const cell=(k,v)=>`<span>${k} <b>${v}</b></span>`; if(!stats||stats.n===0){$('analysis-stats').innerHTML=cell('n',0);return;} $('analysis-stats').innerHTML=[cell('n',stats.n),cell('min',fmtNum(stats.min)),cell('max',fmtNum(stats.max)),cell('mean',fmtNum(stats.mean)),cell('std',fmtNum(stats.std)),...(extra?[extra]:[])].join(''); }
+function drawSeries(series, extra) { $('analysis-chart').innerHTML=renderChartSVG(series,{formatY:fmtNum,formatX:(x)=>typeof x==='number'?fmtNum(x):String(x).replace('T',' ').replace(':00Z','Z')}); renderStats(computeStats(series.ys),extra); }
+async function refreshAnalysis() {
+  const variable=$('variable').value, lat=parseFloat($('q-lat').value), lon=parseFloat($('q-lon').value); if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
+  $('analysis-title').textContent=`${variable} @ ${fmtNum(lat)}, ${fmtNum(lon)}`; $('analysis-axis').hidden=analysisMode!=='space'; setPressed('analysis-mode-time',analysisMode==='time'); setPressed('analysis-mode-space',analysisMode==='space'); setPressed('analysis-axis-lon',analysisAxis==='lon'); setPressed('analysis-axis-lat',analysisAxis==='lat');
+  if(analysisMode==='space'){if(!lastGrid){$('analysis-chart').innerHTML='';return;}drawSeries(seriesFromGrid(lastGrid,{lat,lon,axis:analysisAxis}));return;}
+  $('analysis-chart').innerHTML='<p class="muted">Reading time series?</p>'; $('analysis-stats').innerHTML='';
+  try { const t2=timeStepCount()-1; const r=await extract(lastSource,{variable,lat,lon,t1:0,t2}); const series=seriesFromTimeseries(r?.timeseries??[]); const finite=series.ys.filter(Number.isFinite); const delta=finite.length>1?`<span>? <b>${fmtNum(finite.at(-1)-finite[0])}</b></span>`:null; drawSeries(series,delta); } catch(err){$('analysis-chart').textContent=`Error: ${err.message}`;console.error(err);}
+}
+function openAnalysis(){if(!lastGrid){setStatus('Render an area first.','error');return;}if(!Number.isFinite(parseFloat($('q-lat').value))||!Number.isFinite(parseFloat($('q-lon').value))){setStatus('Click the map to pick a point first.','error');return;}analysisMode=hasTimeAxis()?'time':'space';$('analysis-mode-time').disabled=!hasTimeAxis();$('analysis-mode-time').title=hasTimeAxis()?'':'file has one timestep';$('analysis-panel').hidden=false;refreshAnalysis();}
+function closeAnalysis(){const panel=$('analysis-panel');if(panel)panel.hidden=true;}
+$('analyze-btn').addEventListener('click',openAnalysis); $('analysis-close').addEventListener('click',closeAnalysis); $('analysis-mode-time').addEventListener('click',()=>{analysisMode='time';refreshAnalysis();}); $('analysis-mode-space').addEventListener('click',()=>{analysisMode='space';refreshAnalysis();}); $('analysis-axis-lon').addEventListener('click',()=>{analysisAxis='lon';refreshAnalysis();}); $('analysis-axis-lat').addEventListener('click',()=>{analysisAxis='lat';refreshAnalysis();});
+
+/* ── boot ───────────────────────────────────────────────────────────────── */
 function init() {
   map = new maplibregl.Map({
     container: 'map',
