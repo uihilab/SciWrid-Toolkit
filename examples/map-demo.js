@@ -1,4 +1,4 @@
-// examples/map-demo.js — MapLibre demo logic.
+// examples/map-demo.js â€” MapLibre demo logic.
 //
 // Drop any supported file, pick a variable + ramp, see it overlaid on a real
 // basemap, and click to read the underlying value. The heavy extractGrid call
@@ -21,12 +21,12 @@ let extractBbox = null; // [minLon,minLat,maxLon,maxLat] - chosen extract region
 let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-extract
 const MERCATOR_MAX_LAT = 85.05112878;
 
-/* ── render worker ──────────────────────────────────────────────────────── */
+/* â”€â”€ render worker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 // extractGrid + gridToImageData run off the main thread so pan/zoom stays
 // smooth. Each request carries the current renderToken; responses with a stale
 // token are ignored (cancellation).
 const worker = new Worker(new URL('./map-demo.worker.js', import.meta.url), { type: 'module' });
-const pending = new Map(); // token → { resolve, reject }
+const pending = new Map(); // token â†’ { resolve, reject }
 
 worker.onmessage = (e) => {
   const { requestId, image, range, error } = e.data;
@@ -44,15 +44,15 @@ function renderInWorker(token, payload) {
   });
 }
 
-/* ── status helpers ─────────────────────────────────────────────────────── */
+/* â”€â”€ status helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function setStatus(msg, cls = '') {
   const el = $('status');
   el.textContent = msg;
   el.className = cls;
 }
 
-/* ── layer opacity ──────────────────────────────────────────────────────── */
-// Read the opacity slider (0–100) as a 0–1 raster-opacity, defaulting to 0.75.
+/* â”€â”€ layer opacity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+// Read the opacity slider (0â€“100) as a 0â€“1 raster-opacity, defaulting to 0.75.
 function currentOpacity() {
   const v = parseInt($('opacity').value, 10);
   return Number.isFinite(v) ? v / 100 : 0.75;
@@ -61,7 +61,7 @@ function updateOpacityLabel() {
   $('opacity-val').textContent = `${parseInt($('opacity').value, 10) || 0}%`;
 }
 
-/* ── bbox helpers ───────────────────────────────────────────────────────── */
+/* â”€â”€ bbox helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function clampMercatorLat(lat) {
   return Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, lat));
 }
@@ -107,7 +107,7 @@ function fitMapToBbox(bbox) {
   map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 30, duration: 0 });
 }
 
-/* ── variable picker ────────────────────────────────────────────────────── */
+/* â”€â”€ variable picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function populateVariablePicker(names) {
   const sel = $('variable');
   sel.innerHTML = '';
@@ -119,15 +119,15 @@ function populateVariablePicker(names) {
   sel.disabled = names.length === 0;
 }
 
-/* ── time picker ────────────────────────────────────────────────────────── */
-// Fill the time <select>. Real CF times → ISO labels; synthetic/none → indices.
+/* â”€â”€ time picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+// Fill the time <select>. Real CF times â†’ ISO labels; synthetic/none â†’ indices.
 function populateTimePicker(meta, variable) {
   const sel = $('time');
   sel.innerHTML = '';
   // File-level date coverage (meta.timeRange spans all axes; present whenever
   // the file has a time axis).
   const tr = meta.timeRange;
-  $('time-range').textContent = tr ? `Coverage: ${tr.start} → ${tr.end}` : '';
+  $('time-range').textContent = tr ? `Coverage: ${tr.start} â†’ ${tr.end}` : '';
   const v = (meta.variables || []).find(x => x.name === variable);
   const values = v?.times?.values || meta.times?.values || null;
   if (values && values.length) {
@@ -152,7 +152,7 @@ function populateTimePicker(meta, variable) {
   sel.value = '0';
 }
 
-/* ── legend ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ legend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function drawLegend(rampName, vmin, vmax) {
   const wrap = $('legend');
   if (vmin == null || vmax == null) { wrap.hidden = true; return; }
@@ -175,7 +175,7 @@ function drawLegend(rampName, vmin, vmax) {
 }
 
 function fmtNum(v) {
-  if (!Number.isFinite(v)) return '–';
+  if (!Number.isFinite(v)) return 'â€“';
   const a = Math.abs(v);
   if (a !== 0 && (a < 1e-3 || a >= 1e5)) return v.toExponential(2);
   return v.toFixed(2);
@@ -278,11 +278,11 @@ async function refreshLayer({ force = false } = {}) {
   if (!force && bucket === lastBucket) return;
   lastBucket = bucket;
   const token = ++renderToken;
-  // Drop any earlier in-flight request — its response will be ignored.
+  // Drop any earlier in-flight request â€” its response will be ignored.
   for (const [id, slot] of pending) {
     if (id !== token) { pending.delete(id); slot.reject(new Error('superseded')); }
   }
-  setStatus('Rendering…', 'busy');
+  setStatus('Renderingâ€¦', 'busy');
   try {
     const time = parseInt($('time').value, 10) || 0;
     const { image: img, range } = await renderInWorker(token, {
@@ -303,7 +303,7 @@ async function refreshLayer({ force = false } = {}) {
                      paint: { 'raster-opacity': currentOpacity() } });
     }
     drawLegend(ramp, range?.vmin, range?.vmax);
-    setStatus(`${variable} — ${img.width}×${img.height}`, 'ok');
+    setStatus(`${variable} â€” ${img.width}Ã—${img.height}`, 'ok');
   } catch (e) {
     if (token !== renderToken) return;
     setStatus('Error: ' + e.message, 'error');
@@ -311,11 +311,11 @@ async function refreshLayer({ force = false } = {}) {
   }
 }
 
-/* ── file handling ──────────────────────────────────────────────────────── */
+/* â”€â”€ file handling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 async function loadSource(file) {
   if (!file) return null;
   lastSource = file;
-  setStatus('Scanning…', 'busy');
+  setStatus('Scanningâ€¦', 'busy');
   try {
     lastScan = await scan(file);
     // TIFF exposes a real bbox from the file's geokeys. GRIB2/NetCDF/Zarr do
@@ -368,14 +368,14 @@ $('ext-btn').addEventListener('click', () => {
   refreshLayer({ force: true });
 });
 
-// Layer opacity — live-update the existing raster without re-rendering the grid.
+// Layer opacity â€” live-update the existing raster without re-rendering the grid.
 $('opacity').addEventListener('input', () => {
   updateOpacityLabel();
   if (map && map.getLayer('data-layer'))
     map.setPaintProperty('data-layer', 'raster-opacity', currentOpacity());
 });
 
-/* ── point query (lat/lon inputs bounded by the variable's extent) ──────── */
+/* â”€â”€ point query (lat/lon inputs bounded by the variable's extent) â”€â”€â”€â”€â”€â”€â”€â”€ */
 // bbox is [minLon, minLat, maxLon, maxLat]. For TIFF these are real file
 // bounds (in the file CRS); for other formats they're the assumed global box.
 function variableBounds() {
@@ -391,8 +391,8 @@ function updateQueryUI() {
   const { minLon, minLat, maxLon, maxLat, assumed } = variableBounds();
   $('query').hidden = false;
   $('q-bounds').textContent =
-    `Lat ${fmtNum(minLat)} … ${fmtNum(maxLat)}  ·  Lon ${fmtNum(minLon)} … ${fmtNum(maxLon)}` +
-    (assumed ? '  (assumed — file exposes no bounds)' : '');
+    `Lat ${fmtNum(minLat)} â€¦ ${fmtNum(maxLat)}  Â·  Lon ${fmtNum(minLon)} â€¦ ${fmtNum(maxLon)}` +
+    (assumed ? '  (assumed â€” file exposes no bounds)' : '');
   const latIn = $('q-lat'), lonIn = $('q-lon');
   latIn.min = minLat; latIn.max = maxLat;
   lonIn.min = minLon; lonIn.max = maxLon;
@@ -401,7 +401,7 @@ function updateQueryUI() {
     latIn.value = ((minLat + maxLat) / 2).toFixed(3);
   if (lonIn.value === '' || +lonIn.value < minLon || +lonIn.value > maxLon)
     lonIn.value = ((minLon + maxLon) / 2).toFixed(3);
-  $('q-result').textContent = '–';
+  $('q-result').textContent = 'â€“';
   $('q-result').className = 'muted';
   drawBboxDebug();
 }
@@ -412,13 +412,13 @@ function drawBboxDebug() {
   const el = $('q-bbox-debug');
   if (!el) return;
   const b = lastScan?.bbox;
-  if (!Array.isArray(b) || b.length !== 4) { el.textContent = '–'; return; }
+  if (!Array.isArray(b) || b.length !== 4) { el.textContent = 'â€“'; return; }
   const [minLon, minLat, maxLon, maxLat] = b;
   el.textContent =
     `bbox ${boundsAssumed ? '(ASSUMED global)' : '(from file)'}\n` +
     `  lon min ${minLon.toFixed(4)}   max ${maxLon.toFixed(4)}\n` +
     `  lat min ${minLat.toFixed(4)}   max ${maxLat.toFixed(4)}\n` +
-    `  span  ${(maxLon - minLon).toFixed(4)}° × ${(maxLat - minLat).toFixed(4)}°`;
+    `  span  ${(maxLon - minLon).toFixed(4)}Â° Ã— ${(maxLat - minLat).toFixed(4)}Â°`;
 }
 
 // Run a point query and show the value in the sidebar (+ optional map popup).
@@ -430,7 +430,7 @@ async function doPointQuery(lat, lon, { popup = false } = {}) {
   lon = clamp(lon, b.minLon, b.maxLon);
   $('q-lat').value = lat; $('q-lon').value = lon;
   const res = $('q-result');
-  res.textContent = 'Querying…'; res.className = 'muted';
+  res.textContent = 'Queryingâ€¦'; res.className = 'muted';
   try {
     const time = parseInt($('time').value, 10) || 0;
     const r = await extract(lastSource, { variable, lat, lon, t1: time, t2: time });
@@ -459,7 +459,7 @@ $('q-btn').addEventListener('click', () => {
 
 /* Normalize an extract() result to a single representative value.
  * Point queries return a top-level `value`; multi-timestep files return a
- * `timeseries` array — we show time index 0 to match the rendered layer. */
+ * `timeseries` array â€” we show time index 0 to match the rendered layer. */
 function pickValue(r) {
   if (!r) return { value: null, when: '' };
   if (r.value != null) return { value: r.value, when: '' };
@@ -470,7 +470,7 @@ function pickValue(r) {
   return { value: null, when: '' };
 }
 
-/* ── click-to-query ─────────────────────────────────────────────────────── */
+/* â”€â”€ click-to-query â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 // Clicking the map fills the lat/lon inputs and runs the same point query.
 function attachClickQuery() {
   map.on('click', (e) => doPointQuery(e.lngLat.lat, e.lngLat.lng, { popup: true }));
@@ -532,17 +532,22 @@ function closeHelp() {
 
 $('help-btn').addEventListener('click', openHelp);
 $('help-close').addEventListener('click', closeHelp);
-$('help-back').addEventListener('click', () => {
-  if (helpIndex > 0) { helpIndex -= 1; renderHelpStep(); }
-});
-$('help-next').addEventListener('click', () => {
+function helpNext() {
   if (helpIndex < HELP_STEPS.length - 1) { helpIndex += 1; renderHelpStep(); }
-});
+}
+function helpBack() {
+  if (helpIndex > 0) { helpIndex -= 1; renderHelpStep(); }
+}
+$('help-back').addEventListener('click', helpBack);
+$('help-next').addEventListener('click', helpNext);
 $('help-overlay').addEventListener('click', (event) => {
   if (event.target === $('help-overlay')) closeHelp();
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && !$('help-overlay').hidden) closeHelp();
+  if ($('help-overlay').hidden) return;
+  if (event.key === 'Escape') closeHelp();
+  else if (event.key === 'ArrowRight') helpNext();
+  else if (event.key === 'ArrowLeft') helpBack();
 });
 async function runExample() {
   setStatus('Loading example... (40 MB)', 'busy');
@@ -570,7 +575,7 @@ $('help-view-example').addEventListener('click', () => {
   closeHelp();
   runExample();
 });
-/* ── boot ───────────────────────────────────────────────────────────────── */
+/* â”€â”€ boot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function init() {
   map = new maplibregl.Map({
     container: 'map',

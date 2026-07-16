@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SciWrid Toolkit — map demo (drop any file, see it on a map)</title>
+  <title>SciWrid Toolkit â€” map demo (drop any file, see it on a map)</title>
 
-  <!-- MapLibre GL JS via CDN — no npm install required for demo users. -->
+  <!-- MapLibre GL JS via CDN â€” no npm install required for demo users. -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
@@ -131,14 +131,14 @@
     #legend canvas { width: 100%; height: 14px; border: 1px solid var(--border); border-radius: 3px; display: block; }
     #legend .ticks { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted-foreground); margin-top: 2px; }
     #map { flex: 1; height: 100%; }
-    #help-btn {
+    #sidebar #help-btn {
       margin-left: auto; width: 32px; height: 32px; padding: 0;
       display: inline-grid; place-items: center;
       background: transparent; color: var(--muted-foreground);
       border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
       font-size: 14px; line-height: 1;
     }
-    #help-btn:hover { background: var(--accent); color: var(--foreground); }
+    #sidebar #help-btn:hover { background: var(--accent); color: var(--foreground); }
     #sidebar #theme-toggle { margin-left: 0; }
     #help-overlay {
       position: fixed; inset: 0; z-index: 20;
@@ -214,7 +214,7 @@
         </a>
         <h1>SciWrid Toolkit map demo</h1>
         <button id="help-btn" type="button" aria-label="Open instructions" title="Instructions">?</button>
-        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
+        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">â—</button>
       </div>
       <p class="muted">
         Drop any supported file (GRIB2, NetCDF3/4, Zarr-zip, TIFF/COG), pick a
@@ -247,7 +247,7 @@
       <div id="legend" hidden>
         <label>Legend</label>
         <canvas id="legend-canvas" width="256" height="14"></canvas>
-        <div class="ticks"><span id="legend-min">–</span><span id="legend-max">–</span></div>
+        <div class="ticks"><span id="legend-min">â€“</span><span id="legend-max">â€“</span></div>
       </div>
 
       <div id="extract" hidden>
@@ -275,7 +275,7 @@
 
       <div id="query" hidden>
         <label>Point query</label>
-        <div class="muted" id="q-bounds">–</div>
+        <div class="muted" id="q-bounds">â€“</div>
         <div style="display:flex; gap:.4rem; margin-top:.3rem;">
           <label style="flex:1; margin:.2rem 0;">Lat (Y)
             <input type="number" id="q-lat" step="any" style="width:100%;">
@@ -285,9 +285,9 @@
           </label>
         </div>
         <button id="q-btn">Query value</button>
-        <div id="q-result" class="muted" style="margin-top:.4rem;">–</div>
+        <div id="q-result" class="muted" style="margin-top:.4rem;">â€“</div>
         <div id="q-bbox-debug" class="muted"
-             style="margin-top:.5rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.5; white-space:pre;">–</div>
+             style="margin-top:.5rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.5; white-space:pre;">â€“</div>
       </div>
 
       <div id="status" class="muted">Pick a file to begin.</div>
@@ -311,13 +311,13 @@
     </section>
   </div>
 
-  <!-- Theme toggle — touches only the .dark class + localStorage. -->
+  <!-- Theme toggle â€” touches only the .dark class + localStorage. -->
   <script>
     (function () {
       var btn = document.getElementById('theme-toggle');
       function sync() {
         var dark = document.documentElement.classList.contains('dark');
-        btn.textContent = dark ? '☀' : '◐';
+        btn.textContent = dark ? 'â˜€' : 'â—';
         btn.setAttribute('aria-pressed', String(dark));
       }
       btn.addEventListener('click', function () {
