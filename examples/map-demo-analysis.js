@@ -191,3 +191,23 @@ export function nearestIndex(nx, x) {
   }
   return best;
 }
+
+/* ?? units ??????????????????????????????????????????????????????????????? */
+export const GRIB2_UNITS = {
+  'Temperature': 'K', 'Pressure': 'Pa', 'Pressure reduced to MSL': 'Pa',
+  'Surface pressure': 'Pa', 'Geopotential height': 'gpm',
+  'U-component of wind': 'm/s', 'V-component of wind': 'm/s',
+  'Relative humidity': '%', 'Specific humidity': 'kg/kg', 'Precipitable water': 'kg/m^2',
+};
+export function resolveUnit(v) { if (typeof v?.units === 'string' && v.units.trim()) return v.units; return GRIB2_UNITS[v?.name] || null; }
+function normUnit(u) {
+  const s=String(u??'').toLowerCase().replace(/\s+/g,'').replace(/\^/g,'');
+  const m={k:'K','?c':'degC',degc:'degC',c:'degC',celsius:'degC','?f':'degF',degf:'degF',f:'degF',fahrenheit:'degF',pa:'Pa',pascal:'Pa',pascals:'Pa',hpa:'hPa',mb:'hPa',mbar:'hPa',millibar:'hPa',millibars:'hPa',kpa:'kPa','m/s':'m/s','ms-1':'m/s','meters/second':'m/s','metres/second':'m/s',knot:'knot',knots:'knot',kt:'knot',kn:'knot','km/h':'km/h','km/hr':'km/h',kmh:'km/h',kph:'km/h',mph:'mph','mi/h':'mph','kg/m2':'kg/m2','kgm-2':'kg/m2',mm:'mm','kg/m2/day':'kg/m2/day','kgm-2day-1':'kg/m2/day','mm/day':'mm/day','mmday-1':'mm/day','kg/m2/s':'kg/m2/s','kgm-2s-1':'kg/m2/s',in:'in',inch:'in',inches:'in',m:'m',meter:'m',metre:'m',meters:'m',metres:'m',gpm:'m',ft:'ft',feet:'ft',foot:'ft'};
+  return m[s]??s;
+}
+const CV={K:{to:'?C',mul:1,add:-273.15},degC:{to:'?C',mul:1,add:0},degF:{to:'?C',mul:5/9,add:-32*5/9},Pa:{to:'hPa',mul:.01,add:0},hPa:{to:'hPa',mul:1,add:0},kPa:{to:'hPa',mul:10,add:0},'m/s':{to:'m/s',mul:1,add:0},knot:{to:'m/s',mul:.514444,add:0},'km/h':{to:'m/s',mul:1/3.6,add:0},mph:{to:'m/s',mul:.44704,add:0},'kg/m2':{to:'mm',mul:1,add:0},mm:{to:'mm',mul:1,add:0},in:{to:'mm',mul:25.4,add:0},'kg/m2/day':{to:'mm/day',mul:1,add:0},'mm/day':{to:'mm/day',mul:1,add:0},'kg/m2/s':{to:'mm/s',mul:1,add:0},m:{to:'m',mul:1,add:0},ft:{to:'m',mul:.3048,add:0}};
+const conversionFor=(u)=>CV[normUnit(u)]??null;
+export function convertToMetric(value,unit){const c=conversionFor(unit);if(!c)return{value,unit:unit??null,known:false};return{value:Number.isFinite(value)?value*c.mul+c.add:value,unit:c.to,known:true};}
+export function convertSeries(ys,unit){const c=conversionFor(unit);if(!c)return{ys:(ys??[]).slice(),unit:unit??null,known:false};return{ys:(ys??[]).map(v=>Number.isFinite(v)?v*c.mul+c.add:v),unit:c.to,known:true};}
+export function sameUnit(a,b){const ca=conversionFor(a),cb=conversionFor(b);return!!(ca&&cb&&ca.to===cb.to);}
+
