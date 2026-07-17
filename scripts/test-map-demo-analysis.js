@@ -107,5 +107,68 @@ await test('a single point still centres in the plot area', async () => {
   assert(svg.includes('257.00'), 'centred at PAD.left + plotW/2');
 });
 
+console.log('[renderChartSVG - multi-series]');
+
+await test('accepts an array and draws one polyline per series', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG([
+    { xs: [0, 1, 2], ys: [1, 2, 3], xLabel: 'X', slot: 0 },
+    { xs: [0, 1, 2], ys: [3, 2, 1], xLabel: 'X', slot: 1 },
+  ], { width: 480, height: 180 });
+  assertEq((svg.match(/<polyline/g) || []).length, 2, 'two lines');
+});
+
+await test('tags each series with its slot class', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG([
+    { xs: [0, 1], ys: [1, 2], slot: 0 },
+    { xs: [0, 1], ys: [2, 3], slot: 3 },
+  ], {});
+  assert(svg.includes('ac-s0'), 'slot 0 class');
+  assert(svg.includes('ac-s3'), 'slot 3 class');
+});
+
+// The whole point of the x-scale work: series sampled differently must align on a
+// shared domain rather than each being stretched to the full width.
+await test('series with different sampling share one x domain', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG([
+    { xs: [0, 10], ys: [1, 1], slot: 0 },
+    { xs: [0, 1, 10], ys: [2, 2, 2], slot: 1 },
+  ], { width: 480, height: 180 });
+  assert(svg.includes('88.20'), 'x=1 lands at the shared-domain position');
+  assert(svg.includes('468.00'), 'x=10 lands at the right edge');
+});
+
+await test('y domain spans every series, not just the first', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG([
+    { xs: [0, 1], ys: [0, 0], slot: 0 },
+    { xs: [0, 1], ys: [100, 100], slot: 1 },
+  ], {});
+  const ys = [...svg.matchAll(/<polyline points="[\d.]+,([\d.]+)/g)].map((m) => m[1]);
+  assert(ys.length === 2 && ys[0] !== ys[1], 'flat series separate under a shared y domain');
+});
+
+await test('a single series object still works unchanged', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG({ xs: [0, 1, 2], ys: [1, 2, 3], xLabel: 'X' }, {});
+  assertEq((svg.match(/<polyline/g) || []).length, 1, 'one line');
+});
+
+await test('an empty list renders the no-data note', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  assert(/no data/i.test(renderChartSVG([], {})), 'says no data');
+});
+
+await test('a series with no finite values is skipped, others still draw', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG([
+    { xs: [0, 1], ys: [NaN, NaN], slot: 0 },
+    { xs: [0, 1], ys: [1, 2], slot: 1 },
+  ], {});
+  assertEq((svg.match(/<polyline/g) || []).length, 1, 'the good series still draws');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

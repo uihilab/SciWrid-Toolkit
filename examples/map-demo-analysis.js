@@ -69,12 +69,14 @@ export function seriesFromTimeseries(points) {
 // chart made of fiction.
 const ISO_LIKE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?/;
 
+const parseX = (x) => {
+  if (typeof x === 'number') return x;
+  if (typeof x === 'string' && ISO_LIKE.test(x)) return Date.parse(x);
+  return NaN;
+};
+
 export function numericXs(xs) {
-  const out = (xs ?? []).map((x) => {
-    if (typeof x === 'number') return x;
-    if (typeof x === 'string' && ISO_LIKE.test(x)) return Date.parse(x);
-    return NaN;
-  });
+  const out = (xs ?? []).map(parseX);
   return out.every(Number.isFinite) ? out : (xs ?? []).map((_, i) => i);
 }
 
@@ -82,32 +84,69 @@ export function numericXs(xs) {
 const PAD = { top: 10, right: 12, bottom: 26, left: 46 };
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function defaultFmt(v) { if (!Number.isFinite(v)) return '–'; const a=Math.abs(v); if (a!==0&&(a<1e-3||a>=1e5)) return v.toExponential(2); return v.toFixed(2); }
-export function renderChartSVG(series, opts = {}) {
-  const width=opts.width??480, height=opts.height??180;
-  const formatX=opts.formatX??((x)=>String(x)), formatY=opts.formatY??defaultFmt;
-  const { xs=[], ys=[], xLabel='' }=series??{};
-  const plotW=width-PAD.left-PAD.right, plotH=height-PAD.top-PAD.bottom;
-  const frame=`<line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top+plotH}" class="ac-axis"/>`+`<line x1="${PAD.left}" y1="${PAD.top+plotH}" x2="${PAD.left+plotW}" y2="${PAD.top+plotH}" class="ac-axis"/>`;
-  const open=`<svg viewBox="0 0 ${width} ${height}" class="ac-svg" role="img">`;
-  const finite=ys.filter((v)=>Number.isFinite(v));
-  if (!finite.length) return open+frame+`<text x="${width/2}" y="${height/2}" class="ac-note" text-anchor="middle">no data to plot</text></svg>`;
-  let vmin=Math.min(...finite), vmax=Math.max(...finite);
-  if (vmin===vmax) { vmin-=1; vmax+=1; }
-  const padY=(vmax-vmin)*0.05; vmin-=padY; vmax+=padY;
-  const n=ys.length;
-  const nx=numericXs(xs);
-  const xmin=Math.min(...nx), xmax=Math.max(...nx);
-  const xspan=xmax-xmin;
-  // Position by x VALUE, not array index: an overlay of series with different
-  // sampling must line up on a shared domain. A degenerate span centres the mark.
-  const px=(i)=>xspan===0?PAD.left+plotW/2:PAD.left+((nx[i]-xmin)/xspan)*plotW;
-  const py=(v)=>PAD.top+plotH-((v-vmin)/(vmax-vmin))*plotH;
-  const runs=[]; let run=[];
-  ys.forEach((v,i)=>{ if(Number.isFinite(v)) run.push(`${px(i).toFixed(2)},${py(v).toFixed(2)}`); else { if(run.length) runs.push(run); run=[]; } });
-  if(run.length) runs.push(run);
-  const marks=runs.map((r)=>r.length===1?`<circle cx="${r[0].split(',')[0]}" cy="${r[0].split(',')[1]}" r="2.5" class="ac-dot"/>`:`<polyline points="${r.join(' ')}" class="ac-line"/>`).join('');
-  const yTicks=`<text x="${PAD.left-5}" y="${PAD.top+4}" class="ac-tick" text-anchor="end">${esc(formatY(vmax))}</text>`+`<text x="${PAD.left-5}" y="${PAD.top+plotH}" class="ac-tick" text-anchor="end">${esc(formatY(vmin))}</text>`;
-  const xTicks=`<text x="${PAD.left}" y="${height-12}" class="ac-tick" text-anchor="start">${esc(formatX(xs[0]))}</text>`+(n>1?`<text x="${PAD.left+plotW}" y="${height-12}" class="ac-tick" text-anchor="end">${esc(formatX(xs[n-1]))}</text>`:'');
-  const axisTitle=`<text x="${PAD.left+plotW/2}" y="${height-1}" class="ac-tick" text-anchor="middle">${esc(xLabel)}</text>`;
-  return open+frame+marks+yTicks+xTicks+axisTitle+'</svg>';
+export function renderChartSVG(seriesOrList, opts = {}) {
+  // Accept one series or many: a single object keeps the original call shape.
+  const list = (Array.isArray(seriesOrList) ? seriesOrList : [seriesOrList]).filter(Boolean);
+  const width = opts.width ?? 480, height = opts.height ?? 180;
+  const formatX = opts.formatX ?? ((x) => String(x)), formatY = opts.formatY ?? defaultFmt;
+  const plotW = width - PAD.left - PAD.right, plotH = height - PAD.top - PAD.bottom;
+  const frame =
+    `<line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top + plotH}" class="ac-axis"/>` +
+    `<line x1="${PAD.left}" y1="${PAD.top + plotH}" x2="${PAD.left + plotW}" y2="${PAD.top + plotH}" class="ac-axis"/>`;
+  const open = `<svg viewBox="0 0 ${width} ${height}" class="ac-svg" role="img">`;
+  const note = (t) => `<text x="${width / 2}" y="${height / 2}" class="ac-note" text-anchor="middle">${esc(t)}</text>`;
+
+  // One scale decision for the whole chart: if ANY series has unparseable x, every
+  // series falls back to indices, so the chart never mixes two scales.
+  const raw = list.map((s) => (s.xs ?? []).map(parseX));
+  const allNumeric = raw.length > 0 && raw.every((r) => r.every(Number.isFinite));
+  const nxs = allNumeric ? raw : list.map((s) => (s.xs ?? []).map((_, i) => i));
+
+  const allY = list.flatMap((s) => s.ys ?? []).filter(Number.isFinite);
+  const allX = nxs.flat().filter(Number.isFinite);
+  if (!allY.length || !allX.length) return open + frame + note('no data to plot') + '</svg>';
+
+  const xmin = Math.min(...allX), xmax = Math.max(...allX);
+  const xspan = xmax - xmin;
+  let vmin = Math.min(...allY), vmax = Math.max(...allY);
+  if (vmin === vmax) { vmin -= 1; vmax += 1; }
+  const padY = (vmax - vmin) * 0.05; vmin -= padY; vmax += padY;
+
+  const px = (x) => (xspan === 0 ? PAD.left + plotW / 2 : PAD.left + ((x - xmin) / xspan) * plotW);
+  const py = (v) => PAD.top + plotH - ((v - vmin) / (vmax - vmin)) * plotH;
+
+  const marks = list.map((s, si) => {
+    const slot = s.slot ?? si;
+    const nx = nxs[si], ys = s.ys ?? [];
+    const runs = []; let run = [];
+    ys.forEach((v, i) => {
+      if (Number.isFinite(v) && Number.isFinite(nx[i])) run.push(`${px(nx[i]).toFixed(2)},${py(v).toFixed(2)}`);
+      else { if (run.length) runs.push(run); run = []; }
+    });
+    if (run.length) runs.push(run);
+    return runs.map((r) => (r.length === 1
+      ? `<circle cx="${r[0].split(',')[0]}" cy="${r[0].split(',')[1]}" r="2.5" class="ac-dot ac-s${slot}"/>`
+      : `<polyline points="${r.join(' ')}" class="ac-line ac-s${slot}"/>`)).join('');
+  }).join('');
+
+  // Tick labels come from the ORIGINAL x values at the domain endpoints, which may
+  // belong to different series once several are overlaid.
+  const pairs = list.flatMap((s, si) => (s.xs ?? []).map((x, i) => ({ x, n: nxs[si][i] })))
+                    .filter((p) => Number.isFinite(p.n));
+  const loX = pairs.reduce((a, b) => (b.n < a.n ? b : a));
+  const hiX = pairs.reduce((a, b) => (b.n > a.n ? b : a));
+  const xLabel = list[0]?.xLabel ?? '';
+
+  const yTicks =
+    `<text x="${PAD.left - 5}" y="${PAD.top + 4}" class="ac-tick" text-anchor="end">${esc(formatY(vmax))}</text>` +
+    `<text x="${PAD.left - 5}" y="${PAD.top + plotH}" class="ac-tick" text-anchor="end">${esc(formatY(vmin))}</text>`;
+  const xTicks =
+    `<text x="${PAD.left}" y="${height - 12}" class="ac-tick" text-anchor="start">${esc(formatX(loX.x))}</text>` +
+    (xspan > 0
+      ? `<text x="${PAD.left + plotW}" y="${height - 12}" class="ac-tick" text-anchor="end">${esc(formatX(hiX.x))}</text>`
+      : '');
+  const axisTitle =
+    `<text x="${PAD.left + plotW / 2}" y="${height - 1}" class="ac-tick" text-anchor="middle">${esc(xLabel)}</text>`;
+
+  return open + frame + marks + yTicks + xTicks + axisTitle + '</svg>';
 }
