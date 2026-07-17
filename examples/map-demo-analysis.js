@@ -56,6 +56,28 @@ export function seriesFromTimeseries(points) {
   }
   return { xs, ys, xLabel: 'Time (UTC)' };
 }
+/* ── x scale ────────────────────────────────────────────────────────────── */
+// Project x values onto a real number line: numbers pass through, ISO timestamps
+// become epoch ms, anything else falls back to array indices for the WHOLE series
+// so a chart never mixes two scales.
+//
+// The ISO guard is load-bearing, NOT belt-and-braces: Date.parse is a lenient
+// scavenger, not a validator. Date.parse('step 0') returns 946706400000 (the year
+// 2000) rather than NaN, and 'step 1'/'step 2' land in 2001 - so without this
+// regex the synthetic "step N" labels that populateTimePicker generates would be
+// plotted at hallucinated dates spanning years, producing a plausible-looking
+// chart made of fiction.
+const ISO_LIKE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?/;
+
+export function numericXs(xs) {
+  const out = (xs ?? []).map((x) => {
+    if (typeof x === 'number') return x;
+    if (typeof x === 'string' && ISO_LIKE.test(x)) return Date.parse(x);
+    return NaN;
+  });
+  return out.every(Number.isFinite) ? out : (xs ?? []).map((_, i) => i);
+}
+
 /* ── chart ─────────────────────────────────────────────────────────────── */
 const PAD = { top: 10, right: 12, bottom: 26, left: 46 };
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -73,7 +95,12 @@ export function renderChartSVG(series, opts = {}) {
   if (vmin===vmax) { vmin-=1; vmax+=1; }
   const padY=(vmax-vmin)*0.05; vmin-=padY; vmax+=padY;
   const n=ys.length;
-  const px=(i)=>PAD.left+(n<=1?plotW/2:(i/(n-1))*plotW);
+  const nx=numericXs(xs);
+  const xmin=Math.min(...nx), xmax=Math.max(...nx);
+  const xspan=xmax-xmin;
+  // Position by x VALUE, not array index: an overlay of series with different
+  // sampling must line up on a shared domain. A degenerate span centres the mark.
+  const px=(i)=>xspan===0?PAD.left+plotW/2:PAD.left+((nx[i]-xmin)/xspan)*plotW;
   const py=(v)=>PAD.top+plotH-((v-vmin)/(vmax-vmin))*plotH;
   const runs=[]; let run=[];
   ys.forEach((v,i)=>{ if(Number.isFinite(v)) run.push(`${px(i).toFixed(2)},${py(v).toFixed(2)}`); else { if(run.length) runs.push(run); run=[]; } });

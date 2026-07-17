@@ -39,5 +39,73 @@ await test('a flat series still renders inside the plot area', async () => { con
 await test('an all-missing series renders a no-data message and no polyline', async () => { const { renderChartSVG }=await import('../examples/map-demo-analysis.js'); const svg=renderChartSVG({xs:[0,1],ys:[NaN,NaN],xLabel:'X'},{}); assert(/no data/i.test(svg),'message'); assertEq((svg.match(/<polyline/g)||[]).length,0,'lines'); });
 await test('an empty series renders a no-data message', async () => { const { renderChartSVG }=await import('../examples/map-demo-analysis.js'); assert(/no data/i.test(renderChartSVG({xs:[],ys:[],xLabel:'X'},{})),'message'); });
 await test('escapes markup in labels', async () => { const { renderChartSVG }=await import('../examples/map-demo-analysis.js'); const svg=renderChartSVG({xs:[0,1],ys:[1,2],xLabel:'<script>x</script>'},{}); assert(!svg.includes('<script>'),'raw'); assert(svg.includes('&lt;script&gt;'),'escaped'); });
+console.log('[numericXs]');
+
+await test('passes numbers through unchanged', async () => {
+  const { numericXs } = await import('../examples/map-demo-analysis.js');
+  assertEq(JSON.stringify(numericXs([0, 5, 10])), JSON.stringify([0, 5, 10]), 'numbers');
+});
+
+await test('parses ISO time strings to epoch ms', async () => {
+  const { numericXs } = await import('../examples/map-demo-analysis.js');
+  const r = numericXs(['2026-04-14T06:00:00Z', '2026-04-14T09:00:00Z']);
+  assertEq(r[1] - r[0], 3 * 3600 * 1000, 'three hours apart in ms');
+});
+
+// Regression guard for a real trap: Date.parse('step 0') returns 946706400000
+// (year 2000), NOT NaN - V8's fallback parser scavenges digits out of any string.
+// Relying on Date.parse alone would plot these at hallucinated dates years apart.
+await test('falls back to index for unparseable labels', async () => {
+  const { numericXs } = await import('../examples/map-demo-analysis.js');
+  assertEq(JSON.stringify(numericXs(['step 0', 'step 1', 'step 2'])), JSON.stringify([0, 1, 2]), 'index fallback');
+});
+
+await test('does not mistake arbitrary text for a date', async () => {
+  const { numericXs } = await import('../examples/map-demo-analysis.js');
+  assertEq(JSON.stringify(numericXs(['run 3', 'run 4'])), JSON.stringify([0, 1]), 'index fallback');
+});
+
+await test('accepts a bare ISO date', async () => {
+  const { numericXs } = await import('../examples/map-demo-analysis.js');
+  const r = numericXs(['2026-04-14', '2026-04-15']);
+  assertEq(r[1] - r[0], 24 * 3600 * 1000, 'one day apart in ms');
+});
+
+console.log('[renderChartSVG - x scale]');
+
+// PAD.left = 46, PAD.right = 12 => plotW = 480 - 46 - 12 = 422.
+// x=1 on a 0..10 domain must land at 46 + (1/10)*422 = 88.20 - NOT the index
+// answer of 46 + (1/2)*422 = 257.00.
+await test('positions points by x value, not by array index', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG({ xs: [0, 1, 10], ys: [1, 2, 3], xLabel: 'X' }, { width: 480, height: 180 });
+  assert(svg.includes('88.20'), 'x=1 sits at 10% of the plot width');
+  assert(!svg.includes('257.00'), 'x=1 is NOT at the index-based midpoint');
+});
+
+await test('positions ISO times on a real time scale', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  // 06:00, 09:00, 15:00 -> 09:00 is 3h into a 9h span = 33.3% => 46 + 0.3333*422 = 186.67
+  const svg = renderChartSVG({
+    xs: ['2026-04-14T06:00:00Z', '2026-04-14T09:00:00Z', '2026-04-14T15:00:00Z'],
+    ys: [1, 2, 3], xLabel: 'T',
+  }, { width: 480, height: 180 });
+  assert(svg.includes('186.67'), 'uneven time sampling is honoured');
+  assert(!svg.includes('257.00'), 'not index-positioned');
+});
+
+await test('index fallback still positions unparseable labels evenly', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG({ xs: ['a', 'b', 'c'], ys: [1, 2, 3], xLabel: 'X' }, { width: 480, height: 180 });
+  assert(svg.includes('257.00'), 'middle label at the midpoint');
+});
+
+await test('a single point still centres in the plot area', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG({ xs: [7], ys: [5], xLabel: 'X' }, { width: 480, height: 180 });
+  assert(svg.includes('<circle'), 'renders a dot');
+  assert(svg.includes('257.00'), 'centred at PAD.left + plotW/2');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
