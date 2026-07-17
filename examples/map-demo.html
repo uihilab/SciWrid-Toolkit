@@ -228,6 +228,13 @@
     #analysis-stats-table th, #analysis-stats-table td { text-align: right; padding: 1px 4px; color: var(--muted-foreground); font-weight: 400; }
     #analysis-stats-table th:first-child, #analysis-stats-table td:first-child { text-align: left; color: var(--foreground); }
     #analysis-stats-table thead th { border-bottom: 1px solid var(--border); }
+    #analysis-nav { display: flex; align-items: center; gap: .4rem; }
+    #analysis-nav[hidden] { display: none; }
+    #analysis-nav button { padding: 2px 8px; font: 600 12px var(--font-sans); line-height: 1; background: var(--secondary); color: var(--secondary-foreground); border: 1px solid var(--border); border-radius: calc(var(--radius) - 3px); cursor: pointer; }
+    #analysis-nav button:hover:not(:disabled) { background: var(--accent); }
+    #analysis-nav button:disabled { opacity: .45; cursor: not-allowed; }
+    #an-scroll { flex: 1; min-width: 0; margin: 0; accent-color: var(--brand); cursor: pointer; }
+    #an-scroll:disabled { opacity: .45; cursor: not-allowed; }
     #sidebar #help-btn {
       margin-left: auto; width: 32px; height: 32px; padding: 0;
       display: inline-grid; place-items: center;
@@ -428,6 +435,12 @@
       <div id="analysis-legend"></div>
       <div id="analysis-readout"></div>
       <div id="analysis-chart"></div>
+      <div id="analysis-nav" hidden>
+        <button id="an-zoom-out" type="button" aria-label="Zoom out">−</button>
+        <button id="an-zoom-reset" type="button">Reset</button>
+        <button id="an-zoom-in" type="button" aria-label="Zoom in">+</button>
+        <input id="an-scroll" type="range" min="0" max="1" step="0.001" value="0.5" aria-label="Scroll the axis">
+      </div>
       <div id="analysis-stats"><table id="analysis-stats-table"></table></div>
     </section>
   </div>
