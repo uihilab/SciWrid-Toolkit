@@ -294,5 +294,11 @@ await test('assumes one degree for unknown shape',async()=>{const{nativeGridSize
 await test('keeps at least eight samples',async()=>{const{nativeGridSize}=await import('../examples/map-demo-analysis.js');const r=nativeGridSize(undefined,undefined,[-100,30,-98,31]);assertEq(r.w,8,'w');assertEq(r.h,8,'h');});
 await test('parses array shape trailing dimensions',async()=>{const{nativeGridSize}=await import('../examples/map-demo-analysis.js');const r=nativeGridSize([1,20,40],[-180,-90,180,90],[-90,-45,90,45]);assertEq(r.w,20,'w');assertEq(r.h,10,'h');});
 
+
+console.log('[renderChartSVG - dual axis]');
+await test('dual axis scales independently and labels units',async()=>{const{renderChartSVG}=await import('../examples/map-demo-analysis.js');const svg=renderChartSVG([{xs:[0,1],ys:[0,10]},{xs:[0,1],ys:[1000,2000]}],{dualAxis:true,unitLeft:'?C',unitRight:'hPa'});assertEq((svg.match(/<polyline/g)||[]).length,2,'lines');assert(svg.includes('?C')&&svg.includes('hPa'),'units');assert(svg.includes('ac-axis-r'),'right');});
+await test('chartScale uses per-series domains in dual mode',async()=>{const{chartScale}=await import('../examples/map-demo-analysis.js');const sc=chartScale([{xs:[0,1],ys:[0,10]},{xs:[0,1],ys:[1000,2000]}],{dualAxis:true});assert(sc.dual,'dual');assert(sc.py(1000,0)!==sc.py(1000,1),'projection');});
+await test('shared mode remains one domain',async()=>{const{chartScale}=await import('../examples/map-demo-analysis.js');const sc=chartScale([{xs:[0,1],ys:[0,0]},{xs:[0,1],ys:[100,100]}],{});assert(!sc.dual,'shared');assertEq(sc.domains.length,1,'domains');});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

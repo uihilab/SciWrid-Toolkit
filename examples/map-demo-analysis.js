@@ -99,20 +99,14 @@ export function chartScale(seriesOrList, opts = {}) {
   const allNumeric = raw.length > 0 && raw.every((r) => r.every(Number.isFinite));
   const nxs = allNumeric ? raw : list.map((s) => (s.xs ?? []).map((_, i) => i));
 
-  const allY = list.flatMap((s) => s.ys ?? []).filter(Number.isFinite);
-  const allX = nxs.flat().filter(Number.isFinite);
-  if (!allY.length || !allX.length) return { ok: false, list, nxs, width, height, plot };
-
-  const xmin = Math.min(...allX), xmax = Math.max(...allX);
-  const xspan = xmax - xmin;
-  let vmin = Math.min(...allY), vmax = Math.max(...allY);
-  if (vmin === vmax) { vmin -= 1; vmax += 1; }
-  const padY = (vmax - vmin) * 0.05; vmin -= padY; vmax += padY;
-
-  const px = (x) => (xspan === 0 ? PAD.left + plotW / 2 : PAD.left + ((x - xmin) / xspan) * plotW);
-  const py = (v) => PAD.top + plotH - ((v - vmin) / (vmax - vmin)) * plotH;
-
-  return { ok: true, list, nxs, xmin, xmax, xspan, vmin, vmax, width, height, plot, px, py };
+  const allX=nxs.flat().filter(Number.isFinite);const finiteY=list.map(s=>(s.ys??[]).filter(Number.isFinite));
+  if(!finiteY.some(x=>x.length)||!allX.length)return{ok:false,list,nxs,width,height,plot};
+  const xmin=Math.min(...allX),xmax=Math.max(...allX),xspan=xmax-xmin;
+  const domainOf=(vals)=>{if(!vals.length)return{vmin:-1,vmax:1};let vmin=Math.min(...vals),vmax=Math.max(...vals);if(vmin===vmax){vmin-=1;vmax+=1;}const pad=(vmax-vmin)*.05;return{vmin:vmin-pad,vmax:vmax+pad};};
+  const dual=!!opts.dualAxis&&list.length===2,domains=dual?finiteY.map(domainOf):[domainOf(finiteY.flat())];
+  const px=(x)=>(xspan===0?PAD.left+plotW/2:PAD.left+((x-xmin)/xspan)*plotW);
+  const py=(v,si=0)=>{const d=domains[dual?si:0];return PAD.top+plotH-((v-d.vmin)/(d.vmax-d.vmin))*plotH;};
+  return{ok:true,list,nxs,xmin,xmax,xspan,vmin:domains[0].vmin,vmax:domains[0].vmax,dual,domains,width,height,plot,px,py};
 }
 
 export function renderChartSVG(seriesOrList, opts = {}) {
@@ -130,13 +124,15 @@ export function renderChartSVG(seriesOrList, opts = {}) {
   if (!sc.ok) return open + frame + note('no data to plot') + '</svg>';
 
   const { xmin, xmax, xspan, vmin, vmax, px, py } = sc;
+  const dual=sc.dual,unitLeft=opts.unitLeft??'',unitRight=opts.unitRight??'';
+  const withUnit=(txt,unit)=>unit?`${txt} ${unit}`:txt;
 
   const marks = list.map((s, si) => {
     const slot = s.slot ?? si;
     const nx = nxs[si], ys = s.ys ?? [];
     const runs = []; let run = [];
     ys.forEach((v, i) => {
-      if (Number.isFinite(v) && Number.isFinite(nx[i])) run.push(`${px(nx[i]).toFixed(2)},${py(v).toFixed(2)}`);
+      if (Number.isFinite(v) && Number.isFinite(nx[i])) run.push(`${px(nx[i]).toFixed(2)},${py(v, si).toFixed(2)}`);
       else { if (run.length) runs.push(run); run = []; }
     });
     if (run.length) runs.push(run);
@@ -153,9 +149,15 @@ export function renderChartSVG(seriesOrList, opts = {}) {
   const hiX = pairs.reduce((a, b) => (b.n > a.n ? b : a));
   const xLabel = list[0]?.xLabel ?? '';
 
-  const yTicks =
-    `<text x="${PAD.left - 5}" y="${PAD.top + 4}" class="ac-tick" text-anchor="end">${esc(formatY(vmax))}</text>` +
-    `<text x="${PAD.left - 5}" y="${PAD.top + plotH}" class="ac-tick" text-anchor="end">${esc(formatY(vmin))}</text>`;
+  const d0=sc.domains[0];
+  const yTicks=
+    `<text x="${PAD.left-5}" y="${PAD.top+4}" class="ac-tick" text-anchor="end">${esc(withUnit(formatY(d0.vmax),unitLeft))}</text>`+
+    `<text x="${PAD.left-5}" y="${PAD.top+plotH}" class="ac-tick" text-anchor="end">${esc(formatY(d0.vmin))}</text>`;
+  const rightAxis=dual
+    ? `<line x1="${PAD.left+plotW}" y1="${PAD.top}" x2="${PAD.left+plotW}" y2="${PAD.top+plotH}" class="ac-axis ac-axis-r"/>`+
+      `<text x="${PAD.left+plotW+5}" y="${PAD.top+4}" class="ac-tick" text-anchor="start">${esc(withUnit(formatY(sc.domains[1].vmax),unitRight))}</text>`+
+      `<text x="${PAD.left+plotW+5}" y="${PAD.top+plotH}" class="ac-tick" text-anchor="start">${esc(formatY(sc.domains[1].vmin))}</text>`
+    : '';
   const xTicks =
     `<text x="${PAD.left}" y="${height - 12}" class="ac-tick" text-anchor="start">${esc(formatX(loX.x))}</text>` +
     (xspan > 0
@@ -167,7 +169,7 @@ export function renderChartSVG(seriesOrList, opts = {}) {
   // Empty hover layer, appended last so its marks sit above the lines. The panel
   // fills it on mousemove by DOM rather than re-rendering: a 4-series transect is
   // thousands of points, and rebuilding that string every mousemove janks.
-  return open + frame + marks + yTicks + xTicks + axisTitle + '<g class="ac-hover"></g>' + '</svg>';
+  return open + frame + marks + yTicks + rightAxis + xTicks + axisTitle + '<g class="ac-hover"></g>' + '</svg>';
 }
 
 /* ── multi-file join ────────────────────────────────────────────────────── */
