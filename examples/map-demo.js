@@ -669,16 +669,15 @@ $('help-view-example').addEventListener('click', () => {
 // With several files loaded, every file becomes one series on the same frame.
 let analysisMode = 'time', analysisAxis = 'lon';
 let lastSeriesList = [];  // the series currently charted; the hover crosshair reads these
+let lastDual = false;
 
 // Time mode is available when ANY loaded file has a real multi-step axis. A
 // 1-step file among 4-step files renders as a single dot — honest, not a bug.
-function stepsFor(src, variable) {
-  return variableTimes(src.scan, variable).length;
-}
-function hasTimeAxis() {
-  const v = $('variable').value;
-  return sources.some((s) => stepsFor(s, v) > 1);
-}
+function varOf(src,idx){return src.chartVar||(idx===0?$('variable').value:(src.scan.variable_names?.[0]??''));}
+function scanVarOf(src,idx){return(src.scan.variables||[]).find(v=>v.name===varOf(src,idx))||{name:varOf(src,idx)};}
+function resLabel(size){return size.native?`${size.w}\u00d7${size.h}`:`\u22481\u00b0 ${size.w}\u00d7${size.h}`;}
+function stepsFor(src,idx){return variableTimes(src.scan,varOf(src,idx)).length;}
+function hasTimeAxis(){return sources.some((src,i)=>stepsFor(src,i)>1);}
 
 function setPressed(id, on) { $(id).setAttribute('aria-pressed', String(on)); }
 
@@ -687,39 +686,15 @@ function escHtml(s) {
 }
 
 // Text wears ink tokens, never the series colour: the swatch carries identity.
-function renderLegend(entries) {
-  $('analysis-legend').innerHTML = entries.length < 2 ? '' : entries.map((e) =>
-    `<span class="lg"><span class="lg-swatch" style="background:var(--series-${e.slot + 1})"></span>${escHtml(e.name)}</span>`
-  ).join('');
-}
+function renderLegend(entries) { $('analysis-legend').innerHTML=entries.length<2?'':entries.map(e=>`<span class="lg"><span class="lg-swatch" style="background:var(--series-${e.slot+1})"></span>${escHtml(e.name)}${e.meta?` \u00b7 ${escHtml(e.meta)}`:``}</span>`).join(''); }
 
 // The per-file stats table IS the accessibility table view required by the
 // palette's light-mode contrast warning — it is not decoration.
-function renderStatsTable(rows, extraLabel) {
-  const head = `<thead><tr><th>file</th><th>n</th><th>min</th><th>max</th><th>mean</th><th>std</th>${extraLabel ? `<th>${escHtml(extraLabel)}</th>` : ''}</tr></thead>`;
-  const body = rows.map((r) => {
-    const s = r.stats;
-    const cells = s.n === 0
-      ? `<td>0</td><td>–</td><td>–</td><td>–</td><td>–</td>`
-      : `<td>${s.n}</td><td>${fmtNum(s.min)}</td><td>${fmtNum(s.max)}</td><td>${fmtNum(s.mean)}</td><td>${fmtNum(s.std)}</td>`;
-    return `<tr><td>${escHtml(r.name)}</td>${cells}${extraLabel ? `<td>${r.extra ?? '–'}</td>` : ''}</tr>`;
-  }).join('');
-  $('analysis-stats-table').innerHTML = head + `<tbody>${body}</tbody>`;
-}
+function renderStatsTable(rows,extraLabel) { const head=`<thead><tr><th>file</th><th>n</th><th>min</th><th>max</th><th>mean</th><th>std</th>${extraLabel?`<th>${escHtml(extraLabel)}</th>`:``}</tr></thead>`;const body=rows.map(r=>{const st=r.stats,label=r.unit?`${r.name} (${r.unit})`:r.name;const cells=st.n===0?'<td>0</td><td>\u2013</td><td>\u2013</td><td>\u2013</td><td>\u2013</td>':`<td>${st.n}</td><td>${fmtNum(st.min)}</td><td>${fmtNum(st.max)}</td><td>${fmtNum(st.mean)}</td><td>${fmtNum(st.std)}</td>`;return`<tr><td>${escHtml(label)}</td>${cells}${extraLabel?`<td>${r.extra??`\u2013`}</td>`:``}</tr>`;}).join('');$('analysis-stats-table').innerHTML=head+`<tbody>${body}</tbody>`; }
 
 // Space mode needs a grid per file, but only the primary is rendered. Sample every
 // file on the PRIMARY's bbox/size/time so the transects are directly comparable.
-async function gridForSource(src, variable, bbox, px, py, time) {
-  if (src.slot === sources[0].slot && lastGrid) return lastGrid;
-  const key = `${src.slot}|${variable}|${bbox.join(',')}|${px}x${py}|${time}`;
-  if (gridCache.has(key)) return gridCache.get(key);
-  const token = ++renderToken;
-  const { grid } = await renderInWorker(token, {
-    source: src.file, variable, bbox, width: px, height: py, ramp: $('ramp').value, time,
-  });
-  if (grid) gridCache.set(key, grid);
-  return grid ?? null;
-}
+async function gridForSource(src,idx,variable,bbox,time) { const size=nativeGridSize(scanVarOf(src,idx).shape,src.scan.bbox,bbox);const key=`${src.slot}|${variable}|${bbox.join(`,`)}|${size.w}x${size.h}|${time}`;if(gridCache.has(key))return{grid:gridCache.get(key),size};const token=++renderToken;const{grid}=await renderInWorker(token,{source:src.file,variable,bbox,width:size.w,height:size.h,ramp:$('ramp').value,time});if(grid)gridCache.set(key,grid);return{grid:grid??null,size}; }
 
 const fmtX = (x) => (typeof x === 'number' ? fmtNum(x) : String(x).replace('T', ' ').replace(':00Z', 'Z'));
 
@@ -731,63 +706,14 @@ function populateCompareControls() {
 function onCompareChange(i,id){const src=sources[i];if(!src)return;src.chartVar=$(id).value;gridCache.clear();refreshAnalysis();}
 
 async function refreshAnalysis() {
-  const variable = $('variable').value;
-  const lat = parseFloat($('q-lat').value);
-  const lon = parseFloat($('q-lon').value);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !sources.length) return;
-
-  $('analysis-title').textContent = `${variable} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;
-  $('analysis-axis').hidden = analysisMode !== 'space';
-  setPressed('analysis-mode-time', analysisMode === 'time');
-  setPressed('analysis-mode-space', analysisMode === 'space');
-  setPressed('analysis-axis-lon', analysisAxis === 'lon');
-  setPressed('analysis-axis-lat', analysisAxis === 'lat');
-  renderLegend(sources.map((s) => ({ slot: s.slot, name: s.name })));
-
-  const list = [], rows = [];
-  const time = parseInt($('time').value, 10) || 0;
-
-  if (analysisMode === 'space') {
-    if (!lastGrid || !extractBbox) { $('analysis-chart').innerHTML = ''; return; }
-    if (sources.length > 1) setStatus('Sampling files…', 'busy');
-    const { w: px, h: py } = bboxPixelSize(extractBbox);
-    for (const s of sources) {
-      let grid = null;
-      try { grid = await gridForSource(s, variable, extractBbox, px, py, time); }
-      catch (err) { console.error(err); }
-      // One unreadable file must not blank the comparison.
-      if (!grid) { rows.push({ name: `${s.name} (unavailable)`, stats: computeStats([]) }); continue; }
-      const ser = seriesFromGrid(grid, { lat, lon, axis: analysisAxis });
-      list.push({ ...ser, slot: s.slot });
-      rows.push({ name: s.name, stats: computeStats(ser.ys) });
-    }
-    if (sources.length > 1) setStatus(`${variable} — ${sources.length} files`, 'ok');
-  } else {
-    $('analysis-chart').innerHTML = '<p class="muted">Reading time series…</p>';
-    for (const s of sources) {
-      // t2 is NOT clamped by the library and each file has its OWN axis — a shared
-      // t2 would overrun the shorter file and append a phantom duplicate point.
-      const t2 = Math.max(0, stepsFor(s, variable) - 1);
-      let points = null;
-      try {
-        const r = await extract(s.file, { variable, lat, lon, t1: 0, t2 });
-        points = r?.timeseries ?? [];
-      } catch (err) { console.error(err); }
-      if (!points) { rows.push({ name: `${s.name} (failed)`, stats: computeStats([]) }); continue; }
-      const ser = seriesFromTimeseries(points);
-      list.push({ ...ser, slot: s.slot });
-      const finite = ser.ys.filter(Number.isFinite);
-      rows.push({
-        name: s.name,
-        stats: computeStats(ser.ys),
-        extra: finite.length > 1 ? fmtNum(finite[finite.length - 1] - finite[0]) : '–',
-      });
-    }
-  }
-
-  lastSeriesList = list;
-  $('analysis-chart').innerHTML = renderChartSVG(list, { formatY: fmtNum, formatX: fmtX });
-  renderStatsTable(rows, analysisMode === 'time' ? 'Δ' : null);
+  const lat=parseFloat($('q-lat').value),lon=parseFloat($('q-lon').value);if(!Number.isFinite(lat)||!Number.isFinite(lon)||!sources.length)return;
+  $('analysis-axis').hidden=analysisMode!=='space';setPressed('analysis-mode-time',analysisMode==='time');setPressed('analysis-mode-space',analysisMode==='space');setPressed('analysis-axis-lon',analysisAxis==='lon');setPressed('analysis-axis-lat',analysisAxis==='lat');
+  const time=parseInt($('time').value,10)||0,list=[],rows=[],legend=[],units=[];
+  const pushSeries=(src,idx,ser,size)=>{const resolved=resolveUnit(scanVarOf(src,idx)),conv=convertSeries(ser.ys,resolved);units[idx]=conv.unit??'';list.push({xs:ser.xs,ys:conv.ys,xLabel:ser.xLabel,slot:src.slot,unit:conv.unit??''});const meta=[varOf(src,idx),conv.unit||(conv.known?'':'units unknown'),size?resLabel(size):null].filter(Boolean).join(' \u00b7 ');legend.push({slot:src.slot,name:src.name,meta});rows.push({name:`${src.name} \u2014 ${varOf(src,idx)}${conv.known?``:` (units unknown)`}`,stats:computeStats(conv.ys),unit:conv.unit||''});};
+  if(analysisMode==='space'){if(!lastGrid||!extractBbox){$('analysis-chart').innerHTML='';return;}if(sources.length>1)setStatus('Sampling files\u2026','busy');for(const[idx,src]of sources.entries()){const variable=varOf(src,idx);let grid=null,size=null;try{({grid,size}=await gridForSource(src,idx,variable,extractBbox,time));}catch(err){console.error(err);}if(!grid){rows.push({name:`${src.name} (unavailable)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromGrid(grid,{lat,lon,axis:analysisAxis}),size);}if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');}
+  else{$('analysis-chart').innerHTML='<p class="muted">Reading time series\u2026</p>';for(const[idx,src]of sources.entries()){const variable=varOf(src,idx),t2=Math.max(0,stepsFor(src,idx)-1);let points=null;try{const r=await extract(src.file,{variable,lat,lon,t1:0,t2});points=r?.timeseries??[];}catch(err){console.error(err);}if(!points){rows.push({name:`${src.name} (failed)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromTimeseries(points),null);}}
+  const titleVar=sources.length>1?`${varOf(sources[0],0)} vs ${varOf(sources[1],1)}`:varOf(sources[0],0);$('analysis-title').textContent=`${titleVar} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;renderLegend(legend);
+  const dual=list.length===2&&!sameUnit(resolveUnit(scanVarOf(sources[0],0)),resolveUnit(scanVarOf(sources[1],1)));lastSeriesList=list;lastDual=dual;$('analysis-chart').innerHTML=renderChartSVG(list,{formatY:fmtNum,formatX:fmtX,dualAxis:dual,unitLeft:units[0]||'',unitRight:units[1]||''});renderStatsTable(rows,analysisMode==='time'?'\u0394':null);
 }
 
 function openAnalysis() {
@@ -874,7 +800,7 @@ $('analysis-chart').addEventListener('mousemove', (event) => {
   if (!r.width) return;
 
   // Same scale the renderer drew with — never recompute it here, or the dot drifts.
-  const sc = chartScale(lastSeriesList, {});
+  const sc = chartScale(lastSeriesList, { dualAxis: lastDual });
   if (!sc.ok) return;
 
   // Map client x → viewBox x. The SVG scales to fit its box, so go through the
@@ -903,7 +829,7 @@ $('analysis-chart').addEventListener('mousemove', (event) => {
     const slot = s.slot ?? si;
     if (Number.isFinite(v)) {
       marks.push(svgEl('circle', {
-        cx: sc.px(sc.nxs[si][i]).toFixed(2), cy: sc.py(v).toFixed(2), r: 4,
+        cx: sc.px(sc.nxs[si][i]).toFixed(2), cy: sc.py(v, si).toFixed(2), r: 4,
         class: `ac-hot ac-s${slot}`,
       }));
     }
