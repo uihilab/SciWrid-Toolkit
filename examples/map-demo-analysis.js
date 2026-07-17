@@ -99,14 +99,35 @@ export function chartScale(seriesOrList, opts = {}) {
   const allNumeric = raw.length > 0 && raw.every((r) => r.every(Number.isFinite));
   const nxs = allNumeric ? raw : list.map((s) => (s.xs ?? []).map((_, i) => i));
 
-  const allX=nxs.flat().filter(Number.isFinite);const finiteY=list.map(s=>(s.ys??[]).filter(Number.isFinite));
-  if(!finiteY.some(x=>x.length)||!allX.length)return{ok:false,list,nxs,width,height,plot};
-  const xmin=Math.min(...allX),xmax=Math.max(...allX),xspan=xmax-xmin;
-  const domainOf=(vals)=>{if(!vals.length)return{vmin:-1,vmax:1};let vmin=Math.min(...vals),vmax=Math.max(...vals);if(vmin===vmax){vmin-=1;vmax+=1;}const pad=(vmax-vmin)*.05;return{vmin:vmin-pad,vmax:vmax+pad};};
-  const dual=!!opts.dualAxis&&list.length===2,domains=dual?finiteY.map(domainOf):[domainOf(finiteY.flat())];
-  const px=(x)=>(xspan===0?PAD.left+plotW/2:PAD.left+((x-xmin)/xspan)*plotW);
-  const py=(v,si=0)=>{const d=domains[dual?si:0];return PAD.top+plotH-((v-d.vmin)/(d.vmax-d.vmin))*plotH;};
-  return{ok:true,list,nxs,xmin,xmax,xspan,vmin:domains[0].vmin,vmax:domains[0].vmax,dual,domains,width,height,plot,px,py};
+  const allX = nxs.flat().filter(Number.isFinite);
+  if (!allX.length) return { ok: false, list, nxs, width, height, plot };
+  const fullMin = Math.min(...allX), fullMax = Math.max(...allX);
+
+  // Optional view window (a zoomed/scrolled sub-range). Clamp into the full domain;
+  // a degenerate or out-of-range window falls back to the full domain.
+  let viewMin = fullMin, viewMax = fullMax;
+  const vw = opts.view;
+  if (vw && Number.isFinite(vw.min) && Number.isFinite(vw.max) && vw.max > vw.min) {
+    viewMin = Math.max(fullMin, Math.min(vw.min, fullMax));
+    viewMax = Math.min(fullMax, Math.max(vw.max, fullMin));
+    if (!(viewMax > viewMin)) { viewMin = fullMin; viewMax = fullMax; }
+  }
+
+  // Y auto-rescales to what is VISIBLE: domains use only points inside the window.
+  const inView = (n) => Number.isFinite(n) && n >= viewMin && n <= viewMax;
+  const finiteY = list.map((s, si) => {
+    const ys = s.ys ?? [], nx = nxs[si], out = [];
+    ys.forEach((v, i) => { if (Number.isFinite(v) && inView(nx[i])) out.push(v); });
+    return out;
+  });
+  if (!finiteY.some((a) => a.length)) return { ok: false, list, nxs, width, height, plot, fullMin, fullMax };
+
+  const xmin = viewMin, xmax = viewMax, xspan = xmax - xmin;
+  const domainOf = (vals) => { if (!vals.length) return { vmin: -1, vmax: 1 }; let vmin = Math.min(...vals), vmax = Math.max(...vals); if (vmin === vmax) { vmin -= 1; vmax += 1; } const pad = (vmax - vmin) * .05; return { vmin: vmin - pad, vmax: vmax + pad }; };
+  const dual = !!opts.dualAxis && list.length === 2, domains = dual ? finiteY.map(domainOf) : [domainOf(finiteY.flat())];
+  const px = (x) => (xspan === 0 ? PAD.left + plotW / 2 : PAD.left + ((x - xmin) / xspan) * plotW);
+  const py = (v, si = 0) => { const d = domains[dual ? si : 0]; return PAD.top + plotH - ((v - d.vmin) / (d.vmax - d.vmin)) * plotH; };
+  return { ok: true, list, nxs, xmin, xmax, xspan, fullMin, fullMax, vmin: domains[0].vmin, vmax: domains[0].vmax, dual, domains, width, height, plot, px, py };
 }
 
 export function renderChartSVG(seriesOrList, opts = {}) {

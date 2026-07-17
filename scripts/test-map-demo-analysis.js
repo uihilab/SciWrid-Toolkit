@@ -264,5 +264,51 @@ await test('dual axis scales independently and labels units',async()=>{const{ren
 await test('chartScale uses per-series domains in dual mode',async()=>{const{chartScale}=await import('../examples/map-demo-analysis.js');const sc=chartScale([{xs:[0,1],ys:[0,10]},{xs:[0,1],ys:[1000,2000]}],{dualAxis:true});assert(sc.dual,'dual');assert(sc.py(1000,0)!==sc.py(1000,1),'projection');});
 await test('shared mode remains one domain',async()=>{const{chartScale}=await import('../examples/map-demo-analysis.js');const sc=chartScale([{xs:[0,1],ys:[0,0]},{xs:[0,1],ys:[100,100]}],{});assert(!sc.dual,'shared');assertEq(sc.domains.length,1,'domains');});
 
+console.log('[chartScale - view window]');
+
+await test('a view window maps its bounds to the plot edges', async () => {
+  const { chartScale } = await import('../examples/map-demo-analysis.js');
+  const sc = chartScale([{ xs: [0, 25, 50, 75, 100], ys: [1, 2, 3, 4, 5], slot: 0 }],
+    { width: 480, height: 180, view: { min: 25, max: 75 } });
+  assert(sc.ok, 'ok');
+  assertEq(sc.fullMin, 0, 'full min preserved');
+  assertEq(sc.fullMax, 100, 'full max preserved');
+  assert(Math.abs(sc.px(25) - sc.plot.left) < 0.01, 'view min at the left edge');
+  assert(Math.abs(sc.px(75) - (sc.plot.left + sc.plot.w)) < 0.01, 'view max at the right edge');
+});
+
+await test('y auto-rescales to the values inside the window', async () => {
+  const { chartScale } = await import('../examples/map-demo-analysis.js');
+  const sc = chartScale([{ xs: [0, 40, 50, 60, 100], ys: [1000, 10, 11, 12, 1000], slot: 0 }],
+    { width: 480, height: 180, view: { min: 40, max: 60 } });
+  assert(sc.domains[0].vmax < 20, `in-view vmax ~12, got ${sc.domains[0].vmax}`);
+  assert(sc.domains[0].vmin > 5, `in-view vmin ~10, got ${sc.domains[0].vmin}`);
+});
+
+await test('no view means the full domain (regression)', async () => {
+  const { chartScale } = await import('../examples/map-demo-analysis.js');
+  const sc = chartScale([{ xs: [0, 10], ys: [1, 2], slot: 0 }], { width: 480, height: 180 });
+  assertEq(sc.xmin, 0, 'xmin full');
+  assertEq(sc.xmax, 10, 'xmax full');
+  assertEq(sc.fullMin, 0, 'fullMin');
+  assertEq(sc.fullMax, 10, 'fullMax');
+});
+
+await test('a degenerate/out-of-range view falls back to the full domain', async () => {
+  const { chartScale } = await import('../examples/map-demo-analysis.js');
+  const sc = chartScale([{ xs: [0, 10], ys: [1, 2], slot: 0 }],
+    { width: 480, height: 180, view: { min: 5, max: 5 } });
+  assertEq(sc.xmin, 0, 'fell back to full min');
+  assertEq(sc.xmax, 10, 'fell back to full max');
+});
+
+await test('a window with no samples reports not-ok but keeps the full domain', async () => {
+  const { chartScale } = await import('../examples/map-demo-analysis.js');
+  const sc = chartScale([{ xs: [0, 1, 100, 101], ys: [1, 2, 3, 4], slot: 0 }],
+    { width: 480, height: 180, view: { min: 40, max: 60 } });
+  assert(!sc.ok, 'no data in the window');
+  assertEq(sc.fullMax, 101, 'full domain still reported for the scrollbar');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
