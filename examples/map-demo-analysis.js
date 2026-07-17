@@ -150,3 +150,25 @@ export function renderChartSVG(seriesOrList, opts = {}) {
 
   return open + frame + marks + yTicks + xTicks + axisTitle + '</svg>';
 }
+
+/* ── multi-file join ────────────────────────────────────────────────────── */
+// Files join on a non-empty intersection of EXACT variable names. Identical sets
+// is the wrong rule: GFS f000 (37 vars) is a strict subset of f003 (45) because
+// accumulated/derived fields do not exist at forecast hour 0, so a set-equality
+// rule would reject our own bundled example. `current === null` means nothing is
+// loaded yet, so the incoming file establishes the set.
+export function intersectNames(current, incoming) {
+  const inc = new Set(incoming ?? []);
+  if (current == null) return [...inc];
+  return [...new Set(current)].filter((n) => inc.has(n));
+}
+
+// Index of the value closest to x - used by the hover crosshair to snap to a sample.
+export function nearestIndex(nx, x) {
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < nx.length; i++) {
+    const d = Math.abs(nx[i] - x);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
