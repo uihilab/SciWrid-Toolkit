@@ -190,6 +190,12 @@ await test('empty array yields -1', async () => {
   assertEq(nearestIndex([], 5), -1, '-1');
 });
 
+await test('can restrict snapping to the visible window', async () => {
+  const { nearestIndex } = await import('../examples/map-demo-analysis.js');
+  assertEq(nearestIndex([0, 10, 100], 80, { min: 0, max: 20 }), 1, 'nearest visible');
+  assertEq(nearestIndex([0, 10, 100], 80, { min: 40, max: 60 }), -1, 'no visible sample');
+});
+
 console.log('[chartScale]');
 
 await test('projects x the same way the renderer draws it', async () => {

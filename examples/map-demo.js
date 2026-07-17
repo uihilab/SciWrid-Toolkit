@@ -670,6 +670,11 @@ $('help-view-example').addEventListener('click', () => {
 let analysisMode = 'time', analysisAxis = 'lon';
 let lastSeriesList = [];  // the series currently charted; the hover crosshair reads these
 let lastDual = false;
+let lastUnits = [];        // [unitLeft, unitRight] of the current chart, for redraws
+// x-axis zoom/scroll: a view window inside the full domain. zoom>1 narrows it,
+// center (0..1) slides it. Reset by Reset, on open, and on a mode/axis switch.
+let viewZoom = 1, viewCenter = 0.5;
+let lastViewDomain = null; // {min,max} data-x currently shown; the hover reads it
 
 // Time mode is available when ANY loaded file has a real multi-step axis. A
 // 1-step file among 4-step files renders as a single dot — honest, not a bug.
@@ -713,7 +718,49 @@ async function refreshAnalysis() {
   if(analysisMode==='space'){if(!lastGrid||!extractBbox){$('analysis-chart').innerHTML='';return;}if(sources.length>1)setStatus('Sampling files\u2026','busy');for(const[idx,src]of sources.entries()){const variable=varOf(src,idx);let grid=null,size=null;try{({grid,size}=await gridForSource(src,idx,variable,extractBbox,time));}catch(err){console.error(err);}if(!grid){rows.push({name:`${src.name} (unavailable)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromGrid(grid,{lat,lon,axis:analysisAxis}),size);}if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');}
   else{$('analysis-chart').innerHTML='<p class="muted">Reading time series\u2026</p>';for(const[idx,src]of sources.entries()){const variable=varOf(src,idx),t2=Math.max(0,stepsFor(src,idx)-1);let points=null;try{const r=await extract(src.file,{variable,lat,lon,t1:0,t2});points=r?.timeseries??[];}catch(err){console.error(err);}if(!points){rows.push({name:`${src.name} (failed)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromTimeseries(points),null);}}
   const titleVar=sources.length>1?`${varOf(sources[0],0)} vs ${varOf(sources[1],1)}`:varOf(sources[0],0);$('analysis-title').textContent=`${titleVar} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;renderLegend(legend);
-  const dual=list.length===2&&!sameUnit(resolveUnit(scanVarOf(sources[0],0)),resolveUnit(scanVarOf(sources[1],1)));lastSeriesList=list;lastDual=dual;$('analysis-chart').innerHTML=renderChartSVG(list,{formatY:fmtNum,formatX:fmtX,dualAxis:dual,unitLeft:units[0]||'',unitRight:units[1]||''});renderStatsTable(rows,analysisMode==='time'?'\u0394':null);
+  const dual=list.length===2&&!sameUnit(resolveUnit(scanVarOf(sources[0],0)),resolveUnit(scanVarOf(sources[1],1)));lastSeriesList=list;lastDual=dual;lastUnits=units;drawChart();renderStatsTable(rows,analysisMode==='time'?'\u0394':null);
+}
+
+/* ── chart zoom / scroll ────────────────────────────────────────────────── */
+// The data-x window for the current zoom/center; null at zoom 1 (whole range).
+function currentViewOpt(fullMin, fullMax) {
+  if (viewZoom <= 1 || !Number.isFinite(fullMin) || !(fullMax > fullMin)) return null;
+  const span = (fullMax - fullMin) / viewZoom;
+  const center = fullMin + viewCenter * (fullMax - fullMin);
+  const min = Math.max(fullMin, Math.min(center - span / 2, fullMax - span));
+  return { min, max: min + span };
+}
+
+function updateNavUI(enabled) {
+  const nav = $('analysis-nav');
+  if (!nav) return;
+  nav.hidden = !enabled;
+  const zoomed = viewZoom > 1;
+  $('an-scroll').disabled = !zoomed;
+  $('an-scroll').value = String(viewCenter);
+  $('an-zoom-out').disabled = !zoomed;
+  $('an-zoom-reset').disabled = !zoomed;
+}
+
+// Redraw the chart SVG from the cached series at the current zoom/scroll. Kept
+// separate from refreshAnalysis so zooming/scrolling never re-extracts data.
+function drawChart() {
+  const probe = chartScale(lastSeriesList, { dualAxis: lastDual });
+  const fullMin = probe.fullMin, fullMax = probe.fullMax;
+  lastViewDomain = currentViewOpt(fullMin, fullMax);
+  $('analysis-chart').innerHTML = renderChartSVG(lastSeriesList, {
+    formatY: fmtNum, formatX: fmtX, dualAxis: lastDual,
+    unitLeft: lastUnits[0] || '', unitRight: lastUnits[1] || '', view: lastViewDomain,
+  });
+  updateNavUI(Number.isFinite(fullMin) && fullMax > fullMin && lastSeriesList.length > 0);
+}
+
+function resetView() { viewZoom = 1; viewCenter = 0.5; }
+
+function setZoom(z) {
+  viewZoom = Math.max(1, Math.min(64, z));
+  if (viewZoom === 1) viewCenter = 0.5;
+  drawChart();
 }
 
 function openAnalysis() {
@@ -727,6 +774,7 @@ function openAnalysis() {
   $('analysis-mode-time').disabled = !hasTimeAxis();
   $('analysis-mode-time').title = hasTimeAxis() ? '' : 'file has one timestep';
   populateCompareControls();
+  resetView();
   $('analysis-panel').hidden = false;
   refreshAnalysis();
 }
@@ -743,10 +791,14 @@ $('compare-a').addEventListener('change',()=>onCompareChange(0,'compare-a'));
 $('compare-b').addEventListener('change',()=>onCompareChange(1,'compare-b'));
 $('analyze-btn').addEventListener('click', openAnalysis);
 $('analysis-close').addEventListener('click', closeAnalysis);
-$('analysis-mode-time').addEventListener('click', () => { analysisMode = 'time'; refreshAnalysis(); });
-$('analysis-mode-space').addEventListener('click', () => { analysisMode = 'space'; refreshAnalysis(); });
-$('analysis-axis-lon').addEventListener('click', () => { analysisAxis = 'lon'; refreshAnalysis(); });
-$('analysis-axis-lat').addEventListener('click', () => { analysisAxis = 'lat'; refreshAnalysis(); });
+$('analysis-mode-time').addEventListener('click', () => { analysisMode = 'time'; resetView(); refreshAnalysis(); });
+$('analysis-mode-space').addEventListener('click', () => { analysisMode = 'space'; resetView(); refreshAnalysis(); });
+$('analysis-axis-lon').addEventListener('click', () => { analysisAxis = 'lon'; resetView(); refreshAnalysis(); });
+$('analysis-axis-lat').addEventListener('click', () => { analysisAxis = 'lat'; resetView(); refreshAnalysis(); });
+$('an-zoom-in').addEventListener('click', () => setZoom(viewZoom * 1.6));
+$('an-zoom-out').addEventListener('click', () => setZoom(viewZoom / 1.6));
+$('an-zoom-reset').addEventListener('click', () => { resetView(); drawChart(); });
+$('an-scroll').addEventListener('input', () => { viewCenter = parseFloat($('an-scroll').value); drawChart(); });
 
 /* Drag the window by its title bar. Non-modal on purpose: the map stays live
    underneath, so you can shove the window aside, click a new point, and watch the
@@ -800,7 +852,7 @@ $('analysis-chart').addEventListener('mousemove', (event) => {
   if (!r.width) return;
 
   // Same scale the renderer drew with — never recompute it here, or the dot drifts.
-  const sc = chartScale(lastSeriesList, { dualAxis: lastDual });
+  const sc = chartScale(lastSeriesList, { dualAxis: lastDual, view: lastViewDomain });
   if (!sc.ok) return;
 
   // Map client x → viewBox x. The SVG scales to fit its box, so go through the
@@ -809,11 +861,16 @@ $('analysis-chart').addEventListener('mousemove', (event) => {
   const frac = Math.max(0, Math.min(1, (vbX - sc.plot.left) / sc.plot.w));
   const target = sc.xmin + frac * (sc.xmax - sc.xmin);
 
-  // Snap to a real sample on the first series: the crosshair should land on data,
-  // not float between points.
-  const i0 = nearestIndex(sc.nxs[0], target);
+  // Snap to the closest VISIBLE sample across either series. A far-apart overlay
+  // may have no file-A samples in file B's current window.
+  let anchorSeries = -1, i0 = -1, snapDistance = Infinity;
+  sc.nxs.forEach((nx, si) => {
+    const i = nearestIndex(nx, target, lastViewDomain);
+    const d = i < 0 ? Infinity : Math.abs(nx[i] - target);
+    if (d < snapDistance) { anchorSeries = si; i0 = i; snapDistance = d; }
+  });
   if (i0 < 0) return;
-  const snappedX = sc.nxs[0][i0];
+  const snappedX = sc.nxs[anchorSeries][i0];
   const cx = sc.px(snappedX);
 
   const marks = [svgEl('line', {
@@ -823,7 +880,7 @@ $('analysis-chart').addEventListener('mousemove', (event) => {
   const parts = lastSeriesList.map((s, si) => {
     // Each series snaps to its OWN nearest sample: with different sampling the
     // honest answer is the closest value that file actually has.
-    const i = nearestIndex(sc.nxs[si], snappedX);
+    const i = nearestIndex(sc.nxs[si], snappedX, lastViewDomain);
     if (i < 0) return '';
     const v = s.ys[i];
     const slot = s.slot ?? si;
@@ -839,7 +896,7 @@ $('analysis-chart').addEventListener('mousemove', (event) => {
 
   g.replaceChildren(...marks);
   $('analysis-readout').innerHTML =
-    `<span>@ ${escHtml(fmtX(lastSeriesList[0].xs[i0]))}</span>` + parts.join('');
+    `<span>@ ${escHtml(fmtX(lastSeriesList[anchorSeries].xs[i0]))}</span>` + parts.join('');
 });
 
 $('analysis-chart').addEventListener('mouseleave', () => {

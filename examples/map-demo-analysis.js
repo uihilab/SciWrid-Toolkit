@@ -201,9 +201,10 @@ export function renderChartSVG(seriesOrList, opts = {}) {
 }
 
 // Index of the value closest to x - used by the hover crosshair to snap to a sample.
-export function nearestIndex(nx, x) {
+export function nearestIndex(nx, x, view = null) {
   let best = -1, bestD = Infinity;
   for (let i = 0; i < nx.length; i++) {
+    if (view && !(nx[i] >= view.min && nx[i] <= view.max)) continue;
     const d = Math.abs(nx[i] - x);
     if (d < bestD) { bestD = d; best = i; }
   }
