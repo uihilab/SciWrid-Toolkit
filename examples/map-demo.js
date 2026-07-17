@@ -324,8 +324,7 @@ async function refreshLayer({ force = false } = {}) {
   }
 }
 
-/* ── file handling ──────────────────────────────────────────────────────── */
-/* ── multi-file sources ─────────────────────────────────────────────────── */
+/* ── file handling / multi-file sources ─────────────────────────────────── */
 function firstFreeSlot() {
   const used = new Set(sources.map((s) => s.slot));
   for (let i = 0; i < MAX_SOURCES; i++) if (!used.has(i)) return i;
@@ -723,23 +722,156 @@ $('help-view-example').addEventListener('click', () => {
   closeHelp();
   runExample();
 });
-/* ?? analysis panel ?????????????????????????????????????????????????????? */
+/* ── analysis panel ─────────────────────────────────────────────────────── */
+// One chart, two x-axes: "value along an axis through the point you picked".
+//   time mode  — value over time at (lat, lon); needs a real time axis
+//   space mode — value along a lon/lat line through (lat, lon); always available
+//                once a grid has rendered, because it is one row/column of it
+// With several files loaded, every file becomes one series on the same frame.
 let analysisMode = 'time', analysisAxis = 'lon';
-function timeStepCount() { return timeAxis?.kind === 'real' ? (timeAxis.values?.length ?? 0) : 0; }
-const hasTimeAxis = () => timeStepCount() > 1;
-function setPressed(id, on) { $(id).setAttribute('aria-pressed', String(on)); }
-function renderStats(stats, extra) { const cell=(k,v)=>`<span>${k} <b>${v}</b></span>`; if(!stats||stats.n===0){$('analysis-stats').innerHTML=cell('n',0);return;} $('analysis-stats').innerHTML=[cell('n',stats.n),cell('min',fmtNum(stats.min)),cell('max',fmtNum(stats.max)),cell('mean',fmtNum(stats.mean)),cell('std',fmtNum(stats.std)),...(extra?[extra]:[])].join(''); }
-function drawSeries(series, extra) { $('analysis-chart').innerHTML=renderChartSVG(series,{formatY:fmtNum,formatX:(x)=>typeof x==='number'?fmtNum(x):String(x).replace('T',' ').replace(':00Z','Z')}); renderStats(computeStats(series.ys),extra); }
-async function refreshAnalysis() {
-  const variable=$('variable').value, lat=parseFloat($('q-lat').value), lon=parseFloat($('q-lon').value); if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
-  $('analysis-title').textContent=`${variable} @ ${fmtNum(lat)}, ${fmtNum(lon)}`; $('analysis-axis').hidden=analysisMode!=='space'; setPressed('analysis-mode-time',analysisMode==='time'); setPressed('analysis-mode-space',analysisMode==='space'); setPressed('analysis-axis-lon',analysisAxis==='lon'); setPressed('analysis-axis-lat',analysisAxis==='lat');
-  if(analysisMode==='space'){if(!lastGrid){$('analysis-chart').innerHTML='';return;}drawSeries(seriesFromGrid(lastGrid,{lat,lon,axis:analysisAxis}));return;}
-  $('analysis-chart').innerHTML='<p class="muted">Reading time series?</p>'; $('analysis-stats').innerHTML='';
-  try { const t2=timeStepCount()-1; const r=await extract(lastSource,{variable,lat,lon,t1:0,t2}); const series=seriesFromTimeseries(r?.timeseries??[]); const finite=series.ys.filter(Number.isFinite); const delta=finite.length>1?`<span>? <b>${fmtNum(finite.at(-1)-finite[0])}</b></span>`:null; drawSeries(series,delta); } catch(err){$('analysis-chart').textContent=`Error: ${err.message}`;console.error(err);}
+let lastSeriesList = [];  // the series currently charted; the hover crosshair reads these
+
+// Time mode is available when ANY loaded file has a real multi-step axis. A
+// 1-step file among 4-step files renders as a single dot — honest, not a bug.
+function stepsFor(src, variable) {
+  return variableTimes(src.scan, variable).length;
 }
-function openAnalysis(){if(!lastGrid){setStatus('Render an area first.','error');return;}if(!Number.isFinite(parseFloat($('q-lat').value))||!Number.isFinite(parseFloat($('q-lon').value))){setStatus('Click the map to pick a point first.','error');return;}analysisMode=hasTimeAxis()?'time':'space';$('analysis-mode-time').disabled=!hasTimeAxis();$('analysis-mode-time').title=hasTimeAxis()?'':'file has one timestep';$('analysis-panel').hidden=false;refreshAnalysis();}
-function closeAnalysis(){const panel=$('analysis-panel');if(panel)panel.hidden=true;}
-$('analyze-btn').addEventListener('click',openAnalysis); $('analysis-close').addEventListener('click',closeAnalysis); $('analysis-mode-time').addEventListener('click',()=>{analysisMode='time';refreshAnalysis();}); $('analysis-mode-space').addEventListener('click',()=>{analysisMode='space';refreshAnalysis();}); $('analysis-axis-lon').addEventListener('click',()=>{analysisAxis='lon';refreshAnalysis();}); $('analysis-axis-lat').addEventListener('click',()=>{analysisAxis='lat';refreshAnalysis();});
+function hasTimeAxis() {
+  const v = $('variable').value;
+  return sources.some((s) => stepsFor(s, v) > 1);
+}
+
+function setPressed(id, on) { $(id).setAttribute('aria-pressed', String(on)); }
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Text wears ink tokens, never the series colour: the swatch carries identity.
+function renderLegend(entries) {
+  $('analysis-legend').innerHTML = entries.length < 2 ? '' : entries.map((e) =>
+    `<span class="lg"><span class="lg-swatch" style="background:var(--series-${e.slot + 1})"></span>${escHtml(e.name)}</span>`
+  ).join('');
+}
+
+// The per-file stats table IS the accessibility table view required by the
+// palette's light-mode contrast warning — it is not decoration.
+function renderStatsTable(rows, extraLabel) {
+  const head = `<thead><tr><th>file</th><th>n</th><th>min</th><th>max</th><th>mean</th><th>std</th>${extraLabel ? `<th>${escHtml(extraLabel)}</th>` : ''}</tr></thead>`;
+  const body = rows.map((r) => {
+    const s = r.stats;
+    const cells = s.n === 0
+      ? `<td>0</td><td>–</td><td>–</td><td>–</td><td>–</td>`
+      : `<td>${s.n}</td><td>${fmtNum(s.min)}</td><td>${fmtNum(s.max)}</td><td>${fmtNum(s.mean)}</td><td>${fmtNum(s.std)}</td>`;
+    return `<tr><td>${escHtml(r.name)}</td>${cells}${extraLabel ? `<td>${r.extra ?? '–'}</td>` : ''}</tr>`;
+  }).join('');
+  $('analysis-stats-table').innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+// Space mode needs a grid per file, but only the primary is rendered. Sample every
+// file on the PRIMARY's bbox/size/time so the transects are directly comparable.
+async function gridForSource(src, variable, bbox, px, py, time) {
+  if (src.slot === sources[0].slot && lastGrid) return lastGrid;
+  const key = `${src.slot}|${variable}|${bbox.join(',')}|${px}x${py}|${time}`;
+  if (gridCache.has(key)) return gridCache.get(key);
+  const token = ++renderToken;
+  const { grid } = await renderInWorker(token, {
+    source: src.file, variable, bbox, width: px, height: py, ramp: $('ramp').value, time,
+  });
+  if (grid) gridCache.set(key, grid);
+  return grid ?? null;
+}
+
+const fmtX = (x) => (typeof x === 'number' ? fmtNum(x) : String(x).replace('T', ' ').replace(':00Z', 'Z'));
+
+async function refreshAnalysis() {
+  const variable = $('variable').value;
+  const lat = parseFloat($('q-lat').value);
+  const lon = parseFloat($('q-lon').value);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !sources.length) return;
+
+  $('analysis-title').textContent = `${variable} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;
+  $('analysis-axis').hidden = analysisMode !== 'space';
+  setPressed('analysis-mode-time', analysisMode === 'time');
+  setPressed('analysis-mode-space', analysisMode === 'space');
+  setPressed('analysis-axis-lon', analysisAxis === 'lon');
+  setPressed('analysis-axis-lat', analysisAxis === 'lat');
+  renderLegend(sources.map((s) => ({ slot: s.slot, name: s.name })));
+
+  const list = [], rows = [];
+  const time = parseInt($('time').value, 10) || 0;
+
+  if (analysisMode === 'space') {
+    if (!lastGrid || !extractBbox) { $('analysis-chart').innerHTML = ''; return; }
+    if (sources.length > 1) setStatus('Sampling files…', 'busy');
+    const { w: px, h: py } = bboxPixelSize(extractBbox);
+    for (const s of sources) {
+      let grid = null;
+      try { grid = await gridForSource(s, variable, extractBbox, px, py, time); }
+      catch (err) { console.error(err); }
+      // One unreadable file must not blank the comparison.
+      if (!grid) { rows.push({ name: `${s.name} (unavailable)`, stats: computeStats([]) }); continue; }
+      const ser = seriesFromGrid(grid, { lat, lon, axis: analysisAxis });
+      list.push({ ...ser, slot: s.slot });
+      rows.push({ name: s.name, stats: computeStats(ser.ys) });
+    }
+    if (sources.length > 1) setStatus(`${variable} — ${sources.length} files`, 'ok');
+  } else {
+    $('analysis-chart').innerHTML = '<p class="muted">Reading time series…</p>';
+    for (const s of sources) {
+      // t2 is NOT clamped by the library and each file has its OWN axis — a shared
+      // t2 would overrun the shorter file and append a phantom duplicate point.
+      const t2 = Math.max(0, stepsFor(s, variable) - 1);
+      let points = null;
+      try {
+        const r = await extract(s.file, { variable, lat, lon, t1: 0, t2 });
+        points = r?.timeseries ?? [];
+      } catch (err) { console.error(err); }
+      if (!points) { rows.push({ name: `${s.name} (failed)`, stats: computeStats([]) }); continue; }
+      const ser = seriesFromTimeseries(points);
+      list.push({ ...ser, slot: s.slot });
+      const finite = ser.ys.filter(Number.isFinite);
+      rows.push({
+        name: s.name,
+        stats: computeStats(ser.ys),
+        extra: finite.length > 1 ? fmtNum(finite[finite.length - 1] - finite[0]) : '–',
+      });
+    }
+  }
+
+  lastSeriesList = list;
+  $('analysis-chart').innerHTML = renderChartSVG(list, { formatY: fmtNum, formatX: fmtX });
+  renderStatsTable(rows, analysisMode === 'time' ? 'Δ' : null);
+}
+
+function openAnalysis() {
+  if (!lastGrid) { setStatus('Render an area first.', 'error'); return; }
+  if (!Number.isFinite(parseFloat($('q-lat').value)) || !Number.isFinite(parseFloat($('q-lon').value))) {
+    setStatus('Click the map to pick a point first.', 'error');
+    return;
+  }
+  // Prefer the time axis when any file has one; fall back to space otherwise.
+  analysisMode = hasTimeAxis() ? 'time' : 'space';
+  $('analysis-mode-time').disabled = !hasTimeAxis();
+  $('analysis-mode-time').title = hasTimeAxis() ? '' : 'file has one timestep';
+  $('analysis-panel').hidden = false;
+  refreshAnalysis();
+}
+
+function closeAnalysis() {
+  const panel = $('analysis-panel');
+  if (panel) panel.hidden = true;
+  lastSeriesList = [];
+  const ro = $('analysis-readout');
+  if (ro) ro.innerHTML = '';
+}
+
+$('analyze-btn').addEventListener('click', openAnalysis);
+$('analysis-close').addEventListener('click', closeAnalysis);
+$('analysis-mode-time').addEventListener('click', () => { analysisMode = 'time'; refreshAnalysis(); });
+$('analysis-mode-space').addEventListener('click', () => { analysisMode = 'space'; refreshAnalysis(); });
+$('analysis-axis-lon').addEventListener('click', () => { analysisAxis = 'lon'; refreshAnalysis(); });
+$('analysis-axis-lat').addEventListener('click', () => { analysisAxis = 'lat'; refreshAnalysis(); });
 
 /* ── boot ───────────────────────────────────────────────────────────────── */
 function init() {

@@ -50,5 +50,19 @@ test('map-demo-analysis.js axis labels use real degree signs', () => {
   if (!s.includes('Longitude (°E)')) throw new Error('missing "Longitude (°E)"');
 });
 
+// The OTHER way a non-UTF-8 editor mangles these files: it replaces every glyph
+// it cannot encode with a literal '?'. That is valid ASCII, so the byte-signature
+// check above cannot see it. Section banners are drawn with U+2500, so a banner
+// full of '?' is a reliable tell — this caught "Δ" being silently flattened to
+// "?" in a stats label that the byte check had already declared clean.
+for (const f of FILES) {
+  test(`${f} has no '?'-flattened section banners`, () => {
+    const bad = readFileSync(f, 'utf8').split('\n')
+      .map((l, i) => [i + 1, l])
+      .filter(([, l]) => /\/\*[^*]*\?\?/.test(l));
+    if (bad.length) throw new Error(`${f}: banner glyphs flattened to '?' on line(s) ${bad.map(([n]) => n).join(', ')}`);
+  });
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
