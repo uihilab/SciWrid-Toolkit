@@ -162,10 +162,12 @@ export function renderChartSVG(seriesOrList, opts = {}) {
       : `<polyline points="${r.join(' ')}" class="ac-line ac-s${slot}"/>`)).join('');
   }).join('');
 
-  // Tick labels come from the ORIGINAL x values at the domain endpoints, which may
-  // belong to different series once several are overlaid.
-  const pairs = list.flatMap((s, si) => (s.xs ?? []).map((x, i) => ({ x, n: nxs[si][i] })))
+  // End labels come from the visible samples: with a view window in effect, the
+  // endpoints are the first and last samples INSIDE the window.
+  const allPairs = list.flatMap((s, si) => (s.xs ?? []).map((x, i) => ({ x, n: nxs[si][i] })))
                     .filter((p) => Number.isFinite(p.n));
+  const inWin = allPairs.filter((p) => p.n >= xmin && p.n <= xmax);
+  const pairs = inWin.length ? inWin : allPairs;
   const loX = pairs.reduce((a, b) => (b.n < a.n ? b : a));
   const hiX = pairs.reduce((a, b) => (b.n > a.n ? b : a));
   const xLabel = list[0]?.xLabel ?? '';
@@ -190,7 +192,12 @@ export function renderChartSVG(seriesOrList, opts = {}) {
   // Empty hover layer, appended last so its marks sit above the lines. The panel
   // fills it on mousemove by DOM rather than re-rendering: a 4-series transect is
   // thousands of points, and rebuilding that string every mousemove janks.
-  return open + frame + marks + yTicks + rightAxis + xTicks + axisTitle + '<g class="ac-hover"></g>' + '</svg>';
+  // Clip series + hover marks to the plot rect so lines crossing the view edge are
+  // cut cleanly instead of spilling into the axis gutter. Ticks/axes stay unclipped.
+  const defs = `<defs><clipPath id="ac-clip"><rect x="${PAD.left}" y="${PAD.top}" width="${plotW}" height="${plotH}"/></clipPath></defs>`;
+  const clippedMarks = `<g clip-path="url(#ac-clip)">${marks}</g>`;
+  const hover = '<g class="ac-hover" clip-path="url(#ac-clip)"></g>';
+  return open + defs + frame + clippedMarks + yTicks + rightAxis + xTicks + axisTitle + hover + '</svg>';
 }
 
 // Index of the value closest to x - used by the hover crosshair to snap to a sample.

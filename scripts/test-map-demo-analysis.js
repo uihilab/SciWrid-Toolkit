@@ -310,5 +310,23 @@ await test('a window with no samples reports not-ok but keeps the full domain', 
   assertEq(sc.fullMax, 101, 'full domain still reported for the scrollbar');
 });
 
+console.log('[renderChartSVG - clip + view]');
+
+await test('renders a clipPath and clips the marks to the plot area', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG([{ xs: [0, 1, 2], ys: [1, 2, 3], slot: 0 }], { width: 480, height: 180 });
+  assert(svg.includes('<clipPath'), 'clipPath defined');
+  assert(/clip-path="url\(#ac-clip\)"/.test(svg), 'a group is clipped to the plot rect');
+});
+
+await test('x tick end labels follow the visible window', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG([{ xs: [0, 25, 50, 75, 100], ys: [1, 2, 3, 4, 5], slot: 0, xLabel: 'X' }],
+    { width: 480, height: 180, view: { min: 25, max: 75 }, formatX: (x) => String(x) });
+  assert(svg.includes('>25<'), 'low tick is the window start sample');
+  assert(svg.includes('>75<'), 'high tick is the window end sample');
+  assert(!svg.includes('>100<'), 'the out-of-window sample is not a tick');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
