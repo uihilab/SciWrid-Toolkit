@@ -8,7 +8,7 @@
 import { scan, extract } from '../index.js';
 import { resolveRamp, sampleRamp } from '../lib/render/index.js';
 import { validateBbox, resolutionBucket } from './map-demo-bbox.js';
-import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG } from './map-demo-analysis.js';
+import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, numericXs, intersectNames, nearestIndex } from './map-demo-analysis.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -21,6 +21,14 @@ let renderToken = 0;   // bumped each refresh; stale worker responses are discar
 let extractBbox = null; // [minLon,minLat,maxLon,maxLat] - chosen extract region
 let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-extract
 let lastGrid = null;    // pre-warp grid from the last successful render
+// Up to 4 files compared under a shared variable name. sources[0] is PRIMARY: it
+// drives the raster, the time picker, and the bbox — four stacked rasters cannot
+// be read, so one file wins by a stated rule rather than arbitrarily.
+const MAX_SOURCES = 4;
+let sources = [];        // [{ file, scan, name, slot, boundsAssumed }]
+let sharedNames = null;  // running intersection of variable names; null = nothing loaded
+// Non-primary grids for space-mode comparison, keyed by slot|variable|bbox|size|time.
+const gridCache = new Map();
 const MERCATOR_MAX_LAT = 85.05112878;
 
 /* ── render worker ──────────────────────────────────────────────────────── */
@@ -279,6 +287,7 @@ async function refreshLayer({ force = false } = {}) {
   const bucket = `${resolutionBucket(px)}x${resolutionBucket(py)}`;
   if (!force && bucket === lastBucket) return;
   lastBucket = bucket;
+  gridCache.clear();  // bbox/size/time changed — cached non-primary grids are stale
   const token = ++renderToken;
   // Drop any earlier in-flight request — its response will be ignored.
   for (const [id, slot] of pending) {
@@ -316,44 +325,169 @@ async function refreshLayer({ force = false } = {}) {
 }
 
 /* ── file handling ──────────────────────────────────────────────────────── */
-async function loadSource(file) {
-  if (!file) return null;
-  lastSource = file;
-  setStatus('Scanning…', 'busy');
-  try {
-    lastScan = await scan(file);
-    // TIFF exposes a real bbox from the file's geokeys. GRIB2/NetCDF/Zarr do
-    // not surface geographic bounds to JS, so we fall back to global and flag
-    // the bounds as assumed.
-    const hasBbox = Array.isArray(lastScan.bbox) && lastScan.bbox.length === 4;
-    boundsAssumed = !hasBbox;
-    if (!hasBbox) lastScan.bbox = [-180, -90, 180, 90];
-    populateVariablePicker(lastScan.variable_names || []);
-    populateTimePicker(lastScan, $('variable').value);
-    updateQueryUI();
-
-    extractBbox = null;
-    lastBucket = null;
-    lastGrid = null;
-    closeAnalysis();
-    $('analyze-btn').hidden = true;
-    if (map.getLayer('data-layer')) { map.removeLayer('data-layer'); map.removeSource('data-source'); }
-
-    fitMapToBbox(lastScan.bbox);
-
-    $('extract').hidden = false;
-    prefillExtractInputs(lastScan.bbox);
-    validateAndSketch();
-    setStatus('Set an area and click "Render area".', '');
-    return lastScan;
-  } catch (err) {
-    setStatus('Error: ' + err.message, 'error');
-    console.error(err);
-    return null;
-  }
+/* ── multi-file sources ─────────────────────────────────────────────────── */
+function firstFreeSlot() {
+  const used = new Set(sources.map((s) => s.slot));
+  for (let i = 0; i < MAX_SOURCES; i++) if (!used.has(i)) return i;
+  return 0;
 }
 
-$('file').addEventListener('change', (e) => loadSource(e.target.files[0]));
+// A variable's timesteps in a given scan. GRIB2 reports shape: undefined, so this
+// must key off times.values and never off shape.
+function variableTimes(scanResult, variable) {
+  const v = (scanResult?.variables || []).find((x) => x.name === variable);
+  return v?.times?.values || scanResult?.times?.values || [];
+}
+
+function renderFileList() {
+  const ul = $('file-list');
+  ul.innerHTML = '';
+  sources.forEach((s, i) => {
+    const li = document.createElement('li');
+    const sw = document.createElement('span');
+    sw.className = 'fl-swatch';
+    sw.style.background = `var(--series-${s.slot + 1})`;
+    const nm = document.createElement('span');
+    nm.className = 'fl-name'; nm.textContent = s.name; nm.title = s.name;
+    li.append(sw, nm);
+    if (i === 0) {
+      const tag = document.createElement('span');
+      tag.className = 'fl-primary'; tag.textContent = 'PRIMARY';
+      li.append(tag);
+    }
+    const rm = document.createElement('button');
+    rm.type = 'button'; rm.textContent = '×';
+    rm.setAttribute('aria-label', `Remove ${s.name}`);
+    rm.addEventListener('click', () => removeSource(s.slot));
+    li.append(rm);
+    ul.append(li);
+  });
+  $('var-hint').textContent = sources.length > 1
+    ? `${sharedNames?.length ?? 0} shared variables across ${sources.length} files`
+    : '';
+}
+
+// Add a file to the comparison. Rejects only when it shares NO variable name with
+// what is already loaded — identical sets is the wrong rule, since GFS f000 is a
+// strict subset of f003 (accumulated fields do not exist at forecast hour 0).
+async function addFile(file) {
+  if (!file) return false;
+  if (sources.length >= MAX_SOURCES) {
+    setStatus(`Maximum ${MAX_SOURCES} files — "${file.name}" not added.`, 'error');
+    return false;
+  }
+  setStatus(`Scanning ${file.name}…`, 'busy');
+  let scanResult;
+  try {
+    scanResult = await scan(file);
+  } catch (err) {
+    setStatus(`Error scanning ${file.name}: ${err.message}`, 'error');
+    console.error(err);
+    return false;
+  }
+  const names = scanResult.variable_names || [];
+  const next = intersectNames(sharedNames, names);
+  if (sources.length && next.length === 0) {
+    setStatus(`"${file.name}" shares no variables with "${sources[0].name}" — not added.`, 'error');
+    return false;
+  }
+  const before = sharedNames?.length ?? next.length;
+  // TIFF exposes a real bbox from the file's geokeys. GRIB2/NetCDF/Zarr do not
+  // surface geographic bounds to JS, so fall back to global and flag as assumed.
+  const hasBbox = Array.isArray(scanResult.bbox) && scanResult.bbox.length === 4;
+  if (!hasBbox) scanResult.bbox = [-180, -90, 180, 90];
+
+  const prevVar = $('variable').value;
+  sources.push({ file, scan: scanResult, name: file.name, slot: firstFreeSlot(), boundsAssumed: !hasBbox });
+  sharedNames = next;
+  applyPrimary();
+
+  const dropped = before - next.length;
+  if (dropped > 0) {
+    const lostSelected = prevVar && !next.includes(prevVar);
+    setStatus(
+      `${file.name} added. ${dropped} variable${dropped === 1 ? '' : 's'} now unavailable (not in all files).` +
+      (lostSelected ? ` "${prevVar}" is not shared — switched to "${$('variable').value}".` : ''),
+      'busy');
+  } else if (sources.length > 1) {
+    setStatus(`${file.name} added — ${next.length} shared variables.`, 'ok');
+  }
+  return true;
+}
+
+function removeSource(slot) {
+  const i = sources.findIndex((s) => s.slot === slot);
+  if (i === -1) return;
+  sources.splice(i, 1);
+  // Recompute from scratch: the removed file may have been the one narrowing the set.
+  sharedNames = null;
+  for (const s of sources) sharedNames = intersectNames(sharedNames, s.scan.variable_names || []);
+  gridCache.clear();
+  if (!sources.length) {
+    sharedNames = null; lastSource = null; lastScan = null; lastGrid = null;
+    closeAnalysis();
+    $('analyze-btn').hidden = true;
+    $('extract').hidden = true;
+    $('query').hidden = true;
+    if (map.getLayer('data-layer')) { map.removeLayer('data-layer'); map.removeSource('data-source'); }
+    renderFileList();
+    setStatus('Drop a file to begin.', '');
+    return;
+  }
+  applyPrimary();
+  // Promoting a new primary changes the raster, so force a re-render.
+  lastBucket = null;
+  if (extractBbox) refreshLayer({ force: true });
+  if (!$('analysis-panel').hidden) refreshAnalysis();
+}
+
+// Point the single-file globals at sources[0] so refreshLayer / doPointQuery /
+// updateQueryUI keep working unchanged.
+function applyPrimary() {
+  const p = sources[0];
+  if (!p) return;
+  const prevVar = $('variable').value;
+  lastSource = p.file;
+  lastScan = p.scan;
+  boundsAssumed = p.boundsAssumed;
+  populateVariablePicker(sharedNames ?? []);
+  if (sharedNames?.includes(prevVar)) $('variable').value = prevVar;
+  populateTimePicker(lastScan, $('variable').value);
+  updateQueryUI();
+  renderFileList();
+}
+
+// Loading via the file input REPLACES the comparison set; addFile() appends.
+async function loadSource(file) {
+  if (!file) return null;
+  sources = [];
+  sharedNames = null;
+  gridCache.clear();
+  lastGrid = null;
+  closeAnalysis();
+  $('analyze-btn').hidden = true;
+  if (map.getLayer('data-layer')) { map.removeLayer('data-layer'); map.removeSource('data-source'); }
+  extractBbox = null;
+  lastBucket = null;
+
+  if (!(await addFile(file))) return null;
+
+  fitMapToBbox(lastScan.bbox);
+  $('extract').hidden = false;
+  prefillExtractInputs(lastScan.bbox);
+  validateAndSketch();
+  setStatus('Set an area and click "Render area".', '');
+  return lastScan;
+}
+
+$('file').addEventListener('change', async (e) => {
+  const picked = [...e.target.files];
+  if (!picked.length) return;
+  // First file replaces the set; the rest join it.
+  const first = await loadSource(picked[0]);
+  if (!first) return;
+  for (const f of picked.slice(1)) await addFile(f);
+});
 
 $('variable').addEventListener('change', () => {
   populateTimePicker(lastScan, $('variable').value);
