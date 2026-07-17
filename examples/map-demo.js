@@ -8,7 +8,7 @@
 import { scan, extract } from '../index.js';
 import { resolveRamp, sampleRamp } from '../lib/render/index.js';
 import { validateBbox, resolutionBucket } from './map-demo-bbox.js';
-import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, numericXs, intersectNames, nearestIndex } from './map-demo-analysis.js';
+import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, chartScale, intersectNames, nearestIndex } from './map-demo-analysis.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -934,40 +934,79 @@ window.addEventListener('mousemove', (event) => {
 
 window.addEventListener('mouseup', () => { apDrag = null; });
 
-/* Hover: read every series at the x under the cursor — the comparison payoff. */
-const AC_PAD_LEFT = 46, AC_PLOT_W = 480 - 46 - 12, AC_VIEW_W = 480;
+/* Hover: track a point along the graph — a crosshair at the snapped sample, a dot
+   on every series, and the values read out beside the legend. Marks are written
+   into the SVG's <g class="ac-hover"> by DOM rather than re-rendering the chart:
+   a 4-series transect is thousands of points and rebuilding that on every
+   mousemove janks. */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function svgEl(name, attrs) {
+  const n = document.createElementNS(SVG_NS, name);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  return n;
+}
+
+function clearHoverMarks() {
+  const g = $('analysis-chart').querySelector('.ac-hover');
+  if (g) g.replaceChildren();
+}
 
 $('analysis-chart').addEventListener('mousemove', (event) => {
   if (!lastSeriesList.length) return;
   const svg = $('analysis-chart').querySelector('svg');
-  if (!svg) return;
+  const g = svg?.querySelector('.ac-hover');
+  if (!svg || !g) return;
   const r = svg.getBoundingClientRect();
   if (!r.width) return;
+
+  // Same scale the renderer drew with — never recompute it here, or the dot drifts.
+  const sc = chartScale(lastSeriesList, {});
+  if (!sc.ok) return;
+
   // Map client x → viewBox x. The SVG scales to fit its box, so go through the
   // rendered rect rather than assuming a 1:1 pixel mapping.
-  const vbX = ((event.clientX - r.left) / r.width) * AC_VIEW_W;
-  const frac = Math.max(0, Math.min(1, (vbX - AC_PAD_LEFT) / AC_PLOT_W));
+  const vbX = ((event.clientX - r.left) / r.width) * sc.width;
+  const frac = Math.max(0, Math.min(1, (vbX - sc.plot.left) / sc.plot.w));
+  const target = sc.xmin + frac * (sc.xmax - sc.xmin);
 
-  const all = lastSeriesList.map((s) => numericXs(s.xs));
-  const flat = all.flat().filter(Number.isFinite);
-  if (!flat.length) return;
-  const xmin = Math.min(...flat), xmax = Math.max(...flat);
-  const target = xmin + frac * (xmax - xmin);
+  // Snap to a real sample on the first series: the crosshair should land on data,
+  // not float between points.
+  const i0 = nearestIndex(sc.nxs[0], target);
+  if (i0 < 0) return;
+  const snappedX = sc.nxs[0][i0];
+  const cx = sc.px(snappedX);
+
+  const marks = [svgEl('line', {
+    x1: cx.toFixed(2), y1: sc.plot.top, x2: cx.toFixed(2), y2: sc.plot.top + sc.plot.h, class: 'ac-cross',
+  })];
 
   const parts = lastSeriesList.map((s, si) => {
-    const i = nearestIndex(all[si], target);
+    // Each series snaps to its OWN nearest sample: with different sampling the
+    // honest answer is the closest value that file actually has.
+    const i = nearestIndex(sc.nxs[si], snappedX);
     if (i < 0) return '';
     const v = s.ys[i];
-    return `<span class="lg"><span class="lg-swatch" style="background:var(--series-${(s.slot ?? si) + 1})"></span>` +
+    const slot = s.slot ?? si;
+    if (Number.isFinite(v)) {
+      marks.push(svgEl('circle', {
+        cx: sc.px(sc.nxs[si][i]).toFixed(2), cy: sc.py(v).toFixed(2), r: 4,
+        class: `ac-hot ac-s${slot}`,
+      }));
+    }
+    return `<span class="lg"><span class="lg-swatch" style="background:var(--series-${slot + 1})"></span>` +
            `<b>${Number.isFinite(v) ? fmtNum(v) : '–'}</b></span>`;
   }).filter(Boolean);
 
-  const i0 = nearestIndex(all[0], target);
-  const at = i0 >= 0 ? lastSeriesList[0].xs[i0] : '';
-  $('analysis-readout').innerHTML = `<span>@ ${escHtml(fmtX(at))}</span>` + parts.join('');
+  g.replaceChildren(...marks);
+  $('analysis-readout').innerHTML =
+    `<span>@ ${escHtml(fmtX(lastSeriesList[0].xs[i0]))}</span>` + parts.join('');
 });
 
-$('analysis-chart').addEventListener('mouseleave', () => { $('analysis-readout').innerHTML = ''; });
+$('analysis-chart').addEventListener('mouseleave', () => {
+  $('analysis-readout').innerHTML = '';
+  clearHoverMarks();
+});
 
 /* ── boot ───────────────────────────────────────────────────────────────── */
 function init() {

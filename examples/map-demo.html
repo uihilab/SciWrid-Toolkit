@@ -179,6 +179,15 @@
     .ac-s1 { stroke: var(--series-2); stroke-dasharray: 6 3; }
     .ac-s2 { stroke: var(--series-3); stroke-dasharray: 2 2; }
     .ac-s3 { stroke: var(--series-4); stroke-dasharray: 8 3 2 3; }
+    /* Hover tracking layer: a crosshair at the snapped sample plus one dot per
+       series. The dots carry a surface-coloured ring so two series crossing at the
+       same point stay separable. */
+    .ac-cross { stroke: var(--muted-foreground); stroke-width: 1; stroke-dasharray: 3 3; }
+    /* Two IDs of specificity would be overkill, but the ring MUST outrank
+       `circle.ac-s0 { stroke: none }` (0,0,1,1) below, so scope it: (0,0,2,1). */
+    .ac-hover circle.ac-hot { stroke: var(--card); stroke-width: 1.5; }
+    #analysis-chart { cursor: crosshair; }
+
     circle.ac-s0 { fill: var(--series-1); stroke: none; }
     circle.ac-s1 { fill: var(--series-2); stroke: none; }
     circle.ac-s2 { fill: var(--series-3); stroke: none; }

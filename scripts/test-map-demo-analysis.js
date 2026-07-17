@@ -226,5 +226,57 @@ await test('empty array yields -1', async () => {
   assertEq(nearestIndex([], 5), -1, '-1');
 });
 
+console.log('[chartScale]');
+
+await test('projects x the same way the renderer draws it', async () => {
+  const { chartScale, renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const series = { xs: [0, 1, 10], ys: [1, 2, 3], xLabel: 'X' };
+  const sc = chartScale(series, { width: 480, height: 180 });
+  const svg = renderChartSVG(series, { width: 480, height: 180 });
+  // The tracking dot rides on chartScale; the line comes from renderChartSVG. If
+  // these ever disagree the dot floats off the line, so pin them together.
+  const first = svg.match(/<polyline points="([\d.]+),([\d.]+)/);
+  assertEq(sc.px(0).toFixed(2), first[1], 'x of first point');
+  assertEq(sc.py(1).toFixed(2), first[2], 'y of first point');
+});
+
+await test('reports ok=false for an unplottable series', async () => {
+  const { chartScale } = await import('../examples/map-demo-analysis.js');
+  assertEq(chartScale({ xs: [0, 1], ys: [NaN, NaN] }, {}).ok, false, 'ok');
+  assertEq(chartScale([], {}).ok, false, 'ok');
+});
+
+await test('exposes the shared domain across every series', async () => {
+  const { chartScale } = await import('../examples/map-demo-analysis.js');
+  const sc = chartScale([
+    { xs: [0, 5], ys: [1, 1], slot: 0 },
+    { xs: [2, 20], ys: [9, 9], slot: 1 },
+  ], {});
+  assertEq(sc.xmin, 0, 'xmin');
+  assertEq(sc.xmax, 20, 'xmax');
+  assert(sc.vmin < 1 && sc.vmax > 9, 'y domain covers both series');
+});
+
+await test('exposes numeric xs per series for hover snapping', async () => {
+  const { chartScale } = await import('../examples/map-demo-analysis.js');
+  const sc = chartScale([{ xs: ['2026-04-14T06:00:00Z', '2026-04-14T09:00:00Z'], ys: [1, 2] }], {});
+  assertEq(sc.nxs[0][0], Date.parse('2026-04-14T06:00:00Z'), 'nxs parsed');
+});
+
+await test('exposes plot geometry for the crosshair', async () => {
+  const { chartScale } = await import('../examples/map-demo-analysis.js');
+  const sc = chartScale({ xs: [0, 1], ys: [1, 2] }, { width: 480, height: 180 });
+  assertEq(sc.plot.left, 46, 'plot.left');
+  assertEq(sc.plot.w, 422, 'plot.w');
+  assertEq(sc.plot.top, 10, 'plot.top');
+  assertEq(sc.plot.h, 144, 'plot.h');
+});
+
+await test('renderChartSVG emits a hover layer for the tracking marks', async () => {
+  const { renderChartSVG } = await import('../examples/map-demo-analysis.js');
+  const svg = renderChartSVG({ xs: [0, 1], ys: [1, 2] }, {});
+  assert(svg.includes('class="ac-hover"'), 'hover group present');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

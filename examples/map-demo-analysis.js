@@ -84,17 +84,14 @@ export function numericXs(xs) {
 const PAD = { top: 10, right: 12, bottom: 26, left: 46 };
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function defaultFmt(v) { if (!Number.isFinite(v)) return '–'; const a=Math.abs(v); if (a!==0&&(a<1e-3||a>=1e5)) return v.toExponential(2); return v.toFixed(2); }
-export function renderChartSVG(seriesOrList, opts = {}) {
-  // Accept one series or many: a single object keeps the original call shape.
+// The chart's coordinate system, computed once and shared by the renderer and the
+// hover layer. Extracted so the tracking dot rides on EXACTLY the projection that
+// drew the line — recomputing it separately is how a dot ends up floating off it.
+export function chartScale(seriesOrList, opts = {}) {
   const list = (Array.isArray(seriesOrList) ? seriesOrList : [seriesOrList]).filter(Boolean);
   const width = opts.width ?? 480, height = opts.height ?? 180;
-  const formatX = opts.formatX ?? ((x) => String(x)), formatY = opts.formatY ?? defaultFmt;
   const plotW = width - PAD.left - PAD.right, plotH = height - PAD.top - PAD.bottom;
-  const frame =
-    `<line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top + plotH}" class="ac-axis"/>` +
-    `<line x1="${PAD.left}" y1="${PAD.top + plotH}" x2="${PAD.left + plotW}" y2="${PAD.top + plotH}" class="ac-axis"/>`;
-  const open = `<svg viewBox="0 0 ${width} ${height}" class="ac-svg" role="img">`;
-  const note = (t) => `<text x="${width / 2}" y="${height / 2}" class="ac-note" text-anchor="middle">${esc(t)}</text>`;
+  const plot = { left: PAD.left, top: PAD.top, w: plotW, h: plotH };
 
   // One scale decision for the whole chart: if ANY series has unparseable x, every
   // series falls back to indices, so the chart never mixes two scales.
@@ -104,7 +101,7 @@ export function renderChartSVG(seriesOrList, opts = {}) {
 
   const allY = list.flatMap((s) => s.ys ?? []).filter(Number.isFinite);
   const allX = nxs.flat().filter(Number.isFinite);
-  if (!allY.length || !allX.length) return open + frame + note('no data to plot') + '</svg>';
+  if (!allY.length || !allX.length) return { ok: false, list, nxs, width, height, plot };
 
   const xmin = Math.min(...allX), xmax = Math.max(...allX);
   const xspan = xmax - xmin;
@@ -114,6 +111,25 @@ export function renderChartSVG(seriesOrList, opts = {}) {
 
   const px = (x) => (xspan === 0 ? PAD.left + plotW / 2 : PAD.left + ((x - xmin) / xspan) * plotW);
   const py = (v) => PAD.top + plotH - ((v - vmin) / (vmax - vmin)) * plotH;
+
+  return { ok: true, list, nxs, xmin, xmax, xspan, vmin, vmax, width, height, plot, px, py };
+}
+
+export function renderChartSVG(seriesOrList, opts = {}) {
+  const sc = chartScale(seriesOrList, opts);
+  const { list, nxs, plot } = sc;
+  const width = sc.width, height = sc.height;
+  const formatX = opts.formatX ?? ((x) => String(x)), formatY = opts.formatY ?? defaultFmt;
+  const plotW = plot.w, plotH = plot.h;
+  const frame =
+    `<line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top + plotH}" class="ac-axis"/>` +
+    `<line x1="${PAD.left}" y1="${PAD.top + plotH}" x2="${PAD.left + plotW}" y2="${PAD.top + plotH}" class="ac-axis"/>`;
+  const open = `<svg viewBox="0 0 ${width} ${height}" class="ac-svg" role="img">`;
+  const note = (t) => `<text x="${width / 2}" y="${height / 2}" class="ac-note" text-anchor="middle">${esc(t)}</text>`;
+
+  if (!sc.ok) return open + frame + note('no data to plot') + '</svg>';
+
+  const { xmin, xmax, xspan, vmin, vmax, px, py } = sc;
 
   const marks = list.map((s, si) => {
     const slot = s.slot ?? si;
@@ -148,7 +164,10 @@ export function renderChartSVG(seriesOrList, opts = {}) {
   const axisTitle =
     `<text x="${PAD.left + plotW / 2}" y="${height - 1}" class="ac-tick" text-anchor="middle">${esc(xLabel)}</text>`;
 
-  return open + frame + marks + yTicks + xTicks + axisTitle + '</svg>';
+  // Empty hover layer, appended last so its marks sit above the lines. The panel
+  // fills it on mousemove by DOM rather than re-rendering: a 4-series transect is
+  // thousands of points, and rebuilding that string every mousemove janks.
+  return open + frame + marks + yTicks + xTicks + axisTitle + '<g class="ac-hover"></g>' + '</svg>';
 }
 
 /* ── multi-file join ────────────────────────────────────────────────────── */
