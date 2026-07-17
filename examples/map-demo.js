@@ -723,6 +723,13 @@ async function gridForSource(src, variable, bbox, px, py, time) {
 
 const fmtX = (x) => (typeof x === 'number' ? fmtNum(x) : String(x).replace('T', ' ').replace(':00Z', 'Z'));
 
+function populateCompareControls() {
+  const setup=$('compare-setup');if(!sources.length){setup.hidden=true;return;}setup.hidden=false;
+  const fill=(id,src)=>{const sel=$(id);sel.innerHTML='';const names=src?.scan?.variable_names||[];for(const n of names){const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);}if(src){if(!names.includes(src.chartVar))src.chartVar=names[0]??'';sel.value=src.chartVar;}};
+  fill('compare-a',sources[0]);const b=$('compare-b').closest('.cmp-side');if(sources[1]){b.hidden=false;fill('compare-b',sources[1]);}else{b.hidden=true;$('compare-b').innerHTML='';}
+}
+function onCompareChange(i,id){const src=sources[i];if(!src)return;src.chartVar=$(id).value;gridCache.clear();refreshAnalysis();}
+
 async function refreshAnalysis() {
   const variable = $('variable').value;
   const lat = parseFloat($('q-lat').value);
@@ -793,6 +800,7 @@ function openAnalysis() {
   analysisMode = hasTimeAxis() ? 'time' : 'space';
   $('analysis-mode-time').disabled = !hasTimeAxis();
   $('analysis-mode-time').title = hasTimeAxis() ? '' : 'file has one timestep';
+  populateCompareControls();
   $('analysis-panel').hidden = false;
   refreshAnalysis();
 }
@@ -805,6 +813,8 @@ function closeAnalysis() {
   if (ro) ro.innerHTML = '';
 }
 
+$('compare-a').addEventListener('change',()=>onCompareChange(0,'compare-a'));
+$('compare-b').addEventListener('change',()=>onCompareChange(1,'compare-b'));
 $('analyze-btn').addEventListener('click', openAnalysis);
 $('analysis-close').addEventListener('click', closeAnalysis);
 $('analysis-mode-time').addEventListener('click', () => { analysisMode = 'time'; refreshAnalysis(); });
