@@ -873,6 +873,41 @@ $('analysis-mode-space').addEventListener('click', () => { analysisMode = 'space
 $('analysis-axis-lon').addEventListener('click', () => { analysisAxis = 'lon'; refreshAnalysis(); });
 $('analysis-axis-lat').addEventListener('click', () => { analysisAxis = 'lat'; refreshAnalysis(); });
 
+/* Hover: read every series at the x under the cursor — the comparison payoff. */
+const AC_PAD_LEFT = 46, AC_PLOT_W = 480 - 46 - 12, AC_VIEW_W = 480;
+
+$('analysis-chart').addEventListener('mousemove', (event) => {
+  if (!lastSeriesList.length) return;
+  const svg = $('analysis-chart').querySelector('svg');
+  if (!svg) return;
+  const r = svg.getBoundingClientRect();
+  if (!r.width) return;
+  // Map client x → viewBox x. The SVG scales to fit its box, so go through the
+  // rendered rect rather than assuming a 1:1 pixel mapping.
+  const vbX = ((event.clientX - r.left) / r.width) * AC_VIEW_W;
+  const frac = Math.max(0, Math.min(1, (vbX - AC_PAD_LEFT) / AC_PLOT_W));
+
+  const all = lastSeriesList.map((s) => numericXs(s.xs));
+  const flat = all.flat().filter(Number.isFinite);
+  if (!flat.length) return;
+  const xmin = Math.min(...flat), xmax = Math.max(...flat);
+  const target = xmin + frac * (xmax - xmin);
+
+  const parts = lastSeriesList.map((s, si) => {
+    const i = nearestIndex(all[si], target);
+    if (i < 0) return '';
+    const v = s.ys[i];
+    return `<span class="lg"><span class="lg-swatch" style="background:var(--series-${(s.slot ?? si) + 1})"></span>` +
+           `<b>${Number.isFinite(v) ? fmtNum(v) : '–'}</b></span>`;
+  }).filter(Boolean);
+
+  const i0 = nearestIndex(all[0], target);
+  const at = i0 >= 0 ? lastSeriesList[0].xs[i0] : '';
+  $('analysis-readout').innerHTML = `<span>@ ${escHtml(fmtX(at))}</span>` + parts.join('');
+});
+
+$('analysis-chart').addEventListener('mouseleave', () => { $('analysis-readout').innerHTML = ''; });
+
 /* ── boot ───────────────────────────────────────────────────────────────── */
 function init() {
   map = new maplibregl.Map({
