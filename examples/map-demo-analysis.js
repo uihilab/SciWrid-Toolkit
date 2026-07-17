@@ -1,4 +1,4 @@
-// examples/map-demo-analysis.js â€” pure helpers for the "Show analysis" panel.
+// examples/map-demo-analysis.js — pure helpers for the "Show analysis" panel.
 // DOM-free helpers for stats, spatial transects, and extracted time series.
 
 export function computeStats(values) {
@@ -35,7 +35,7 @@ export function seriesFromGrid(grid, { lat, lon, axis = 'lon' } = {}) {
       xs.push(maxLat - frac * latSpan);
       ys.push(at(iy, ix));
     }
-    return { xs, ys, xLabel: 'Latitude (Â°N)' };
+    return { xs, ys, xLabel: 'Latitude (°N)' };
   }
 
   const iy = toIndex(latSpan === 0 ? 0 : (maxLat - lat) / latSpan, height);
@@ -45,7 +45,7 @@ export function seriesFromGrid(grid, { lat, lon, axis = 'lon' } = {}) {
     xs.push(minLon + frac * lonSpan);
     ys.push(at(iy, ix));
   }
-  return { xs, ys, xLabel: 'Longitude (Â°E)' };
+  return { xs, ys, xLabel: 'Longitude (°E)' };
 }
 
 export function seriesFromTimeseries(points) {
