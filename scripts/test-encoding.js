@@ -50,6 +50,12 @@ test('map-demo-analysis.js axis labels use real degree signs', () => {
   if (!s.includes('Longitude (°E)')) throw new Error('missing "Longitude (°E)"');
 });
 
+test('unit labels use real degree signs, never question marks', () => {
+  const s = readFileSync('examples/map-demo-analysis.js', 'utf8');
+  const degree = String.fromCharCode(176);
+  if (!s.includes(degree + 'C') || s.includes('?C') || s.includes('?F')) throw new Error('unit degree sign flattened');
+});
+
 // The OTHER way a non-UTF-8 editor mangles these files: it replaces every glyph
 // it cannot encode with a literal '?'. That is valid ASCII, so the byte-signature
 // check above cannot see it. Section banners are drawn with U+2500, so a banner

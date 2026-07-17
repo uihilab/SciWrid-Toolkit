@@ -245,11 +245,11 @@ await test('renderChartSVG emits a hover layer for the tracking marks', async ()
 
 console.log('[units]');
 await test('resolves declared and GRIB2 units',async()=>{const{resolveUnit}=await import('../examples/map-demo-analysis.js');assertEq(resolveUnit({name:'temp',units:'K'}),'K','declared');assertEq(resolveUnit({name:'Temperature'}),'K','table');assertEq(resolveUnit({name:'Wind (unknown)',units:''}),null,'unknown');});
-await test('converts temperature and pressure',async()=>{const{convertToMetric}=await import('../examples/map-demo-analysis.js');const k=convertToMetric(280,'K'),p=convertToMetric(100000,'Pa');assertEq(k.unit,'?C','C');assertClose(k.value,6.85,'K');assertEq(p.unit,'hPa','hPa');assertClose(p.value,1000,'Pa');});
-await test('preserves precip rates and converts speed/F',async()=>{const{convertToMetric}=await import('../examples/map-demo-analysis.js');assertEq(convertToMetric(5,'kg/m^2/day').unit,'mm/day','rate');assertClose(convertToMetric(10,'knots').value,5.14444,'knots',1e-4);assertClose(convertToMetric(32,'?F').value,0,'F');});
+await test('converts temperature and pressure',async()=>{const{convertToMetric}=await import('../examples/map-demo-analysis.js');const k=convertToMetric(280,'K'),p=convertToMetric(100000,'Pa');assertEq(k.unit,'°C','C');assertClose(k.value,6.85,'K');assertEq(p.unit,'hPa','hPa');assertClose(p.value,1000,'Pa');});
+await test('preserves precip rates and converts speed/F',async()=>{const{convertToMetric}=await import('../examples/map-demo-analysis.js');assertEq(convertToMetric(5,'kg/m^2/day').unit,'mm/day','rate');assertClose(convertToMetric(10,'knots').value,5.14444,'knots',1e-4);assertClose(convertToMetric(32,'°F').value,0,'F');});
 await test('unknown units pass through and NaN stays NaN',async()=>{const{convertToMetric}=await import('../examples/map-demo-analysis.js');const r=convertToMetric(.42,'kg/kg');assertEq(r.unit,'kg/kg','unit');assert(!r.known,'unknown');assert(Number.isNaN(convertToMetric(NaN,'K').value),'NaN');});
-await test('convertSeries preserves gaps',async()=>{const{convertSeries}=await import('../examples/map-demo-analysis.js');const r=convertSeries([273.15,NaN,283.15],'K');assertEq(r.unit,'?C','unit');assertClose(r.ys[0],0,'zero');assertClose(r.ys[2],10,'ten');assert(Number.isNaN(r.ys[1]),'gap');});
-await test('sameUnit requires equal known canonical units',async()=>{const{sameUnit}=await import('../examples/map-demo-analysis.js');assert(sameUnit('K','?C'),'same');assert(!sameUnit('K','Pa'),'different');assert(!sameUnit('kg/kg','kg/kg'),'unknown');});
+await test('convertSeries preserves gaps',async()=>{const{convertSeries}=await import('../examples/map-demo-analysis.js');const r=convertSeries([273.15,NaN,283.15],'K');assertEq(r.unit,'°C','unit');assertClose(r.ys[0],0,'zero');assertClose(r.ys[2],10,'ten');assert(Number.isNaN(r.ys[1]),'gap');});
+await test('sameUnit requires equal known canonical units',async()=>{const{sameUnit}=await import('../examples/map-demo-analysis.js');assert(sameUnit('K','°C'),'same');assert(!sameUnit('K','Pa'),'different');assert(!sameUnit('kg/kg','kg/kg'),'unknown');});
 
 
 console.log('[nativeGridSize]');
@@ -260,7 +260,7 @@ await test('parses array shape trailing dimensions',async()=>{const{nativeGridSi
 
 
 console.log('[renderChartSVG - dual axis]');
-await test('dual axis scales independently and labels units',async()=>{const{renderChartSVG}=await import('../examples/map-demo-analysis.js');const svg=renderChartSVG([{xs:[0,1],ys:[0,10]},{xs:[0,1],ys:[1000,2000]}],{dualAxis:true,unitLeft:'?C',unitRight:'hPa'});assertEq((svg.match(/<polyline/g)||[]).length,2,'lines');assert(svg.includes('?C')&&svg.includes('hPa'),'units');assert(svg.includes('ac-axis-r'),'right');});
+await test('dual axis scales independently and labels units',async()=>{const{renderChartSVG}=await import('../examples/map-demo-analysis.js');const svg=renderChartSVG([{xs:[0,1],ys:[0,10]},{xs:[0,1],ys:[1000,2000]}],{dualAxis:true,unitLeft:'°C',unitRight:'hPa'});assertEq((svg.match(/<polyline/g)||[]).length,2,'lines');assert(svg.includes('°C')&&svg.includes('hPa'),'units');assert(svg.includes('ac-axis-r'),'right');});
 await test('chartScale uses per-series domains in dual mode',async()=>{const{chartScale}=await import('../examples/map-demo-analysis.js');const sc=chartScale([{xs:[0,1],ys:[0,10]},{xs:[0,1],ys:[1000,2000]}],{dualAxis:true});assert(sc.dual,'dual');assert(sc.py(1000,0)!==sc.py(1000,1),'projection');});
 await test('shared mode remains one domain',async()=>{const{chartScale}=await import('../examples/map-demo-analysis.js');const sc=chartScale([{xs:[0,1],ys:[0,0]},{xs:[0,1],ys:[100,100]}],{});assert(!sc.dual,'shared');assertEq(sc.domains.length,1,'domains');});
 
