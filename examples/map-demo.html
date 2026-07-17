@@ -317,13 +317,12 @@
       <input type="file" id="file" multiple
              accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
       <ul id="file-list"></ul>
-      <!-- Appending is a separate input from #file: #file REPLACES the comparison
-           set, #add-file joins it. Kept hidden and driven by the button so the
-           affordance can carry the 4-file limit in its own label. -->
+      <!-- #file replaces the set; #add-file appends a second file. Files never
+           auto-join: the analysis window holds the manual column pickers. -->
       <input type="file" id="add-file" multiple hidden
              accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
       <div id="add-file-row" hidden>
-        <button id="add-file-btn" type="button">+ Add file to compare</button>
+        <button id="add-file-btn" type="button">+ Add a file to compare</button>
         <span id="file-count"></span>
       </div>
 

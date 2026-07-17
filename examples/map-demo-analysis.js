@@ -172,18 +172,6 @@ export function renderChartSVG(seriesOrList, opts = {}) {
   return open + frame + marks + yTicks + rightAxis + xTicks + axisTitle + '<g class="ac-hover"></g>' + '</svg>';
 }
 
-/* ── multi-file join ────────────────────────────────────────────────────── */
-// Files join on a non-empty intersection of EXACT variable names. Identical sets
-// is the wrong rule: GFS f000 (37 vars) is a strict subset of f003 (45) because
-// accumulated/derived fields do not exist at forecast hour 0, so a set-equality
-// rule would reject our own bundled example. `current === null` means nothing is
-// loaded yet, so the incoming file establishes the set.
-export function intersectNames(current, incoming) {
-  const inc = new Set(incoming ?? []);
-  if (current == null) return [...inc];
-  return [...new Set(current)].filter((n) => inc.has(n));
-}
-
 // Index of the value closest to x - used by the hover crosshair to snap to a sample.
 export function nearestIndex(nx, x) {
   let best = -1, bestD = Infinity;
@@ -194,7 +182,7 @@ export function nearestIndex(nx, x) {
   return best;
 }
 
-/* ?? units ??????????????????????????????????????????????????????????????? */
+/* ── units ──────────────────────────────────────────────────────────── */
 export const GRIB2_UNITS = {
   'Temperature': 'K', 'Pressure': 'Pa', 'Pressure reduced to MSL': 'Pa',
   'Surface pressure': 'Pa', 'Geopotential height': 'gpm',
@@ -212,7 +200,7 @@ const conversionFor=(u)=>CV[normUnit(u)]??null;
 export function convertToMetric(value,unit){const c=conversionFor(unit);if(!c)return{value,unit:unit??null,known:false};return{value:Number.isFinite(value)?value*c.mul+c.add:value,unit:c.to,known:true};}
 export function convertSeries(ys,unit){const c=conversionFor(unit);if(!c)return{ys:(ys??[]).slice(),unit:unit??null,known:false};return{ys:(ys??[]).map(v=>Number.isFinite(v)?v*c.mul+c.add:v),unit:c.to,known:true};}
 export function sameUnit(a,b){const ca=conversionFor(a),cb=conversionFor(b);return!!(ca&&cb&&ca.to===cb.to);}
-/* ?? native sampling ????????????????????????????????????????????????????? */
+/* ── native sampling ────────────────────────────────────────────────── */
 const GRID_MIN=8,GRID_MAX=1024;const clampGrid=(n)=>Math.max(GRID_MIN,Math.min(GRID_MAX,Math.round(n)));
 function parseShape(shape){const arr=Array.isArray(shape)?shape:(typeof shape==='string'?shape.split(/[,\sx]+/).filter(Boolean).map(Number):null);if(!arr||arr.length<2||arr.some(n=>!Number.isFinite(n)||n<=0))return null;return{ny:arr.at(-2),nx:arr.at(-1)};}
 export function nativeGridSize(shape,fileBbox,targetBbox){const[tMinLon,tMinLat,tMaxLon,tMaxLat]=targetBbox;const tLon=Math.abs(tMaxLon-tMinLon),tLat=Math.abs(tMaxLat-tMinLat),dims=parseShape(shape),bboxOk=Array.isArray(fileBbox)&&fileBbox.length===4;if(dims&&bboxOk){const fLon=Math.abs(fileBbox[2]-fileBbox[0])||360,fLat=Math.abs(fileBbox[3]-fileBbox[1])||180;return{w:clampGrid(dims.nx*tLon/fLon),h:clampGrid(dims.ny*tLat/fLat),native:true};}return{w:clampGrid(tLon),h:clampGrid(tLat),native:false};}

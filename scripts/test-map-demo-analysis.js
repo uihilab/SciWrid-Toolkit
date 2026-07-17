@@ -170,42 +170,6 @@ await test('a series with no finite values is skipped, others still draw', async
   assertEq((svg.match(/<polyline/g) || []).length, 1, 'the good series still draws');
 });
 
-console.log('[intersectNames]');
-
-await test('first file establishes the set', async () => {
-  const { intersectNames } = await import('../examples/map-demo-analysis.js');
-  assertEq(JSON.stringify(intersectNames(null, ['a', 'b'])), JSON.stringify(['a', 'b']), 'set');
-});
-
-await test('keeps only shared names, preserving current order', async () => {
-  const { intersectNames } = await import('../examples/map-demo-analysis.js');
-  assertEq(JSON.stringify(intersectNames(['a', 'b', 'c'], ['c', 'a'])), JSON.stringify(['a', 'c']), 'intersection');
-});
-
-// The real GFS case: f000 has 37 variables, f003 has those 37 plus 8 more.
-// A subset must NOT be rejected - the intersection is the subset.
-await test('a superset incoming file narrows to the current set', async () => {
-  const { intersectNames } = await import('../examples/map-demo-analysis.js');
-  const f000 = ['Temperature', 'Pressure reduced to MSL'];
-  const f003 = ['Temperature', 'Pressure reduced to MSL', 'Convective precipitation'];
-  assertEq(JSON.stringify(intersectNames(f000, f003)), JSON.stringify(f000), 'f000 survives intact');
-});
-
-await test('no overlap yields an empty array', async () => {
-  const { intersectNames } = await import('../examples/map-demo-analysis.js');
-  assertEq(intersectNames(['a'], ['vwnd']).length, 0, 'empty');
-});
-
-await test('de-duplicates', async () => {
-  const { intersectNames } = await import('../examples/map-demo-analysis.js');
-  assertEq(JSON.stringify(intersectNames(null, ['a', 'a', 'b'])), JSON.stringify(['a', 'b']), 'deduped');
-});
-
-await test('empty incoming yields empty', async () => {
-  const { intersectNames } = await import('../examples/map-demo-analysis.js');
-  assertEq(intersectNames(['a'], []).length, 0, 'empty');
-});
-
 console.log('[nearestIndex]');
 
 await test('finds the closest value', async () => {
