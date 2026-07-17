@@ -555,12 +555,12 @@ const HELP_STEPS = [
     body: 'Choose a supported GRIB2, NetCDF, Zarr-zip, or TIFF file from the File picker in the sidebar. Everything is read locally in your browser — nothing is uploaded anywhere.',
   },
   {
-    title: 'Add up to 4 files to compare',
-    body: 'Use "+ Add file to compare" to load up to 4 files at once — the sidebar shows how many you have. A file can only join if it shares a variable name with the ones already loaded, so you are always comparing like with like; anything that shares nothing is refused with a message. The first file is the PRIMARY: it draws the map layer, and the rest are charted alongside it.',
+    title: 'Add a second file to compare',
+    body: 'Use "+ Add a file to compare" to load a second file. Files are never matched automatically, so any file is accepted \u2014 choose which column of each to compare in the analysis window. The first file is PRIMARY and draws the map layer.',
   },
   {
     title: 'Scan the data',
-    body: 'The toolkit scans each file locally and fills in the variables and time steps it contains. With several files loaded, the variable list narrows to the ones they all share.',
+    body: 'The toolkit scans each file locally and lists its variables and time steps. Each file keeps its own full variable list \u2014 there is no shared-variable restriction.',
   },
   {
     title: 'Choose what to display',
@@ -576,7 +576,7 @@ const HELP_STEPS = [
   },
   {
     title: 'Open the analysis window',
-    body: 'With a point picked, choose "Show analysis" to chart the value along an axis through it: over time when the file has a time axis, or across space when it does not. Every loaded file becomes its own line, so you can compare them directly. The window floats — drag it by its title bar to keep the map clickable, and resize it from its corner.',
+    body: 'With a point picked, choose "Show analysis" and pick a column of File A and File B at the top of the window. Values convert to metric units and each file is sampled at its own resolution. The window floats \u2014 drag its title bar and resize it from the corner.',
   },
   {
     title: 'Try the bundled example',
