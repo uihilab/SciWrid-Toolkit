@@ -28,6 +28,17 @@
       --success: oklch(0.6 0.13 165);
       --warn: oklch(0.68 0.15 70);
       --destructive: oklch(0.637 0.237 25.331);
+      /* Categorical series palette — dataviz reference slots 1-4, validated with
+         validate_palette.js --pairs all against this demo's real surfaces
+         (light #feffff / dark #0f1822). The light run carries a contrast WARN on
+         magenta (2.69:1) and yellow (2.16:1); the dark run carries a CVD WARN on
+         yellow-green (ΔE 6.9 protan). Both are discharged by the per-slot dash
+         patterns plus the per-file stats table (the accessibility table view) —
+         identity never rests on colour alone. */
+      --series-1: #2a78d6;
+      --series-2: #008300;
+      --series-3: #e87ba4;
+      --series-4: #eda100;
       --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }
     .dark {
@@ -47,6 +58,11 @@
       --success: oklch(0.72 0.15 165);
       --warn: oklch(0.78 0.15 75);
       --destructive: oklch(0.7 0.18 25);
+      /* Same four hues, re-stepped for the dark surface — not an automatic flip. */
+      --series-1: #3987e5;
+      --series-2: #008300;
+      --series-3: #d55181;
+      --series-4: #c98500;
     }
 
     * { box-sizing: border-box; }
@@ -136,6 +152,42 @@
     #analysis-panel[hidden], #analysis-axis[hidden] { display: none; } .ap-head { display: flex; align-items: center; gap: .5rem; } #analysis-title { margin: 0; font-size: .82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ap-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden; } .ap-toggle button { padding: 4px 9px; border: 0; background: transparent; color: var(--muted-foreground); font: 600 11px var(--font-sans); cursor: pointer; } .ap-toggle button[aria-pressed="true"] { background: var(--brand); color: var(--brand-foreground); } .ap-toggle button:disabled { opacity: .4; cursor: not-allowed; }
     #analysis-close { margin-left: auto; background: transparent; border: 0; color: var(--muted-foreground); font-size: 16px; cursor: pointer; } #analysis-chart { flex: 1; min-height: 0; } .ac-svg { width: 100%; height: 100%; display: block; } .ac-axis { stroke: var(--border); } .ac-line { fill: none; stroke: var(--brand); stroke-width: 1.6; } .ac-dot { fill: var(--brand); } .ac-tick,.ac-note { fill: var(--muted-foreground); font-family: var(--font-sans); font-size: 9px; } #analysis-stats { font-size: 11px; color: var(--muted-foreground); display: flex; gap: .75rem; } #analysis-stats b { color: var(--foreground); }
+
+    /* Colour follows the file by load order, never by rank: removing a file must
+       not repaint the survivors. The dash pattern is the secondary encoding that
+       keeps identity readable without colour (CVD, print, forced-colors). */
+    .ac-s0 { stroke: var(--series-1); }
+    .ac-s1 { stroke: var(--series-2); stroke-dasharray: 6 3; }
+    .ac-s2 { stroke: var(--series-3); stroke-dasharray: 2 2; }
+    .ac-s3 { stroke: var(--series-4); stroke-dasharray: 8 3 2 3; }
+    circle.ac-s0 { fill: var(--series-1); stroke: none; }
+    circle.ac-s1 { fill: var(--series-2); stroke: none; }
+    circle.ac-s2 { fill: var(--series-3); stroke: none; }
+    circle.ac-s3 { fill: var(--series-4); stroke: none; }
+
+    /* Sidebar file list */
+    #file-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
+    #file-list li { display: flex; align-items: center; gap: .4rem; font-size: 11px; color: var(--muted-foreground); }
+    #file-list .fl-swatch { flex: 0 0 14px; height: 3px; border-radius: 2px; }
+    #file-list .fl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); }
+    #file-list .fl-primary { font-size: 9px; font-weight: 700; letter-spacing: .04em; color: var(--brand); }
+    #sidebar #file-list button { padding: 1px 5px; background: transparent; color: var(--muted-foreground); border: 1px solid var(--border); font-size: 10px; }
+    #sidebar #file-list button:hover { color: var(--destructive); border-color: var(--destructive); }
+    #var-hint { font-size: 10px; color: var(--muted-foreground); margin-top: .2rem; }
+
+    /* Panel legend + stats table. Text wears ink tokens, never the series colour:
+       the swatch beside it carries identity. */
+    #analysis-legend { display: flex; flex-wrap: wrap; gap: .6rem; font-size: 10px; color: var(--muted-foreground); }
+    #analysis-legend .lg { display: inline-flex; align-items: center; gap: .3rem; }
+    #analysis-legend .lg-swatch { width: 14px; height: 3px; border-radius: 2px; }
+    #analysis-readout { font-size: 10px; color: var(--muted-foreground); min-height: 1.2em; display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+    #analysis-readout b { color: var(--foreground); font-weight: 600; }
+    #analysis-readout .lg { display: inline-flex; align-items: center; gap: .3rem; }
+    #analysis-readout .lg-swatch { width: 14px; height: 3px; border-radius: 2px; }
+    #analysis-stats-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    #analysis-stats-table th, #analysis-stats-table td { text-align: right; padding: 1px 4px; color: var(--muted-foreground); font-weight: 400; }
+    #analysis-stats-table th:first-child, #analysis-stats-table td:first-child { text-align: left; color: var(--foreground); }
+    #analysis-stats-table thead th { border-bottom: 1px solid var(--border); }
     #sidebar #help-btn {
       margin-left: auto; width: 32px; height: 32px; padding: 0;
       display: inline-grid; place-items: center;
@@ -228,11 +280,13 @@
       </p>
 
       <label for="file">File</label>
-      <input type="file" id="file"
+      <input type="file" id="file" multiple
              accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
+      <ul id="file-list"></ul>
 
       <label for="variable">Variable</label>
       <select id="variable" disabled></select>
+      <div id="var-hint"></div>
 
       <label for="time">Time</label>
       <select id="time" disabled></select>
@@ -300,7 +354,7 @@
       <div id="status" class="muted">Pick a file to begin.</div>
     </aside>
 
-    <div id="map"><section id="analysis-panel" hidden aria-labelledby="analysis-title"><div class="ap-head"><h2 id="analysis-title">Analysis</h2><div class="ap-toggle" role="group" aria-label="Analysis mode"><button id="analysis-mode-time" type="button" aria-pressed="false">Over time</button><button id="analysis-mode-space" type="button" aria-pressed="false">Across space</button></div><div class="ap-toggle" id="analysis-axis" role="group" aria-label="Transect axis" hidden><button id="analysis-axis-lon" type="button" aria-pressed="true">Lon</button><button id="analysis-axis-lat" type="button" aria-pressed="false">Lat</button></div><button id="analysis-close" type="button" aria-label="Close analysis">&times;</button></div><div id="analysis-chart"></div><div id="analysis-stats"></div></section></div>
+    <div id="map"><section id="analysis-panel" hidden aria-labelledby="analysis-title"><div class="ap-head"><h2 id="analysis-title">Analysis</h2><div class="ap-toggle" role="group" aria-label="Analysis mode"><button id="analysis-mode-time" type="button" aria-pressed="false">Over time</button><button id="analysis-mode-space" type="button" aria-pressed="false">Across space</button></div><div class="ap-toggle" id="analysis-axis" role="group" aria-label="Transect axis" hidden><button id="analysis-axis-lon" type="button" aria-pressed="true">Lon</button><button id="analysis-axis-lat" type="button" aria-pressed="false">Lat</button></div><button id="analysis-close" type="button" aria-label="Close analysis">&times;</button></div><div id="analysis-legend"></div><div id="analysis-readout"></div><div id="analysis-chart"></div><div id="analysis-stats"><table id="analysis-stats-table"></table></div></section></div>
   </div>
   <div id="help-overlay" hidden>
     <section id="help-card" role="dialog" aria-modal="true" aria-labelledby="help-title">
