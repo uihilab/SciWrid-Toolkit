@@ -148,8 +148,27 @@
     #legend canvas { width: 100%; height: 14px; border: 1px solid var(--border); border-radius: 3px; display: block; }
     #legend .ticks { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted-foreground); margin-top: 2px; }
     #map { flex: 1; height: 100%; position: relative; }
-    #analysis-panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; height: 220px; padding: .6rem .8rem; background: var(--card); color: var(--card-foreground); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: .4rem; }
-    #analysis-panel[hidden], #analysis-axis[hidden] { display: none; } .ap-head { display: flex; align-items: center; gap: .5rem; } #analysis-title { margin: 0; font-size: .82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* A real floating window: fixed to the viewport, draggable by its head, and
+       user-resizable. Sized to give the chart room — the old 220px bottom strip
+       left it barely 100px tall once the legend, readout and table took their share. */
+    #analysis-panel {
+      position: fixed; z-index: 5;
+      left: 340px; top: 12vh;
+      width: min(820px, calc(100vw - 360px)); height: min(520px, 76vh);
+      min-width: 380px; min-height: 260px;
+      max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
+      resize: both; overflow: hidden;
+      padding: .6rem .8rem;
+      background: var(--card); color: var(--card-foreground);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: 0 12px 40px oklch(0 0 0 / 0.28);
+      display: flex; flex-direction: column; gap: .4rem;
+    }
+    #analysis-panel[hidden], #analysis-axis[hidden] { display: none; }
+    /* Drag handle. Buttons inside opt out in JS so the toggles stay clickable. */
+    .ap-head { display: flex; align-items: center; gap: .5rem; cursor: move; user-select: none; }
+    .ap-head:active { cursor: grabbing; }
+    #analysis-title { margin: 0; font-size: .82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ap-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden; } .ap-toggle button { padding: 4px 9px; border: 0; background: transparent; color: var(--muted-foreground); font: 600 11px var(--font-sans); cursor: pointer; } .ap-toggle button[aria-pressed="true"] { background: var(--brand); color: var(--brand-foreground); } .ap-toggle button:disabled { opacity: .4; cursor: not-allowed; }
     #analysis-close { margin-left: auto; background: transparent; border: 0; color: var(--muted-foreground); font-size: 16px; cursor: pointer; } #analysis-chart { flex: 1; min-height: 0; } .ac-svg { width: 100%; height: 100%; display: block; } .ac-axis { stroke: var(--border); } .ac-line { fill: none; stroke: var(--brand); stroke-width: 1.6; } .ac-dot { fill: var(--brand); } .ac-tick,.ac-note { fill: var(--muted-foreground); font-family: var(--font-sans); font-size: 9px; } #analysis-stats { font-size: 11px; color: var(--muted-foreground); display: flex; gap: .75rem; } #analysis-stats b { color: var(--foreground); }
 
@@ -174,6 +193,12 @@
     #sidebar #file-list button { padding: 1px 5px; background: transparent; color: var(--muted-foreground); border: 1px solid var(--border); font-size: 10px; }
     #sidebar #file-list button:hover { color: var(--destructive); border-color: var(--destructive); }
     #var-hint { font-size: 10px; color: var(--muted-foreground); margin-top: .2rem; }
+    #add-file-row { display: flex; align-items: center; gap: .5rem; margin-top: .45rem; }
+    #add-file-row[hidden] { display: none; }
+    #sidebar #add-file-btn { flex: 1; padding: 5px 8px; background: var(--secondary); color: var(--secondary-foreground); border: 1px solid var(--border); font-size: 11px; }
+    #sidebar #add-file-btn:hover:not(:disabled) { background: var(--accent); }
+    #sidebar #add-file-btn:disabled { opacity: .5; cursor: not-allowed; }
+    #file-count { font-size: 10px; color: var(--muted-foreground); white-space: nowrap; }
 
     /* Panel legend + stats table. Text wears ink tokens, never the series colour:
        the swatch beside it carries identity. */
@@ -283,6 +308,15 @@
       <input type="file" id="file" multiple
              accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
       <ul id="file-list"></ul>
+      <!-- Appending is a separate input from #file: #file REPLACES the comparison
+           set, #add-file joins it. Kept hidden and driven by the button so the
+           affordance can carry the 4-file limit in its own label. -->
+      <input type="file" id="add-file" multiple hidden
+             accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
+      <div id="add-file-row" hidden>
+        <button id="add-file-btn" type="button">+ Add file to compare</button>
+        <span id="file-count"></span>
+      </div>
 
       <label for="variable">Variable</label>
       <select id="variable" disabled></select>
@@ -354,7 +388,30 @@
       <div id="status" class="muted">Pick a file to begin.</div>
     </aside>
 
-    <div id="map"><section id="analysis-panel" hidden aria-labelledby="analysis-title"><div class="ap-head"><h2 id="analysis-title">Analysis</h2><div class="ap-toggle" role="group" aria-label="Analysis mode"><button id="analysis-mode-time" type="button" aria-pressed="false">Over time</button><button id="analysis-mode-space" type="button" aria-pressed="false">Across space</button></div><div class="ap-toggle" id="analysis-axis" role="group" aria-label="Transect axis" hidden><button id="analysis-axis-lon" type="button" aria-pressed="true">Lon</button><button id="analysis-axis-lat" type="button" aria-pressed="false">Lat</button></div><button id="analysis-close" type="button" aria-label="Close analysis">&times;</button></div><div id="analysis-legend"></div><div id="analysis-readout"></div><div id="analysis-chart"></div><div id="analysis-stats"><table id="analysis-stats-table"></table></div></section></div>
+    <div id="map"></div>
+
+    <!-- Analysis window. Deliberately NOT modal and NOT docked: it floats above the
+         map, drags by its title bar, and resizes, so the map stays clickable while
+         it is open — clicking the map moves the query point and live-refreshes the
+         chart, which a modal backdrop would break. -->
+    <section id="analysis-panel" hidden aria-labelledby="analysis-title">
+      <div class="ap-head" id="analysis-head">
+        <h2 id="analysis-title">Analysis</h2>
+        <div class="ap-toggle" role="group" aria-label="Analysis mode">
+          <button id="analysis-mode-time" type="button" aria-pressed="false">Over time</button>
+          <button id="analysis-mode-space" type="button" aria-pressed="false">Across space</button>
+        </div>
+        <div class="ap-toggle" id="analysis-axis" role="group" aria-label="Transect axis" hidden>
+          <button id="analysis-axis-lon" type="button" aria-pressed="true">Lon</button>
+          <button id="analysis-axis-lat" type="button" aria-pressed="false">Lat</button>
+        </div>
+        <button id="analysis-close" type="button" aria-label="Close analysis">&times;</button>
+      </div>
+      <div id="analysis-legend"></div>
+      <div id="analysis-readout"></div>
+      <div id="analysis-chart"></div>
+      <div id="analysis-stats"><table id="analysis-stats-table"></table></div>
+    </section>
   </div>
   <div id="help-overlay" hidden>
     <section id="help-card" role="dialog" aria-modal="true" aria-labelledby="help-title">

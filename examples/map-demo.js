@@ -364,6 +364,21 @@ function renderFileList() {
   $('var-hint').textContent = sources.length > 1
     ? `${sharedNames?.length ?? 0} shared variables across ${sources.length} files`
     : '';
+  updateAddFileUI();
+}
+
+// Make the 4-file ceiling visible rather than something you discover by hitting it.
+function updateAddFileUI() {
+  const row = $('add-file-row');
+  const btn = $('add-file-btn');
+  const full = sources.length >= MAX_SOURCES;
+  row.hidden = sources.length === 0;          // nothing to compare against yet
+  btn.disabled = full;
+  btn.textContent = full ? `Maximum ${MAX_SOURCES} files` : '+ Add file to compare';
+  btn.title = full
+    ? `Remove a file to add another (limit ${MAX_SOURCES}).`
+    : 'Add a file that shares a variable name with the ones already loaded.';
+  $('file-count').textContent = `${sources.length} / ${MAX_SOURCES}`;
 }
 
 // Add a file to the comparison. Rejects only when it shares NO variable name with
@@ -468,6 +483,9 @@ async function loadSource(file) {
   if (map.getLayer('data-layer')) { map.removeLayer('data-layer'); map.removeSource('data-source'); }
   extractBbox = null;
   lastBucket = null;
+  // Clear the list now: if the new file fails to scan we return early, and a stale
+  // list would still advertise files that are no longer loaded.
+  renderFileList();
 
   if (!(await addFile(file))) return null;
 
@@ -486,6 +504,16 @@ $('file').addEventListener('change', async (e) => {
   const first = await loadSource(picked[0]);
   if (!first) return;
   for (const f of picked.slice(1)) await addFile(f);
+});
+
+// "Add file" APPENDS to the comparison instead of replacing it.
+$('add-file-btn').addEventListener('click', () => $('add-file').click());
+
+$('add-file').addEventListener('change', async (e) => {
+  for (const f of [...e.target.files]) await addFile(f);
+  // Reset so re-picking the same file fires `change` again.
+  e.target.value = '';
+  if (!$('analysis-panel').hidden) refreshAnalysis();
 });
 
 $('variable').addEventListener('change', () => {
@@ -621,11 +649,15 @@ function attachClickQuery() {
 const HELP_STEPS = [
   {
     title: 'Upload a file',
-    body: 'Choose a supported GRIB2, NetCDF, Zarr-zip, or TIFF file from the File picker in the sidebar.',
+    body: 'Choose a supported GRIB2, NetCDF, Zarr-zip, or TIFF file from the File picker in the sidebar. Everything is read locally in your browser — nothing is uploaded anywhere.',
+  },
+  {
+    title: 'Add up to 4 files to compare',
+    body: 'Use "+ Add file to compare" to load up to 4 files at once — the sidebar shows how many you have. A file can only join if it shares a variable name with the ones already loaded, so you are always comparing like with like; anything that shares nothing is refused with a message. The first file is the PRIMARY: it draws the map layer, and the rest are charted alongside it.',
   },
   {
     title: 'Scan the data',
-    body: 'The toolkit scans the file locally and fills in the variables and time steps it contains.',
+    body: 'The toolkit scans each file locally and fills in the variables and time steps it contains. With several files loaded, the variable list narrows to the ones they all share.',
   },
   {
     title: 'Choose what to display',
@@ -640,8 +672,12 @@ const HELP_STEPS = [
     body: 'Click the map or enter latitude and longitude values to query the underlying data point.',
   },
   {
+    title: 'Open the analysis window',
+    body: 'With a point picked, choose "Show analysis" to chart the value along an axis through it: over time when the file has a time axis, or across space when it does not. Every loaded file becomes its own line, so you can compare them directly. The window floats — drag it by its title bar to keep the map clickable, and resize it from its corner.',
+  },
+  {
     title: 'Try the bundled example',
-    body: 'Load the included GFS forecast ? four timesteps, three hours apart ? to scan and render it automatically. Then click the map and choose "Show analysis" to chart how the value changes over time.',
+    body: 'Load the included GFS forecast — four timesteps, three hours apart — to scan and render it automatically. Then click the map and choose "Show analysis" to chart how the value changes over time.',
   },
 ];
 
@@ -872,6 +908,31 @@ $('analysis-mode-time').addEventListener('click', () => { analysisMode = 'time';
 $('analysis-mode-space').addEventListener('click', () => { analysisMode = 'space'; refreshAnalysis(); });
 $('analysis-axis-lon').addEventListener('click', () => { analysisAxis = 'lon'; refreshAnalysis(); });
 $('analysis-axis-lat').addEventListener('click', () => { analysisAxis = 'lat'; refreshAnalysis(); });
+
+/* Drag the window by its title bar. Non-modal on purpose: the map stays live
+   underneath, so you can shove the window aside, click a new point, and watch the
+   chart refresh — which is why this is not a modal dialog. */
+let apDrag = null;
+
+$('analysis-head').addEventListener('mousedown', (event) => {
+  // Let the mode/axis/close buttons keep their clicks.
+  if (event.target.closest('button')) return;
+  const r = $('analysis-panel').getBoundingClientRect();
+  apDrag = { dx: event.clientX - r.left, dy: event.clientY - r.top };
+  event.preventDefault();
+});
+
+window.addEventListener('mousemove', (event) => {
+  if (!apDrag) return;
+  const p = $('analysis-panel');
+  // Clamp so the window can never be dragged fully off-screen and stranded.
+  const x = Math.max(0, Math.min(window.innerWidth - p.offsetWidth, event.clientX - apDrag.dx));
+  const y = Math.max(0, Math.min(window.innerHeight - p.offsetHeight, event.clientY - apDrag.dy));
+  p.style.left = `${x}px`;
+  p.style.top = `${y}px`;
+});
+
+window.addEventListener('mouseup', () => { apDrag = null; });
 
 /* Hover: read every series at the x under the cursor — the comparison payoff. */
 const AC_PAD_LEFT = 46, AC_PLOT_W = 480 - 46 - 12, AC_VIEW_W = 480;
