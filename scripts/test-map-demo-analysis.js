@@ -287,5 +287,12 @@ await test('unknown units pass through and NaN stays NaN',async()=>{const{conver
 await test('convertSeries preserves gaps',async()=>{const{convertSeries}=await import('../examples/map-demo-analysis.js');const r=convertSeries([273.15,NaN,283.15],'K');assertEq(r.unit,'?C','unit');assertClose(r.ys[0],0,'zero');assertClose(r.ys[2],10,'ten');assert(Number.isNaN(r.ys[1]),'gap');});
 await test('sameUnit requires equal known canonical units',async()=>{const{sameUnit}=await import('../examples/map-demo-analysis.js');assert(sameUnit('K','?C'),'same');assert(!sameUnit('K','Pa'),'different');assert(!sameUnit('kg/kg','kg/kg'),'unknown');});
 
+
+console.log('[nativeGridSize]');
+await test('scales known shape to target density',async()=>{const{nativeGridSize}=await import('../examples/map-demo-analysis.js');const r=nativeGridSize('1x1500x3300',[-106.49,25.01,-79,37.5],[-100,28,-90,34]);assertEq(r.w,1024,'width');assert(r.native,'native');});
+await test('assumes one degree for unknown shape',async()=>{const{nativeGridSize}=await import('../examples/map-demo-analysis.js');const r=nativeGridSize(undefined,undefined,[-100,28,-90,34]);assertEq(r.w,10,'w');assertEq(r.h,8,'h floor');assert(!r.native,'assumed');});
+await test('keeps at least eight samples',async()=>{const{nativeGridSize}=await import('../examples/map-demo-analysis.js');const r=nativeGridSize(undefined,undefined,[-100,30,-98,31]);assertEq(r.w,8,'w');assertEq(r.h,8,'h');});
+await test('parses array shape trailing dimensions',async()=>{const{nativeGridSize}=await import('../examples/map-demo-analysis.js');const r=nativeGridSize([1,20,40],[-180,-90,180,90],[-90,-45,90,45]);assertEq(r.w,20,'w');assertEq(r.h,10,'h');});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
