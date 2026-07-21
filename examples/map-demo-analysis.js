@@ -265,3 +265,28 @@ export function pairGrids(gridA, gridB, { cap = Infinity } = {}) {
   for (let i = 0; i < all.length; i += stride) out.push(all[i]);
   return out;
 }
+
+const finitePairs = (pairs) => (pairs ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+
+// Pearson correlation over [a,b] pairs. null when <2 pairs or a flat axis.
+export function pearson(pairs) {
+  const p = finitePairs(pairs), n = p.length;
+  if (n < 2) return null;
+  let sa = 0, sb = 0;
+  for (const [a, b] of p) { sa += a; sb += b; }
+  const ma = sa / n, mb = sb / n;
+  let saa = 0, sbb = 0, sab = 0;
+  for (const [a, b] of p) { const da = a - ma, db = b - mb; saa += da * da; sbb += db * db; sab += da * db; }
+  const denom = Math.sqrt(saa * sbb);
+  if (!(denom > 0)) return null;
+  return sab / denom;
+}
+
+// Mean signed difference (b - a). null when there are no finite pairs.
+export function meanBias(pairs) {
+  const p = finitePairs(pairs);
+  if (!p.length) return null;
+  let s = 0;
+  for (const [a, b] of p) s += b - a;
+  return s / p.length;
+}

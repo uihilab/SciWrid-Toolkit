@@ -348,5 +348,14 @@ await test('accepts { data } grid objects', async () => { const { pairGrids } = 
 await test('cap stride-subsamples to at most cap pairs', async () => { const { pairGrids } = await import('../examples/map-demo-analysis.js'); const a = Array.from({length:100}, (_,i)=>i); const b = Array.from({length:100}, (_,i)=>i*2); const p = pairGrids(a,b,{cap:10}); assert(p.length <= 10, 'len'); assertEq(JSON.stringify(p[0]), JSON.stringify([0,0]), 'first'); assert(p.every(([x,y]) => y === x*2), 'correspondence'); });
 await test('no finite overlap yields an empty array', async () => { const { pairGrids } = await import('../examples/map-demo-analysis.js'); assertEq(pairGrids([NaN,NaN],[1,2]).length, 0, 'len'); });
 
+console.log('[pearson / meanBias]');
+await test('pearson is +1 for a perfectly increasing line', async () => { const { pearson } = await import('../examples/map-demo-analysis.js'); assertClose(pearson([[1,2],[2,4],[3,6],[4,8]]), 1, 'r', 1e-9); });
+await test('pearson is -1 for a perfectly decreasing line', async () => { const { pearson } = await import('../examples/map-demo-analysis.js'); assertClose(pearson([[1,4],[2,3],[3,2],[4,1]]), -1, 'r', 1e-9); });
+await test('pearson is 0 for known-uncorrelated data', async () => { const { pearson } = await import('../examples/map-demo-analysis.js'); assertClose(pearson([[-1,0],[0,1],[1,0]]), 0, 'r', 1e-9); });
+await test('pearson is null with fewer than two pairs', async () => { const { pearson } = await import('../examples/map-demo-analysis.js'); assertEq(pearson([[1,1]]), null, 'null'); assertEq(pearson([]), null, 'null'); });
+await test('pearson is null when one axis has no variance', async () => { const { pearson } = await import('../examples/map-demo-analysis.js'); assertEq(pearson([[5,1],[5,2],[5,3]]), null, 'null'); });
+await test('meanBias averages b minus a', async () => { const { meanBias } = await import('../examples/map-demo-analysis.js'); assertClose(meanBias([[1,3],[2,4]]), 2, 'bias'); });
+await test('meanBias is null on empty input', async () => { const { meanBias } = await import('../examples/map-demo-analysis.js'); assertEq(meanBias([]), null, 'null'); });
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
