@@ -50,17 +50,34 @@ export const PRODUCTS = {
   },
 };
 
-/* Sample sites inside the AORC bbox [-106.49, 25.01, -79.00, 37.50].
- * Chosen to span the wet Gulf coast, the dry southwest, and the interior. */
+/* Sample sites for the fidelity study.
+ *
+ * These are NOT arbitrary cities. An earlier draft used eight named metros and
+ * every one returned 0.0 mm/day — this field is 35% nonzero with a median of
+ * 0.0, so a city list silently produces a test where zero equals zero in every
+ * format and nothing is actually compared.
+ *
+ * Instead the sites are stratified across the observed precipitation
+ * distribution: percentiles p0..p100 of the NONZERO cells, plus three cells
+ * that are exactly zero so the zero case is still covered. Together they span
+ * 0.0 to 6.32 mm/day.
+ *
+ * Coordinates are exact cell centres of the 0.25 deg matrix grid. That is
+ * deliberate: it removes nearest-neighbour tie-breaking at cell boundaries, so
+ * any difference between formats is a genuine decode difference rather than a
+ * disagreement about which cell to pick. */
 export const SITES = [
-  { name: 'New Orleans, LA', lat: 30.00,  lon: -90.10 },
-  { name: 'Houston, TX',     lat: 29.75,  lon: -95.36 },
-  { name: 'Dallas, TX',      lat: 32.78,  lon: -96.80 },
-  { name: 'Atlanta, GA',     lat: 33.75,  lon: -84.39 },
-  { name: 'Memphis, TN',     lat: 35.15,  lon: -90.05 },
-  { name: 'Midland, TX',     lat: 31.997, lon: -102.08 },
-  { name: 'Tallahassee, FL', lat: 30.44,  lon: -84.28 },
-  { name: 'Little Rock, AR', lat: 34.75,  lon: -92.29 },
+  { name: 'p0   (near-zero, NM)',   lat: 34.129, lon: -103.872 },
+  { name: 'p10  (light, NM)',       lat: 35.379, lon: -105.122 },
+  { name: 'p25  (light, TN)',       lat: 36.379, lon:  -88.872 },
+  { name: 'p50  (moderate, OK)',    lat: 34.129, lon:  -95.872 },
+  { name: 'p75  (moderate, AL)',    lat: 33.879, lon:  -86.873 },
+  { name: 'p90  (heavy, TX coast)', lat: 27.379, lon:  -97.622 },
+  { name: 'p99  (heavy, LA)',       lat: 32.879, lon:  -92.122 },
+  { name: 'p100 (max, TX coast)',   lat: 28.129, lon:  -96.872 },
+  { name: 'dry NW corner',          lat: 36.878, lon: -105.872 },
+  { name: 'dry interior, TX',       lat: 30.379, lon:  -99.622 },
+  { name: 'dry SE corner, FL',      lat: 25.629, lon:  -80.123 },
 ];
 
 /* Shared comparison window: inside the AORC bbox, over the southern US. */
