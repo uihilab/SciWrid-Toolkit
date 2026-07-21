@@ -233,3 +233,16 @@ export function sameUnit(a,b){const ca=conversionFor(a),cb=conversionFor(b);retu
 const GRID_MIN=8,GRID_MAX=1024;const clampGrid=(n)=>Math.max(GRID_MIN,Math.min(GRID_MAX,Math.round(n)));
 function parseShape(shape){const arr=Array.isArray(shape)?shape:(typeof shape==='string'?shape.split(/[,\sx]+/).filter(Boolean).map(Number):null);if(!arr||arr.length<2||arr.some(n=>!Number.isFinite(n)||n<=0))return null;return{ny:arr.at(-2),nx:arr.at(-1)};}
 export function nativeGridSize(shape,fileBbox,targetBbox){const[tMinLon,tMinLat,tMaxLon,tMaxLat]=targetBbox;const tLon=Math.abs(tMaxLon-tMinLon),tLat=Math.abs(tMaxLat-tMinLat),dims=parseShape(shape),bboxOk=Array.isArray(fileBbox)&&fileBbox.length===4;if(dims&&bboxOk){const fLon=Math.abs(fileBbox[2]-fileBbox[0])||360,fLat=Math.abs(fileBbox[3]-fileBbox[1])||180;return{w:clampGrid(dims.nx*tLon/fLon),h:clampGrid(dims.ny*tLat/fLat),native:true};}return{w:clampGrid(tLon),h:clampGrid(tLat),native:false};}
+
+/* -- whole-file comparison ----------------------------------------------- */
+// Intersection of two [minLon,minLat,maxLon,maxLat] boxes. Edge-touching
+// (zero width or height) counts as no overlap, since it yields no cells.
+export function bboxIntersect(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== 4 || b.length !== 4) return null;
+  const minLon = Math.max(a[0], b[0]);
+  const minLat = Math.max(a[1], b[1]);
+  const maxLon = Math.min(a[2], b[2]);
+  const maxLat = Math.min(a[3], b[3]);
+  if (!(maxLon > minLon) || !(maxLat > minLat)) return null;
+  return [minLon, minLat, maxLon, maxLat];
+}

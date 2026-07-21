@@ -334,5 +334,12 @@ await test('x tick end labels follow the visible window', async () => {
   assert(!svg.includes('>100<'), 'the out-of-window sample is not a tick');
 });
 
+console.log('[bboxIntersect]');
+await test('returns the overlap of two crossing boxes', async () => { const { bboxIntersect } = await import('../examples/map-demo-analysis.js'); assertEq(JSON.stringify(bboxIntersect([-10,-10,10,10],[0,0,20,20])), JSON.stringify([0,0,10,10]), 'box'); });
+await test('nested boxes intersect to the inner box', async () => { const { bboxIntersect } = await import('../examples/map-demo-analysis.js'); assertEq(JSON.stringify(bboxIntersect([-106.5,25,-79,37.5],[-180,-90,180,90])), JSON.stringify([-106.5,25,-79,37.5]), 'inner'); });
+await test('disjoint boxes return null', async () => { const { bboxIntersect } = await import('../examples/map-demo-analysis.js'); assertEq(bboxIntersect([-10,-10,-5,-5],[0,0,5,5]), null, 'null'); });
+await test('edge-touching boxes (zero area) return null', async () => { const { bboxIntersect } = await import('../examples/map-demo-analysis.js'); assertEq(bboxIntersect([0,0,10,10],[10,0,20,10]), null, 'null'); });
+await test('non-array input returns null', async () => { const { bboxIntersect } = await import('../examples/map-demo-analysis.js'); assertEq(bboxIntersect(null, [0,0,1,1]), null, 'null'); });
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
