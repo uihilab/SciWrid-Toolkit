@@ -246,3 +246,22 @@ export function bboxIntersect(a, b) {
   if (!(maxLon > minLon) || !(maxLat > minLat)) return null;
   return [minLon, minLat, maxLon, maxLat];
 }
+
+// Co-locate two grids sampled on the SAME shared grid: one [a,b] per index
+// where both cells are finite. Stride-subsamples to at most `cap` pairs so a
+// dense overlap does not produce a giant scatter SVG.
+export function pairGrids(gridA, gridB, { cap = Infinity } = {}) {
+  const a = gridA && gridA.data ? gridA.data : (gridA || []);
+  const b = gridB && gridB.data ? gridB.data : (gridB || []);
+  const n = Math.min(a.length, b.length);
+  const all = [];
+  for (let i = 0; i < n; i++) {
+    const av = a[i], bv = b[i];
+    if (Number.isFinite(av) && Number.isFinite(bv)) all.push([av, bv]);
+  }
+  if (!(cap > 0) || all.length <= cap) return all;
+  const stride = Math.ceil(all.length / cap);
+  const out = [];
+  for (let i = 0; i < all.length; i += stride) out.push(all[i]);
+  return out;
+}

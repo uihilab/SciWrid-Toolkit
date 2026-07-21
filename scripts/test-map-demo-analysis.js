@@ -341,5 +341,12 @@ await test('disjoint boxes return null', async () => { const { bboxIntersect } =
 await test('edge-touching boxes (zero area) return null', async () => { const { bboxIntersect } = await import('../examples/map-demo-analysis.js'); assertEq(bboxIntersect([0,0,10,10],[10,0,20,10]), null, 'null'); });
 await test('non-array input returns null', async () => { const { bboxIntersect } = await import('../examples/map-demo-analysis.js'); assertEq(bboxIntersect(null, [0,0,1,1]), null, 'null'); });
 
+console.log('[pairGrids]');
+await test('pairs co-located finite cells in index order', async () => { const { pairGrids } = await import('../examples/map-demo-analysis.js'); const p = pairGrids([1,2,3],[10,20,30]); assertEq(JSON.stringify(p), JSON.stringify([[1,10],[2,20],[3,30]]), 'pairs'); });
+await test('skips indices where either side is non-finite', async () => { const { pairGrids } = await import('../examples/map-demo-analysis.js'); const p = pairGrids([1,NaN,3,4],[10,20,NaN,40]); assertEq(JSON.stringify(p), JSON.stringify([[1,10],[4,40]]), 'pairs'); });
+await test('accepts { data } grid objects', async () => { const { pairGrids } = await import('../examples/map-demo-analysis.js'); const p = pairGrids({ data: Float32Array.from([5,6]) }, { data: Float32Array.from([7,8]) }); assertEq(JSON.stringify(p), JSON.stringify([[5,7],[6,8]]), 'pairs'); });
+await test('cap stride-subsamples to at most cap pairs', async () => { const { pairGrids } = await import('../examples/map-demo-analysis.js'); const a = Array.from({length:100}, (_,i)=>i); const b = Array.from({length:100}, (_,i)=>i*2); const p = pairGrids(a,b,{cap:10}); assert(p.length <= 10, 'len'); assertEq(JSON.stringify(p[0]), JSON.stringify([0,0]), 'first'); assert(p.every(([x,y]) => y === x*2), 'correspondence'); });
+await test('no finite overlap yields an empty array', async () => { const { pairGrids } = await import('../examples/map-demo-analysis.js'); assertEq(pairGrids([NaN,NaN],[1,2]).length, 0, 'len'); });
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
