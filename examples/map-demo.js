@@ -8,7 +8,7 @@
 import { scan, extract } from '../index.js';
 import { resolveRamp, sampleRamp } from '../lib/render/index.js';
 import { validateBbox, resolutionBucket } from './map-demo-bbox.js';
-import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, chartScale, nearestIndex, resolveUnit, convertSeries, sameUnit, nativeGridSize } from './map-demo-analysis.js';
+import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, chartScale, nearestIndex, resolveUnit, convertSeries, sameUnit, nativeGridSize, bboxIntersect, pairGrids, pearson, meanBias, renderScatterSVG } from './map-demo-analysis.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -701,6 +701,17 @@ function renderStatsTable(rows,extraLabel) { const head=`<thead><tr><th>file</th
 // file on the PRIMARY's bbox/size/time so the transects are directly comparable.
 async function gridForSource(src,idx,variable,bbox,time) { const size=nativeGridSize(scanVarOf(src,idx).shape,src.scan.bbox,bbox);const key=`${src.slot}|${variable}|${bbox.join(`,`)}|${size.w}x${size.h}|${time}`;if(gridCache.has(key))return{grid:gridCache.get(key),size};const token=++renderToken;const{grid}=await renderInWorker(token,{source:src.file,variable,bbox,width:size.w,height:size.h,ramp:$('ramp').value,time});if(grid)gridCache.set(key,grid);return{grid:grid??null,size}; }
 
+// Whole-file scatter needs both files on one identical grid so matching array
+// indices represent the same location.
+async function scatterGrid(src, variable, bbox, w, h, time) {
+  const key = `${src.slot}|${variable}|${bbox.join(',')}|${w}x${h}|${time}|scatter`;
+  if (gridCache.has(key)) return gridCache.get(key);
+  const token = ++renderToken;
+  const { grid } = await renderInWorker(token, { source: src.file, variable, bbox, width: w, height: h, ramp: $('ramp').value, time });
+  if (grid) gridCache.set(key, grid);
+  return grid ?? null;
+}
+
 const fmtX = (x) => (typeof x === 'number' ? fmtNum(x) : String(x).replace('T', ' ').replace(':00Z', 'Z'));
 
 function populateCompareControls() {
@@ -711,8 +722,43 @@ function populateCompareControls() {
 function onCompareChange(i,id){const src=sources[i];if(!src)return;src.chartVar=$(id).value;gridCache.clear();refreshAnalysis();}
 
 async function refreshAnalysis() {
-  const lat=parseFloat($('q-lat').value),lon=parseFloat($('q-lon').value);if(!Number.isFinite(lat)||!Number.isFinite(lon)||!sources.length)return;
-  $('analysis-axis').hidden=analysisMode!=='space';setPressed('analysis-mode-time',analysisMode==='time');setPressed('analysis-mode-space',analysisMode==='space');setPressed('analysis-axis-lon',analysisAxis==='lon');setPressed('analysis-axis-lat',analysisAxis==='lat');
+  const lat=parseFloat($('q-lat').value),lon=parseFloat($('q-lon').value);if(!sources.length)return;if(analysisMode!=='whole'&&(!Number.isFinite(lat)||!Number.isFinite(lon)))return;
+  $('analysis-axis').hidden=analysisMode!=='space';setPressed('analysis-mode-time',analysisMode==='time');setPressed('analysis-mode-space',analysisMode==='space');setPressed('analysis-mode-whole',analysisMode==='whole');setPressed('analysis-axis-lon',analysisAxis==='lon');setPressed('analysis-axis-lat',analysisAxis==='lat');
+  if(analysisMode==='whole'){
+    const time=parseInt($('time').value,10)||0;lastSeriesList=[];updateNavUI(false);
+    const rows=[];if(sources.length>1)setStatus('Sampling files\u2026','busy');
+    for(const[idx,src]of sources.entries()){
+      const variable=varOf(src,idx);let grid=null;
+      try{({grid}=await gridForSource(src,idx,variable,src.scan.bbox,time));}catch(err){console.error(err);}
+      if(!grid){rows.push({name:`${src.name} (unavailable)`,stats:computeStats([]),unit:''});continue;}
+      const conv=convertSeries(grid.data,resolveUnit(scanVarOf(src,idx)));
+      rows.push({name:`${src.name} \u2014 ${variable}${conv.known?'':' (units unknown)'}`,stats:computeStats(conv.ys),unit:conv.unit||''});
+    }
+    if(sources.length<2){
+      $('analysis-chart').innerHTML=`<p class='muted'>Add a second file to compare (A vs B).</p>`;
+    }else{
+      const ov=bboxIntersect(sources[0].scan.bbox,sources[1].scan.bbox);
+      if(!ov){$('analysis-chart').innerHTML=`<p class='muted'>Files do not overlap spatially.</p>`;}
+      else{
+        const raw=nativeGridSize(scanVarOf(sources[0],0).shape,sources[0].scan.bbox,ov);
+        const w=Math.min(96,raw.w),h=Math.min(96,raw.h);
+        const unitA=resolveUnit(scanVarOf(sources[0],0)),unitB=resolveUnit(scanVarOf(sources[1],1));
+        let gA=null,gB=null;
+        try{gA=await scatterGrid(sources[0],varOf(sources[0],0),ov,w,h,time);gB=await scatterGrid(sources[1],varOf(sources[1],1),ov,w,h,time);}catch(err){console.error(err);}
+        const convA=gA?convertSeries(gA.data,unitA):{ys:[],unit:unitA};
+        const convB=gB?convertSeries(gB.data,unitB):{ys:[],unit:unitB};
+        const pairs=pairGrids(convA.ys,convB.ys,{cap:4000});
+        $('analysis-chart').innerHTML=pairs.length
+          ?renderScatterSVG(pairs,{xLabel:varOf(sources[0],0),yLabel:varOf(sources[1],1),unitX:convA.unit||'',unitY:convB.unit||'',oneToOne:sameUnit(unitA,unitB),stats:{r:pearson(pairs),bias:meanBias(pairs)}})
+          :`<p class='muted'>Files do not overlap spatially.</p>`;
+      }
+    }
+    if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');
+    $('analysis-title').textContent=sources.length>1?`${varOf(sources[0],0)} vs ${varOf(sources[1],1)} \u2014 whole file`:`${varOf(sources[0],0)} \u2014 whole file`;
+    renderLegend(sources.length>1?[{slot:0,name:sources[0].name,meta:''},{slot:1,name:sources[1].name,meta:''}]:[]);
+    renderStatsTable(rows,null);
+    return;
+  }
   const time=parseInt($('time').value,10)||0,list=[],rows=[],legend=[],units=[];
   const pushSeries=(src,idx,ser,size)=>{const resolved=resolveUnit(scanVarOf(src,idx)),conv=convertSeries(ser.ys,resolved);units[idx]=conv.unit??'';list.push({xs:ser.xs,ys:conv.ys,xLabel:ser.xLabel,slot:src.slot,unit:conv.unit??''});const meta=[varOf(src,idx),conv.unit||(conv.known?'':'units unknown'),size?resLabel(size):null].filter(Boolean).join(' \u00b7 ');legend.push({slot:src.slot,name:src.name,meta});rows.push({name:`${src.name} \u2014 ${varOf(src,idx)}${conv.known?``:` (units unknown)`}`,stats:computeStats(conv.ys),unit:conv.unit||''});};
   if(analysisMode==='space'){if(!lastGrid||!extractBbox){$('analysis-chart').innerHTML='';return;}if(sources.length>1)setStatus('Sampling files\u2026','busy');for(const[idx,src]of sources.entries()){const variable=varOf(src,idx);let grid=null,size=null;try{({grid,size}=await gridForSource(src,idx,variable,extractBbox,time));}catch(err){console.error(err);}if(!grid){rows.push({name:`${src.name} (unavailable)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromGrid(grid,{lat,lon,axis:analysisAxis}),size);}if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');}
@@ -793,6 +839,7 @@ $('analyze-btn').addEventListener('click', openAnalysis);
 $('analysis-close').addEventListener('click', closeAnalysis);
 $('analysis-mode-time').addEventListener('click', () => { analysisMode = 'time'; resetView(); refreshAnalysis(); });
 $('analysis-mode-space').addEventListener('click', () => { analysisMode = 'space'; resetView(); refreshAnalysis(); });
+$('analysis-mode-whole').addEventListener('click', () => { analysisMode = 'whole'; resetView(); refreshAnalysis(); });
 $('analysis-axis-lon').addEventListener('click', () => { analysisAxis = 'lon'; resetView(); refreshAnalysis(); });
 $('analysis-axis-lat').addEventListener('click', () => { analysisAxis = 'lat'; resetView(); refreshAnalysis(); });
 $('an-zoom-in').addEventListener('click', () => setZoom(viewZoom * 1.6));

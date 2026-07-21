@@ -179,6 +179,8 @@
     .ac-s1 { stroke: var(--series-2); stroke-dasharray: 6 3; }
     .ac-s2 { stroke: var(--series-3); stroke-dasharray: 2 2; }
     .ac-s3 { stroke: var(--series-4); stroke-dasharray: 8 3 2 3; }
+    .ac-ref { stroke: var(--muted-foreground); stroke-width: 1; stroke-dasharray: 4 3; }
+    .ac-scatter { fill: var(--brand); opacity: .45; }
     /* Hover tracking layer: a crosshair at the snapped sample plus one dot per
        series. The dots carry a surface-coloured ring so two series crossing at the
        same point stay separable. */
@@ -421,6 +423,7 @@
         <div class="ap-toggle" role="group" aria-label="Analysis mode">
           <button id="analysis-mode-time" type="button" aria-pressed="false">Over time</button>
           <button id="analysis-mode-space" type="button" aria-pressed="false">Across space</button>
+          <button id="analysis-mode-whole" type="button" aria-pressed="false">Whole file</button>
         </div>
         <div class="ap-toggle" id="analysis-axis" role="group" aria-label="Transect axis" hidden>
           <button id="analysis-axis-lon" type="button" aria-pressed="true">Lon</button>
