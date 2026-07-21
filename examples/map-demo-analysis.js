@@ -290,3 +290,48 @@ export function meanBias(pairs) {
   for (const [a, b] of p) s += b - a;
   return s / p.length;
 }
+
+// Scatter of co-located A-vs-B values. x = file A, y = file B.
+export function renderScatterSVG(pairs, opts = {}) {
+  const width = opts.width ?? 480, height = opts.height ?? 220;
+  const plotW = width - PAD.left - PAD.right, plotH = height - PAD.top - PAD.bottom;
+  const open = `<svg viewBox='0 0 ${width} ${height}' class='ac-svg' role='img'>`;
+  const note = (t) => `<text x='${width / 2}' y='${height / 2}' class='ac-note' text-anchor='middle'>${esc(t)}</text>`;
+  const frame =
+    `<line x1='${PAD.left}' y1='${PAD.top}' x2='${PAD.left}' y2='${PAD.top + plotH}' class='ac-axis'/>` +
+    `<line x1='${PAD.left}' y1='${PAD.top + plotH}' x2='${PAD.left + plotW}' y2='${PAD.top + plotH}' class='ac-axis'/>`;
+
+  const pts = (pairs ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  if (!pts.length) return open + frame + note(opts.emptyNote ?? 'no overlapping data') + '</svg>';
+
+  const formatX = opts.formatX ?? defaultFmt, formatY = opts.formatY ?? defaultFmt;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (const [a, b] of pts) { if (a < xmin) xmin = a; if (a > xmax) xmax = a; if (b < ymin) ymin = b; if (b > ymax) ymax = b; }
+  const padAxis = (lo, hi) => { if (lo === hi) { lo -= 1; hi += 1; } const p = (hi - lo) * 0.05; return [lo - p, hi + p]; };
+  [xmin, xmax] = padAxis(xmin, xmax); [ymin, ymax] = padAxis(ymin, ymax);
+  const xspan = xmax - xmin, yspan = ymax - ymin;
+  const px = (a) => PAD.left + ((a - xmin) / xspan) * plotW;
+  const py = (b) => PAD.top + plotH - ((b - ymin) / yspan) * plotH;
+  const dots = pts.map(([a, b]) => `<circle cx='${px(a).toFixed(2)}' cy='${py(b).toFixed(2)}' r='1.6' class='ac-dot ac-scatter'/>`).join('');
+
+  let ref = '';
+  if (opts.oneToOne) {
+    const lo = Math.max(xmin, ymin), hi = Math.min(xmax, ymax);
+    if (hi > lo) ref = `<line x1='${px(lo).toFixed(2)}' y1='${py(lo).toFixed(2)}' x2='${px(hi).toFixed(2)}' y2='${py(hi).toFixed(2)}' class='ac-ref'/>`;
+  }
+
+  const withUnit = (t, u) => (u ? `${t} ${u}` : t);
+  const yTicks =
+    `<text x='${PAD.left - 5}' y='${PAD.top + 4}' class='ac-tick' text-anchor='end'>${esc(withUnit(formatY(ymax), opts.unitY ?? ''))}</text>` +
+    `<text x='${PAD.left - 5}' y='${PAD.top + plotH}' class='ac-tick' text-anchor='end'>${esc(formatY(ymin))}</text>`;
+  const xTicks =
+    `<text x='${PAD.left}' y='${height - 12}' class='ac-tick' text-anchor='start'>${esc(withUnit(formatX(xmin), opts.unitX ?? ''))}</text>` +
+    `<text x='${PAD.left + plotW}' y='${height - 12}' class='ac-tick' text-anchor='end'>${esc(formatX(xmax))}</text>`;
+  const xTitle = `<text x='${PAD.left + plotW / 2}' y='${height - 1}' class='ac-tick' text-anchor='middle'>${esc(opts.xLabel ?? '')}</text>`;
+  const yc = PAD.top + plotH / 2;
+  const yTitle = `<text x='${PAD.left - 38}' y='${yc}' class='ac-tick' text-anchor='middle' transform='rotate(-90 ${PAD.left - 38} ${yc})'>${esc(opts.yLabel ?? '')}</text>`;
+  const st = opts.stats || {};
+  const capParts = [Number.isFinite(st.r) ? `r=${st.r.toFixed(2)}` : '', Number.isFinite(st.bias) ? `bias=${defaultFmt(st.bias)}` : ''].filter(Boolean);
+  const cap = capParts.length ? `<text x='${PAD.left + plotW}' y='${PAD.top + 8}' class='ac-tick' text-anchor='end'>${esc(capParts.join('  '))}</text>` : '';
+  return open + frame + ref + `<g>${dots}</g>` + yTicks + xTicks + xTitle + yTitle + cap + '</svg>';
+}

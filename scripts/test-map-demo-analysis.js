@@ -357,5 +357,14 @@ await test('pearson is null when one axis has no variance', async () => { const 
 await test('meanBias averages b minus a', async () => { const { meanBias } = await import('../examples/map-demo-analysis.js'); assertClose(meanBias([[1,3],[2,4]]), 2, 'bias'); });
 await test('meanBias is null on empty input', async () => { const { meanBias } = await import('../examples/map-demo-analysis.js'); assertEq(meanBias([]), null, 'null'); });
 
+console.log('[renderScatterSVG]');
+await test('returns a closed svg sized to the requested viewBox', async () => { const { renderScatterSVG } = await import('../examples/map-demo-analysis.js'); const svg = renderScatterSVG([[1,1],[2,2]], { width:480, height:220 }); assert(svg.startsWith('<svg'), 'start'); assert(/viewBox=.0 0 480 220./.test(svg), 'viewBox'); assert(svg.trim().endsWith('</svg>'), 'closed'); });
+await test('draws one circle per finite pair', async () => { const { renderScatterSVG } = await import('../examples/map-demo-analysis.js'); const svg = renderScatterSVG([[1,1],[2,2],[3,3]], {}); assertEq((svg.match(/<circle/g)||[]).length, 3, 'count'); });
+await test('draws a 1:1 reference line only when oneToOne', async () => { const { renderScatterSVG } = await import('../examples/map-demo-analysis.js'); assert(renderScatterSVG([[1,1],[2,2]], { oneToOne:true }).includes('ac-ref'), 'has ref'); assert(!renderScatterSVG([[1,1],[2,2]], { oneToOne:false }).includes('ac-ref'), 'no ref'); });
+await test('renders a no-data note for empty pairs and no circles', async () => { const { renderScatterSVG } = await import('../examples/map-demo-analysis.js'); const svg = renderScatterSVG([], {}); assert(/no overlapping data/i.test(svg), 'note'); assertEq((svg.match(/<circle/g)||[]).length, 0, 'no dots'); });
+await test('shows an r/bias caption when stats are finite', async () => { const { renderScatterSVG } = await import('../examples/map-demo-analysis.js'); const svg = renderScatterSVG([[1,1],[2,2]], { stats:{ r:0.87, bias:1.5 } }); assert(svg.includes('r=0.87'), 'r'); assert(/bias=/.test(svg), 'bias'); });
+await test('escapes markup in axis labels', async () => { const { renderScatterSVG } = await import('../examples/map-demo-analysis.js'); const svg = renderScatterSVG([[1,1]], { xLabel:'<script>x</script>' }); assert(!svg.includes('<script>'), 'raw'); assert(svg.includes('&lt;script&gt;'), 'escaped'); });
+await test('produces no NaN/Infinity for a single degenerate pair', async () => { const { renderScatterSVG } = await import('../examples/map-demo-analysis.js'); const svg = renderScatterSVG([[7,7]], {}); assert(!/NaN|Infinity/.test(svg), 'finite'); });
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
