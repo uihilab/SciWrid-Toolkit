@@ -624,42 +624,125 @@ document.addEventListener('keydown', (event) => {
   }
   if (event.key === 'Escape' && !$('analysis-panel').hidden) closeAnalysis();
 });
-// The bundled example joins four forecast hours into one 4-timestep GRIB2 file.
-const EXAMPLE_PARTS = [
-  './timeseries/gfs.t06z.pgrb2.1p00.f000',
-  './timeseries/gfs.t06z.pgrb2.1p00.f003',
-  './timeseries/gfs.t06z.pgrb2.1p00.f006',
-  './timeseries/gfs.t06z.pgrb2.1p00.f009',
+/* Canned datasets behind the instruction-overlay buttons.
+ *
+ *   parts  — fetched in order and concatenated into ONE File. GRIB2 messages
+ *            concatenate natively; the single-part entries are already whole
+ *            files built by the prep scripts.
+ *   bbox   — REQUIRED when scan() reports none. Stage IV is polar-stereographic
+ *            (grid template 20) and scan() returns no bbox for it, so without
+ *            this the demo would fit the map to the whole globe.
+ *   variable — the three Idalia products name precipitation differently, so the
+ *            chart series is pinned here rather than defaulting to the first
+ *            variable in the scan.
+ */
+const DEMO_DATASETS = [
+  {
+    id: 'gfs-bundled',
+    label: 'GFS forecast',
+    sizeNote: '172 MB',
+    bbox: null,
+    files: [{
+      name: 'gfs_timeseries.grb2',
+      primary: true,
+      parts: [
+        './timeseries/gfs.t06z.pgrb2.1p00.f000',
+        './timeseries/gfs.t06z.pgrb2.1p00.f003',
+        './timeseries/gfs.t06z.pgrb2.1p00.f006',
+        './timeseries/gfs.t06z.pgrb2.1p00.f009',
+      ],
+    }],
+  },
+  {
+    id: 'idalia-2023',
+    label: 'Hurricane Idalia (2023)',
+    sizeNote: 'about 170 MB',
+    bbox: [-88, 24, -75, 37],
+    files: [
+      { name: 'idalia-stage4.grb2',   primary: true, variable: 'Total precipitation',
+        parts: ['./idalia/idalia-stage4.grb2'] },
+      { name: 'idalia-aorc.zarr.zip', variable: 'APCP_surface',
+        parts: ['./idalia/idalia-aorc.zarr.zip'] },
+      { name: 'idalia-nldas2.nc',     variable: 'Rainf',
+        parts: ['./idalia/idalia-nldas2.nc'] },
+    ],
+  },
 ];
 
-async function runExample() {
-  let file;
-  try {
-    const blobs = [];
-    for (const [i, url] of EXAMPLE_PARTS.entries()) {
-      setStatus(`Loading example? (172 MB, ${i + 1}/${EXAMPLE_PARTS.length})`, 'busy');
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`${url.split('/').pop()}: HTTP ${response.status}`);
-      blobs.push(await response.blob());
+async function fetchAsFile(entry, datasetLabel) {
+  const blobs = [];
+  for (const [i, url] of entry.parts.entries()) {
+    const suffix = entry.parts.length > 1 ? ` (${i + 1}/${entry.parts.length})` : '';
+    setStatus(`Loading ${datasetLabel} \u2014 ${entry.name}${suffix}\u2026`, 'busy');
+    const response = await fetch(url);
+    if (!response.ok) {
+      const what = url.split('/').pop();
+      throw new Error(response.status === 404
+        ? `${what} is missing \u2014 run the prep scripts in benchmarks/pybench first`
+        : `${what}: HTTP ${response.status}`);
     }
-    file = new File([new Blob(blobs)], 'gfs_timeseries.grb2');
-  } catch (err) {
-    setStatus('Error loading example: ' + err.message, 'error');
-    console.error(err);
-    return;
+    blobs.push(await response.blob());
   }
+  return new File([new Blob(blobs)], entry.name);
+}
 
-  const scanResult = await loadSource(file);
-  if (!scanResult) return;
-  extractBbox = scanResult.bbox;
-  lastBucket = null;
-  fitMapToBbox(extractBbox);
-  await refreshLayer({ force: true });
+async function loadDataset(id) {
+  const ds = DEMO_DATASETS.find((d) => d.id === id);
+  if (!ds) { setStatus(`Unknown dataset "${id}".`, 'error'); return; }
+
+  const buttons = [$('help-view-example'), $('help-view-real-event')].filter(Boolean);
+  buttons.forEach((b) => { b.disabled = true; });
+
+  const failures = [];
+  try {
+    let first = true;
+    for (const entry of ds.files) {
+      let file;
+      try {
+        file = await fetchAsFile(entry, ds.label);
+      } catch (err) {
+        failures.push(`${entry.name}: ${err.message}`);
+        console.error(err);
+        continue;
+      }
+      /* The primary file replaces the set; the rest join it. */
+      const ok = first ? await loadSource(file) : await addFile(file);
+      if (!ok) { failures.push(`${entry.name}: could not be read`); continue; }
+      first = false;
+
+      const src = sources[sources.length - 1];
+      if (entry.variable && src) {
+        const names = src.scan.variable_names || [];
+        if (names.includes(entry.variable)) src.chartVar = entry.variable;
+        else failures.push(`${entry.name}: variable "${entry.variable}" not found`);
+      }
+      if (ds.bbox && src) { src.scan.bbox = ds.bbox.slice(); src.boundsAssumed = false; }
+    }
+
+    if (!sources.length) {
+      setStatus(`Could not load ${ds.label}. ${failures.join('; ')}`, 'error');
+      return;
+    }
+
+    if (ds.bbox) { lastScan.bbox = ds.bbox.slice(); prefillExtractInputs(ds.bbox); }
+    extractBbox = lastScan.bbox;
+    lastBucket = null;
+    fitMapToBbox(extractBbox);
+    renderFileList();
+    if (!$('analysis-panel').hidden) populateCompareControls();
+    await refreshLayer({ force: true });
+
+    setStatus(failures.length
+      ? `${ds.label} loaded without ${failures.length} file(s): ${failures.join('; ')}`
+      : `${ds.label} loaded.`, failures.length ? 'warn' : 'ok');
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
 }
 
 $('help-view-example').addEventListener('click', () => {
   closeHelp();
-  runExample();
+  loadDataset('gfs-bundled');
 });
 /* ── analysis panel ─────────────────────────────────────────────────────── */
 // One chart, two x-axes: "value along an axis through the point you picked".
