@@ -232,7 +232,10 @@
     #compare-setup[hidden] { display: none; }
     #compare-setup .cmp-side { display: inline-flex; align-items: center; gap: .35rem; margin: 0; font-size: 11px; flex: 1 1 180px; min-width: 0; }
     #compare-setup .cmp-tag { flex: 0 0 auto; width: 16px; height: 16px; display: inline-grid; place-items: center; border-radius: 3px; font-size: 10px; font-weight: 700; color: var(--brand-foreground); }
-    #compare-setup .cmp-a { background: var(--series-1); } #compare-setup .cmp-b { background: var(--series-2); }
+    #compare-setup .cmp-s0 { background: var(--series-1); }
+    #compare-setup .cmp-s1 { background: var(--series-2); }
+    #compare-setup .cmp-s2 { background: var(--series-3); }
+    #compare-setup .cmp-s3 { background: var(--series-4); }
     #compare-setup select { flex: 1 1 auto; min-width: 0; padding: 3px 6px; font-size: 11px; background: var(--background); color: var(--foreground); border: 1px solid var(--input); border-radius: calc(var(--radius) - 3px); }
     #analysis-readout { font-size: 10px; color: var(--muted-foreground); min-height: 1.2em; display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
     #analysis-readout b { color: var(--foreground); font-weight: 600; }
@@ -449,10 +452,7 @@
         </div>
         <button id="analysis-close" type="button" aria-label="Close analysis">&times;</button>
       </div>
-      <div id="compare-setup">
-        <label class="cmp-side"><span class="cmp-tag cmp-a">A</span><select id="compare-a" aria-label="File A column"></select></label>
-        <label class="cmp-side"><span class="cmp-tag cmp-b">B</span><select id="compare-b" aria-label="File B column"></select></label>
-      </div>
+      <div id="compare-setup"></div>
       <div id="analysis-legend"></div>
       <div id="analysis-readout"></div>
       <div id="analysis-chart"></div>

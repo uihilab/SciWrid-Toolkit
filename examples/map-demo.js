@@ -22,7 +22,7 @@ let extractBbox = null; // [minLon,minLat,maxLon,maxLat] - chosen extract region
 let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-extract
 let lastGrid = null;    // pre-warp grid from the last successful render
 // Exactly two files compared, A vs B. A drives the raster; B is chart-only.
-const MAX_SOURCES = 2;
+const MAX_SOURCES = 3;
 let sources = [];        // [{ file, scan, name, slot, boundsAssumed, chartVar }]
 // Non-primary grids for space-mode comparison, keyed by slot|variable|bbox|size|time.
 const gridCache = new Map();
@@ -362,12 +362,12 @@ function renderFileList() {
 }
 
 // Make the 4-file ceiling visible rather than something you discover by hitting it.
-function updateAddFileUI() { const row=$('add-file-row'),btn=$('add-file-btn'),full=sources.length>=MAX_SOURCES; row.hidden=sources.length===0;btn.disabled=full;btn.textContent=full?'Two files loaded':'+ Add a file to compare';btn.title=full?'Remove a file to swap it (comparing two at a time).':'Add a second file; pick a column of each in Show analysis.';$('file-count').textContent=`${sources.length} / ${MAX_SOURCES}`; }
+function updateAddFileUI() { const row=$('add-file-row'),btn=$('add-file-btn'),full=sources.length>=MAX_SOURCES; row.hidden=sources.length===0;btn.disabled=full;btn.textContent=full?`${MAX_SOURCES} files loaded`:'+ Add a file to compare';btn.title=full?'Remove a file to swap it.':`Add another file (up to ${MAX_SOURCES}); pick a column of each in Show analysis.`;$('file-count').textContent=`${sources.length} / ${MAX_SOURCES}`; }
 
 // Add a file to the comparison. Rejects only when it shares NO variable name with
 // what is already loaded — identical sets is the wrong rule, since GFS f000 is a
 // strict subset of f003 (accumulated fields do not exist at forecast hour 0).
-async function addFile(file) { if(!file)return false;if(sources.length>=MAX_SOURCES){setStatus(`Comparing two files at a time — "${file.name}" not added.`,'error');return false;}setStatus(`Scanning ${file.name}…`,'busy');let scanResult;try{scanResult=await scan(file);}catch(err){setStatus(`Error scanning ${file.name}: ${err.message}`,'error');console.error(err);return false;}const names=scanResult.variable_names||[],hasBbox=Array.isArray(scanResult.bbox)&&scanResult.bbox.length===4;if(!hasBbox)scanResult.bbox=[-180,-90,180,90];sources.push({file,scan:scanResult,name:file.name,slot:firstFreeSlot(),boundsAssumed:!hasBbox,chartVar:names[0]??''});applyPrimary();setStatus(sources.length>1?`${file.name} added — pick a column of each in Show analysis.`:`${file.name} loaded.`,'ok');return true;}
+async function addFile(file) { if(!file)return false;if(sources.length>=MAX_SOURCES){setStatus(`Comparing up to ${MAX_SOURCES} files — "${file.name}" not added.`,'error');return false;}setStatus(`Scanning ${file.name}…`,'busy');let scanResult;try{scanResult=await scan(file);}catch(err){setStatus(`Error scanning ${file.name}: ${err.message}`,'error');console.error(err);return false;}const names=scanResult.variable_names||[],hasBbox=Array.isArray(scanResult.bbox)&&scanResult.bbox.length===4;if(!hasBbox)scanResult.bbox=[-180,-90,180,90];sources.push({file,scan:scanResult,name:file.name,slot:firstFreeSlot(),boundsAssumed:!hasBbox,chartVar:names[0]??''});applyPrimary();setStatus(sources.length>1?`${file.name} added — pick a column of each in Show analysis.`:`${file.name} loaded.`,'ok');return true;}
 
 function removeSource(slot) { const i=sources.findIndex(s=>s.slot===slot);if(i===-1)return;sources.splice(i,1);gridCache.clear();if(!sources.length){lastSource=null;lastScan=null;lastGrid=null;closeAnalysis();$('analyze-btn').hidden=true;$('extract').hidden=true;$('query').hidden=true;if(map.getLayer('data-layer')){map.removeLayer('data-layer');map.removeSource('data-source');}renderFileList();setStatus('Drop a file to begin.','');return;}applyPrimary();lastBucket=null;if(extractBbox)refreshLayer({force:true});if(!$('analysis-panel').hidden){populateCompareControls();refreshAnalysis();} }
 
@@ -715,9 +715,23 @@ async function scatterGrid(src, variable, bbox, w, h, time) {
 const fmtX = (x) => (typeof x === 'number' ? fmtNum(x) : String(x).replace('T', ' ').replace(':00Z', 'Z'));
 
 function populateCompareControls() {
-  const setup=$('compare-setup');if(!sources.length){setup.hidden=true;return;}setup.hidden=false;
-  const fill=(id,src)=>{const sel=$(id);sel.innerHTML='';const names=src?.scan?.variable_names||[];for(const n of names){const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);}if(src){if(!names.includes(src.chartVar))src.chartVar=names[0]??'';sel.value=src.chartVar;}};
-  fill('compare-a',sources[0]);const b=$('compare-b').closest('.cmp-side');if(sources[1]){b.hidden=false;fill('compare-b',sources[1]);}else{b.hidden=true;$('compare-b').innerHTML='';}
+  const setup=$('compare-setup');
+  if(!sources.length){setup.hidden=true;setup.innerHTML='';return;}
+  setup.hidden=false;setup.innerHTML='';
+  sources.forEach((src,i)=>{
+    const names=src?.scan?.variable_names||[];
+    if(!names.includes(src.chartVar))src.chartVar=names[0]??'';
+    const label=document.createElement('label');label.className='cmp-side';
+    const tag=document.createElement('span');
+    tag.className=`cmp-tag cmp-s${src.slot}`;
+    tag.textContent=String.fromCharCode(65+i);          // A, B, C
+    const sel=document.createElement('select');
+    sel.id=`compare-${i}`;sel.setAttribute('aria-label',`${src.name} column`);
+    for(const n of names){const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);}
+    sel.value=src.chartVar;
+    sel.addEventListener('change',()=>onCompareChange(i,sel.id));
+    label.appendChild(tag);label.appendChild(sel);setup.appendChild(label);
+  });
 }
 function onCompareChange(i,id){const src=sources[i];if(!src)return;src.chartVar=$(id).value;gridCache.clear();refreshAnalysis();}
 
@@ -754,8 +768,8 @@ async function refreshAnalysis() {
       }
     }
     if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');
-    $('analysis-title').textContent=sources.length>1?`${varOf(sources[0],0)} vs ${varOf(sources[1],1)} \u2014 whole file`:`${varOf(sources[0],0)} \u2014 whole file`;
-    renderLegend(sources.length>1?[{slot:0,name:sources[0].name,meta:''},{slot:1,name:sources[1].name,meta:''}]:[]);
+    $('analysis-title').textContent=sources.length>1?`${sources.map((s,i)=>varOf(s,i)).join(' vs ')} \u2014 whole file`:`${varOf(sources[0],0)} \u2014 whole file`;
+    renderLegend(sources.length>1?sources.map((s)=>({slot:s.slot,name:s.name,meta:''})):[]);
     renderStatsTable(rows,null);
     return;
   }
@@ -763,8 +777,12 @@ async function refreshAnalysis() {
   const pushSeries=(src,idx,ser,size)=>{const resolved=resolveUnit(scanVarOf(src,idx)),conv=convertSeries(ser.ys,resolved);units[idx]=conv.unit??'';list.push({xs:ser.xs,ys:conv.ys,xLabel:ser.xLabel,slot:src.slot,unit:conv.unit??''});const meta=[varOf(src,idx),conv.unit||(conv.known?'':'units unknown'),size?resLabel(size):null].filter(Boolean).join(' \u00b7 ');legend.push({slot:src.slot,name:src.name,meta});rows.push({name:`${src.name} \u2014 ${varOf(src,idx)}${conv.known?``:` (units unknown)`}`,stats:computeStats(conv.ys),unit:conv.unit||''});};
   if(analysisMode==='space'){if(!lastGrid||!extractBbox){$('analysis-chart').innerHTML='';return;}if(sources.length>1)setStatus('Sampling files\u2026','busy');for(const[idx,src]of sources.entries()){const variable=varOf(src,idx);let grid=null,size=null;try{({grid,size}=await gridForSource(src,idx,variable,extractBbox,time));}catch(err){console.error(err);}if(!grid){rows.push({name:`${src.name} (unavailable)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromGrid(grid,{lat,lon,axis:analysisAxis}),size);}if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');}
   else{$('analysis-chart').innerHTML='<p class="muted">Reading time series\u2026</p>';for(const[idx,src]of sources.entries()){const variable=varOf(src,idx),t2=Math.max(0,stepsFor(src,idx)-1);let points=null;try{const r=await extract(src.file,{variable,lat,lon,t1:0,t2});points=r?.timeseries??[];}catch(err){console.error(err);}if(!points){rows.push({name:`${src.name} (failed)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromTimeseries(points),null);}}
-  const titleVar=sources.length>1?`${varOf(sources[0],0)} vs ${varOf(sources[1],1)}`:varOf(sources[0],0);$('analysis-title').textContent=`${titleVar} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;renderLegend(legend);
-  const dual=list.length===2&&!sameUnit(resolveUnit(scanVarOf(sources[0],0)),resolveUnit(scanVarOf(sources[1],1)));lastSeriesList=list;lastDual=dual;lastUnits=units;drawChart();renderStatsTable(rows,analysisMode==='time'?'\u0394':null);
+  const titleVar=sources.length>1?sources.map((s,i)=>varOf(s,i)).join(' vs '):varOf(sources[0],0);$('analysis-title').textContent=`${titleVar} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;renderLegend(legend);
+  /* Dual axis is only meaningful for a single pair. With three or more series a
+   * second axis has no unambiguous owner, so require a shared unit and fall back
+   * to one axis. All three Idalia products are in mm, so this never fires there. */
+  const sourceUnits=sources.map((src,i)=>resolveUnit(scanVarOf(src,i)));
+  const dual=list.length===2&&!sameUnit(sourceUnits[0],sourceUnits[1]);lastSeriesList=list;lastDual=dual;lastUnits=units;drawChart();renderStatsTable(rows,analysisMode==='time'?'\u0394':null);
 }
 
 /* ── chart zoom / scroll ────────────────────────────────────────────────── */
@@ -833,8 +851,6 @@ function closeAnalysis() {
   if (ro) ro.innerHTML = '';
 }
 
-$('compare-a').addEventListener('change',()=>onCompareChange(0,'compare-a'));
-$('compare-b').addEventListener('change',()=>onCompareChange(1,'compare-b'));
 $('analyze-btn').addEventListener('click', openAnalysis);
 $('analysis-close').addEventListener('click', closeAnalysis);
 $('analysis-mode-time').addEventListener('click', () => { analysisMode = 'time'; resetView(); refreshAnalysis(); });
