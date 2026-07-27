@@ -797,5 +797,61 @@ await test('extract on int64-time + string-coord store does not crash', async ()
   assert(v != null, 'expected a numeric value, got ' + JSON.stringify(r).slice(0, 200));
 });
 
+/* ---------------- CF packing (scale_factor / add_offset) -------------------
+ * AORC stores precipitation as int16 * 0.1. The NetCDF4 path has always
+ * unpacked these; the Zarr path did not, so a packed store read back 1/scale
+ * too large. Stored 125 with scale_factor 0.1 must surface as 12.5 mm. ----- */
+const i2Bytes = (arr) => {
+  const u = new Uint8Array(arr.length * 2);
+  new Int16Array(u.buffer).set(arr);
+  return u;
+};
+
+function packedStore(extraAttrs) {
+  return [
+    { name: '.zgroup', bytes: jsonBytes({ zarr_format: 2 }) },
+    { name: 'precip/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [1, 1, 2], chunks: [1, 1, 2], dtype: '<i2',
+        compressor: null, fill_value: null, order: 'C', filters: null,
+        dimension_separator: '.' }) },
+    { name: 'precip/.zattrs', bytes: jsonBytes(
+        Object.assign({ _ARRAY_DIMENSIONS: ['time', 'lat', 'lon'], units: 'mm' },
+                      extraAttrs)) },
+    { name: 'precip/0.0.0', bytes: i2Bytes([125, 40]) },
+    { name: 'time/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [1], chunks: [1], dtype: '<f4',
+        compressor: null, fill_value: null, order: 'C', filters: null,
+        dimension_separator: '.' }) },
+    { name: 'time/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['time'] }) },
+    { name: 'time/0', bytes: f32Bytes([0]) },
+    { name: 'lat/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [1], chunks: [1], dtype: '<f4',
+        compressor: null, fill_value: null, order: 'C', filters: null,
+        dimension_separator: '.' }) },
+    { name: 'lat/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lat'], units: 'degrees_north' }) },
+    { name: 'lat/0', bytes: f32Bytes([30]) },
+    { name: 'lon/.zarray', bytes: jsonBytes({
+        zarr_format: 2, shape: [2], chunks: [2], dtype: '<f4',
+        compressor: null, fill_value: null, order: 'C', filters: null,
+        dimension_separator: '.' }) },
+    { name: 'lon/.zattrs', bytes: jsonBytes({ _ARRAY_DIMENSIONS: ['lon'], units: 'degrees_east' }) },
+    { name: 'lon/0', bytes: f32Bytes([-84, -83]) },
+  ];
+}
+
+await test('Zarr applies scale_factor when unpacking a packed array', async () => {
+  const m = await extract(buildZip(packedStore({ scale_factor: 0.1 })), Object.assign(
+    { variable: 'precip', lat: 30, lon: -84 }, wf));
+  const v = pickScalar(m);
+  assertClose(v, 12.5, 1e-4,
+    'packed int16 125 * 0.1 should read back as 12.5, not the raw stored value');
+});
+
+await test('Zarr applies add_offset alongside scale_factor', async () => {
+  const m = await extract(buildZip(packedStore({ scale_factor: 0.1, add_offset: 5 })),
+    Object.assign({ variable: 'precip', lat: 30, lon: -84 }, wf));
+  assertClose(pickScalar(m), 17.5, 1e-4, '125 * 0.1 + 5 should be 17.5');
+});
+
 console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped`);
 process.exit(failed > 0 ? 1 : 0);
