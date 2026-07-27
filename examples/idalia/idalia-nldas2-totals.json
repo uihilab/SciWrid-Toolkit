@@ -1,0 +1,14 @@
+{
+  "product": "NLDAS-2",
+  "format": "netcdf4",
+  "variable": "Rainf",
+  "coarsenFactor": null,
+  "totals": {
+    "Big Bend FL": 73.2401,
+    "Tampa": 32.893,
+    "Cedar Key FL": 12.4063,
+    "Valdosta GA": 109.7096,
+    "Savannah GA": 31.1592,
+    "Charleston SC": 23.363
+  }
+}

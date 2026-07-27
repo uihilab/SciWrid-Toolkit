@@ -1,0 +1,14 @@
+{
+  "product": "NCEP Stage IV",
+  "format": "grib2",
+  "variable": "Total precipitation",
+  "coarsenFactor": null,
+  "totals": {
+    "Big Bend FL": 79.88,
+    "Tampa": 65.75,
+    "Cedar Key FL": 36.12,
+    "Valdosta GA": 187.12,
+    "Savannah GA": 52.12,
+    "Charleston SC": 69.0
+  }
+}
