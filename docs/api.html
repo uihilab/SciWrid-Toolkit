@@ -95,6 +95,14 @@
       cursor: pointer; opacity: .85; font-size: 14px;
     }
     #theme-toggle:hover { opacity: 1; background: var(--accent); }
+    /* Lab attribution. Parked past the nav controls in the far-right corner so it
+       reads as provenance, not as a second brand competing with the SW mark. */
+    .hilab {
+      display: inline-flex; align-items: center; flex: 0 0 auto;
+      margin-left: .4rem; padding-left: .8rem;
+      border-left: 1px solid var(--border);
+    }
+    .hilab img { display: block; height: 24px; width: auto; }
 
     /* hero */
     .page-hero {
@@ -239,6 +247,9 @@
         <a href="/examples/api-demo.html">Demos</a>
         <a href="https://github.com/uihilab/webparsers">GitHub</a>
         <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">&#9685;</button>
+        <span class="hilab">
+          <img src="/assets/logo-hilab-mini.png" alt="HiLab" width="662" height="283">
+        </span>
       </nav>
     </div>
   </header>
@@ -253,7 +264,7 @@
   <main class="doc-layout">
     <nav class="doc-toc" aria-label="On this page">
         <p class="toc-title">On this page</p>
-        <ul><li><a href="#choosing-your-pathway">Choosing your pathway</a></li><li><a href="#library-structure">Library structure</a></li><li><a href="#install">Install</a></li><li><a href="#import">Import</a></li><li><a href="#source-types-accepted">Source types accepted</a></li><li><a href="#detectformatsource"><code>detectFormat(source)</code></a></li><li><a href="#scansource-opts"><code>scan(source, opts?)</code></a></li><li><a href="#extractsource-options"><code>extract(source, options)</code></a></li><li><a href="#extractoutputsource-options-format"><code>extractOutput(source, options, format?)</code></a></li><li><a href="#extractgridsource-options"><code>extractGrid(source, options)</code></a></li><li><a href="#extractgridoutputsource-options-format"><code>extractGridOutput(source, options, format?)</code></a></li><li><a href="#zarr-v2-notes">Zarr v2 notes</a></li><li><a href="#trimsource-options"><code>trim(source, options)</code></a></li><li><a href="#geotiff-tif--tiff">GeoTIFF (<code>.tif</code> / <code>.tiff</code>)</a></li><li><a href="#map-rendering">Map rendering</a></li><li><a href="#class-based-api-SciWrid Toolkit">Class-based API (<code>SciWridToolkit</code>)</a></li><li><a href="#error-handling">Error handling</a></li><li><a href="#nodejs-usage">Node.js usage</a></li><li><a href="#browser-usage">Browser usage</a></li></ul>
+        <ul><li><a href="#choosing-your-pathway">Choosing your pathway</a></li><li><a href="#library-structure">Library structure</a></li><li><a href="#install">Install</a></li><li><a href="#import">Import</a></li><li><a href="#source-types-accepted">Source types accepted</a></li><li><a href="#detectformatsource"><code>detectFormat(source)</code></a></li><li><a href="#scansource-opts"><code>scan(source, opts?)</code></a></li><li><a href="#extractsource-options"><code>extract(source, options)</code></a></li><li><a href="#extractoutputsource-options-format"><code>extractOutput(source, options, format?)</code></a></li><li><a href="#extractgridsource-options"><code>extractGrid(source, options)</code></a></li><li><a href="#extractgridoutputsource-options-format"><code>extractGridOutput(source, options, format?)</code></a></li><li><a href="#zarr-v2-notes">Zarr v2 notes</a></li><li><a href="#trimsource-options"><code>trim(source, options)</code></a></li><li><a href="#geotiff-tif--tiff">GeoTIFF (<code>.tif</code> / <code>.tiff</code>)</a></li><li><a href="#map-rendering">Map rendering</a></li><li><a href="#class-based-api-sciwridtoolkit">Class-based API (<code>SciWridToolkit</code>)</a></li><li><a href="#error-handling">Error handling</a></li><li><a href="#nodejs-usage">Node.js usage</a></li><li><a href="#browser-usage">Browser usage</a></li></ul>
       </nav>
     <article class="doc-content">
 <p>Supported formats:</p>
@@ -597,7 +608,7 @@ map.addSource('data', {
 map.addLayer({ id: 'data', type: 'raster', source: 'data', paint: { 'raster-opacity': 0.75 } });</code></pre>
 <p>A complete drop-a-file demo (basemap, variable picker, click-to-query, Web Worker offload) lives at <a href="../examples/map-demo.html"><code>examples/map-demo.html</code></a>. Run it with <code>npm run demo:web</code>.</p>
 <hr>
-<h2 id="class-based-api-SciWrid Toolkit">Class-based API (<code>SciWridToolkit</code>)</h2>
+<h2 id="class-based-api-sciwridtoolkit">Class-based API (<code>SciWridToolkit</code>)</h2>
 <p>For cases where you need to reuse a single loaded file across multiple queries:</p>
 <pre><code>import { SciWridToolkit } from 'sciwrid-toolkit';
 

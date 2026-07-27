@@ -21,6 +21,8 @@ const MIME = {
   '.json': 'application/json',
   '.wasm': 'application/wasm',
   '.css':  'text/css',
+  '.png':  'image/png',
+  '.svg':  'image/svg+xml',
   '.md':   'text/markdown; charset=utf-8',
   '.grb2': 'application/octet-stream',
   '.grib2':'application/octet-stream',

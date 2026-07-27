@@ -315,6 +315,14 @@ function shell({ title, kicker, heroTitle, lead, pills, navActive, toc, body }) 
       cursor: pointer; opacity: .85; font-size: 14px;
     }
     #theme-toggle:hover { opacity: 1; background: var(--accent); }
+    /* Lab attribution. Parked past the nav controls in the far-right corner so it
+       reads as provenance, not as a second brand competing with the SW mark. */
+    .hilab {
+      display: inline-flex; align-items: center; flex: 0 0 auto;
+      margin-left: .4rem; padding-left: .8rem;
+      border-left: 1px solid var(--border);
+    }
+    .hilab img { display: block; height: 24px; width: auto; }
 
     /* hero */
     .page-hero {
@@ -459,6 +467,9 @@ function shell({ title, kicker, heroTitle, lead, pills, navActive, toc, body }) 
         ${navLink('/examples/api-demo.html', 'Demos', 'demos')}
         ${navLink('https://github.com/uihilab/webparsers', 'GitHub', 'github')}
         <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">&#9685;</button>
+        <span class="hilab">
+          <img src="/assets/logo-hilab-mini.png" alt="HiLab" width="662" height="283">
+        </span>
       </nav>
     </div>
   </header>

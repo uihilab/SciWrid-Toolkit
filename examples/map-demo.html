@@ -69,17 +69,29 @@
     html, body { margin: 0; height: 100%; font-family: var(--font-sans); }
     body { color: var(--foreground); }
     #app { display: flex; height: 100%; }
+    /* A column, not a plain block: the scroll moved down onto #sb-body so the lab
+       mark in #sb-foot sits on the sidebar's bottom-left corner whether the
+       controls overflow or not. Padding moved with it — #sidebar itself is now a
+       bare frame so the accent strip and the foot rule can both run full width. */
     #sidebar {
-      width: 300px; flex: 0 0 300px; padding: 1.1rem;
+      width: 300px; flex: 0 0 300px; padding: 0;
+      display: flex; flex-direction: column; min-height: 0;
       background: var(--card); color: var(--card-foreground);
-      border-right: 1px solid var(--border); overflow-y: auto;
+      border-right: 1px solid var(--border);
       position: relative;
     }
     #sidebar::before {
-      content: ""; display: block;
-      height: 3px; margin: -1.1rem -1.1rem 1rem;
+      content: ""; display: block; flex: 0 0 3px;
       background: linear-gradient(90deg, var(--brand), oklch(from var(--brand) l c h / 0) 75%);
     }
+    /* Block formatting is preserved inside, so the controls keep the margin
+       collapsing they were written against. */
+    #sb-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 1rem 1.1rem 1.1rem; }
+    #sb-foot {
+      flex: 0 0 auto; display: flex; align-items: center;
+      padding: .6rem 1.1rem; border-top: 1px solid var(--border);
+    }
+    #sb-foot img { display: block; height: 22px; width: auto; }
     .sb-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
     .brand-link {
       display: inline-flex; flex: 0 0 30px; text-decoration: none;
@@ -313,102 +325,108 @@
 <body>
   <div id="app">
     <aside id="sidebar">
-      <div class="sb-head">
-        <a class="brand-link" href="index.html" aria-label="Back to SciWrid Toolkit examples"
-           title="Back to SciWrid Toolkit examples">
-          <span class="brand-mark">SW</span>
-        </a>
-        <h1>SciWrid Toolkit map demo</h1>
-        <button id="help-btn" type="button" aria-label="Open instructions" title="Instructions">?</button>
-        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
-      </div>
-      <p class="muted">
-        Drop any supported file (GRIB2, NetCDF3/4, Zarr-zip, TIFF/COG), pick a
-        variable, and see it overlaid on a real basemap. Click the map to read
-        the underlying value.
-      </p>
-
-      <label for="file">File</label>
-      <input type="file" id="file" multiple
-             accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
-      <ul id="file-list"></ul>
-      <!-- #file replaces the set; #add-file appends a second file. Files never
-           auto-join: the analysis window holds the manual column pickers. -->
-      <input type="file" id="add-file" multiple hidden
-             accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
-      <div id="add-file-row" hidden>
-        <button id="add-file-btn" type="button">+ Add a file to compare</button>
-        <span id="file-count"></span>
-      </div>
-
-      <label for="variable">Variable</label>
-      <select id="variable" disabled></select>
-      <div id="var-hint"></div>
-
-      <label for="time">Time</label>
-      <select id="time" disabled></select>
-      <div id="time-range" class="muted"></div>
-
-      <label for="ramp">Color ramp</label>
-      <select id="ramp">
-        <option value="viridis">viridis</option>
-        <option value="plasma">plasma</option>
-        <option value="grayscale">grayscale</option>
-        <option value="RdBu">RdBu (diverging)</option>
-      </select>
-
-      <label for="opacity">Layer opacity <span id="opacity-val" class="muted">75%</span></label>
-      <input type="range" id="opacity" min="0" max="100" step="1" value="75">
-
-      <div id="legend" hidden>
-        <label>Legend</label>
-        <canvas id="legend-canvas" width="256" height="14"></canvas>
-        <div class="ticks"><span id="legend-min">–</span><span id="legend-max">–</span></div>
-      </div>
-
-      <div id="extract" hidden>
-        <label>Extract area (bbox)</label>
-        <div class="muted" id="ext-coverage">-</div>
-        <div style="display:flex; gap:.4rem; margin-top:.3rem;">
-          <label style="flex:1; margin:.2rem 0;">Min Lat
-            <input type="number" id="ext-min-lat" step="any" style="width:100%;">
-          </label>
-          <label style="flex:1; margin:.2rem 0;">Max Lat
-            <input type="number" id="ext-max-lat" step="any" style="width:100%;">
-          </label>
+      <div id="sb-body">
+        <div class="sb-head">
+          <a class="brand-link" href="index.html" aria-label="Back to SciWrid Toolkit examples"
+             title="Back to SciWrid Toolkit examples">
+            <span class="brand-mark">SW</span>
+          </a>
+          <h1>SciWrid Toolkit map demo</h1>
+          <button id="help-btn" type="button" aria-label="Open instructions" title="Instructions">?</button>
+          <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
         </div>
-        <div style="display:flex; gap:.4rem; margin-top:.3rem;">
-          <label style="flex:1; margin:.2rem 0;">Min Lon
-            <input type="number" id="ext-min-lon" step="any" style="width:100%;">
-          </label>
-          <label style="flex:1; margin:.2rem 0;">Max Lon
-            <input type="number" id="ext-max-lon" step="any" style="width:100%;">
-          </label>
+        <p class="muted">
+          Drop any supported file (GRIB2, NetCDF3/4, Zarr-zip, TIFF/COG), pick a
+          variable, and see it overlaid on a real basemap. Click the map to read
+          the underlying value.
+        </p>
+
+        <label for="file">File</label>
+        <input type="file" id="file" multiple
+               accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
+        <ul id="file-list"></ul>
+        <!-- #file replaces the set; #add-file appends a second file. Files never
+             auto-join: the analysis window holds the manual column pickers. -->
+        <input type="file" id="add-file" multiple hidden
+               accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
+        <div id="add-file-row" hidden>
+          <button id="add-file-btn" type="button">+ Add a file to compare</button>
+          <span id="file-count"></span>
         </div>
-        <button id="ext-btn" type="button" style="margin-top:.5rem;" disabled>Render area</button>
-        <div id="ext-msg" class="muted" style="margin-top:.4rem;">-</div>
+
+        <label for="variable">Variable</label>
+        <select id="variable" disabled></select>
+        <div id="var-hint"></div>
+
+        <label for="time">Time</label>
+        <select id="time" disabled></select>
+        <div id="time-range" class="muted"></div>
+
+        <label for="ramp">Color ramp</label>
+        <select id="ramp">
+          <option value="viridis">viridis</option>
+          <option value="plasma">plasma</option>
+          <option value="grayscale">grayscale</option>
+          <option value="RdBu">RdBu (diverging)</option>
+        </select>
+
+        <label for="opacity">Layer opacity <span id="opacity-val" class="muted">75%</span></label>
+        <input type="range" id="opacity" min="0" max="100" step="1" value="75">
+
+        <div id="legend" hidden>
+          <label>Legend</label>
+          <canvas id="legend-canvas" width="256" height="14"></canvas>
+          <div class="ticks"><span id="legend-min">–</span><span id="legend-max">–</span></div>
+        </div>
+
+        <div id="extract" hidden>
+          <label>Extract area (bbox)</label>
+          <div class="muted" id="ext-coverage">-</div>
+          <div style="display:flex; gap:.4rem; margin-top:.3rem;">
+            <label style="flex:1; margin:.2rem 0;">Min Lat
+              <input type="number" id="ext-min-lat" step="any" style="width:100%;">
+            </label>
+            <label style="flex:1; margin:.2rem 0;">Max Lat
+              <input type="number" id="ext-max-lat" step="any" style="width:100%;">
+            </label>
+          </div>
+          <div style="display:flex; gap:.4rem; margin-top:.3rem;">
+            <label style="flex:1; margin:.2rem 0;">Min Lon
+              <input type="number" id="ext-min-lon" step="any" style="width:100%;">
+            </label>
+            <label style="flex:1; margin:.2rem 0;">Max Lon
+              <input type="number" id="ext-max-lon" step="any" style="width:100%;">
+            </label>
+          </div>
+          <button id="ext-btn" type="button" style="margin-top:.5rem;" disabled>Render area</button>
+          <div id="ext-msg" class="muted" style="margin-top:.4rem;">-</div>
+        </div>
+
+        <div id="query" hidden>
+          <label>Point query</label>
+          <div class="muted" id="q-bounds">–</div>
+          <div style="display:flex; gap:.4rem; margin-top:.3rem;">
+            <label style="flex:1; margin:.2rem 0;">Lat (Y)
+              <input type="number" id="q-lat" step="any" style="width:100%;">
+            </label>
+            <label style="flex:1; margin:.2rem 0;">Lon (X)
+              <input type="number" id="q-lon" step="any" style="width:100%;">
+            </label>
+          </div>
+          <button id="q-btn">Query value</button>
+          <div id="q-result" class="muted" style="margin-top:.4rem;">–</div>
+          <div id="q-bbox-debug" class="muted"
+               style="margin-top:.5rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.5; white-space:pre;">–</div>
+        </div>
+
+        <button id="analyze-btn" type="button" hidden>Show analysis</button>
+
+        <div id="status" class="muted">Pick a file to begin.</div>
       </div>
 
-      <div id="query" hidden>
-        <label>Point query</label>
-        <div class="muted" id="q-bounds">–</div>
-        <div style="display:flex; gap:.4rem; margin-top:.3rem;">
-          <label style="flex:1; margin:.2rem 0;">Lat (Y)
-            <input type="number" id="q-lat" step="any" style="width:100%;">
-          </label>
-          <label style="flex:1; margin:.2rem 0;">Lon (X)
-            <input type="number" id="q-lon" step="any" style="width:100%;">
-          </label>
-        </div>
-        <button id="q-btn">Query value</button>
-        <div id="q-result" class="muted" style="margin-top:.4rem;">–</div>
-        <div id="q-bbox-debug" class="muted"
-             style="margin-top:.5rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.5; white-space:pre;">–</div>
+      <div id="sb-foot">
+        <img src="/assets/logo-hilab-mini.png" alt="HiLab" width="662" height="283">
       </div>
-
-      <button id="analyze-btn" type="button" hidden>Show analysis</button>
-
-      <div id="status" class="muted">Pick a file to begin.</div>
     </aside>
 
     <div id="map"></div>
