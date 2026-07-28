@@ -288,13 +288,23 @@
     }
     #help-title { margin: 0 0 .75rem; font-size: 1.35rem; line-height: 1.25; }
     #help-body { margin: 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.65; }
-    #help-example { margin-top: 1.25rem; }
-    #help-view-example {
-      width: 100%; padding: 10px 14px; background: var(--brand);
-      color: var(--brand-foreground); border: 1px solid transparent;
+    #help-example {
+      margin-top: 1.25rem; display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem;
+    }
+    @media (max-width: 480px) { #help-example { grid-template-columns: 1fr; } }
+    #help-view-example, #help-view-real-event {
+      width: 100%; padding: 10px 14px; border: 1px solid transparent;
       border-radius: calc(var(--radius) - 2px); cursor: pointer;
       font: inherit; font-size: 13px; font-weight: 650;
     }
+    #help-view-example { background: var(--brand); color: var(--brand-foreground); }
+    #help-view-real-event {
+      background: var(--secondary); color: var(--secondary-foreground);
+      border-color: var(--border);
+    }
+    #help-view-real-event:hover:not(:disabled) { background: var(--accent); }
+    #help-example button:disabled { opacity: .5; cursor: not-allowed; }
     #help-actions {
       display: flex; justify-content: space-between; gap: .75rem;
       margin-top: auto; padding-top: 1.5rem;
@@ -473,6 +483,7 @@
       <p id="help-body">Choose a supported scientific data file from the File picker in the sidebar.</p>
       <div id="help-example" hidden>
         <button id="help-view-example" type="button">View example (GFS data)</button>
+        <button id="help-view-real-event" type="button">View real event (Hurricane Idalia)</button>
       </div>
       <div id="help-actions">
         <button id="help-back" type="button">Back</button>

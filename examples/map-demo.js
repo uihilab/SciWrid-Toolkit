@@ -579,8 +579,8 @@ const HELP_STEPS = [
     body: 'With a point picked, choose "Show analysis" and pick a column of File A and File B at the top of the window. Values convert to metric units and each file is sampled at its own resolution. The window floats \u2014 drag its title bar and resize it from the corner.',
   },
   {
-    title: 'Try the bundled example',
-    body: 'Load the included GFS forecast — four timesteps, three hours apart — to scan and render it automatically. Then click the map and choose "Show analysis" to chart how the value changes over time.',
+    title: 'Try it on real data',
+    body: 'Load the bundled GFS forecast \u2014 four timesteps, three hours apart \u2014 or load Hurricane Idalia (2023) as three real products in three formats: NCEP Stage IV radar QPE (GRIB2), NOAA AORC (Zarr) and NLDAS-2 (NetCDF). Then click the map and choose "Show analysis" to chart how the products compare at that point.',
   },
 ];
 
@@ -743,6 +743,10 @@ async function loadDataset(id) {
 $('help-view-example').addEventListener('click', () => {
   closeHelp();
   loadDataset('gfs-bundled');
+});
+$('help-view-real-event').addEventListener('click', () => {
+  closeHelp();
+  loadDataset('idalia-2023');
 });
 /* ── analysis panel ─────────────────────────────────────────────────────── */
 // One chart, two x-axes: "value along an axis through the point you picked".
