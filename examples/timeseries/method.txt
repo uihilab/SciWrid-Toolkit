@@ -1,2 +1,49 @@
-## To combine these file run this:
-cat gfs.t06z.pgrb2.1p00.f000 gfs.t06z.pgrb2.1p00.f006 gfs.t06z.pgrb2.1p00.f012 gfs.t06z.pgrb2.1p00.f018 gfs.t06z.pgrb2.1p00.f024 > gfs_timeseries.grb2
+GFS example data - not committed
+================================
+
+The raw GFS files in this directory are NOT in git. They are large (about 40 MB
+each) and freely re-downloadable, so they are fetched locally instead. Only this
+file is tracked.
+
+Nothing in `npm test` requires them: test-grid.js falls through to the next
+available fixture, and test-trim.js / test-map-demo-whole.js skip when the file
+is absent. They are needed only for the "GFS forecast" button in the map demo
+(examples/map-demo.html).
+
+
+1. Download the forecast hours
+------------------------------
+GFS 1-degree (1p00) products, cycle 06z. Recent cycles come from NOMADS; note it
+only retains roughly the last 10 days:
+
+  https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gfs.<YYYYMMDD>/06/atmos/
+
+For older dates use the NOAA Open Data archive on S3 (no credentials needed):
+
+  s3://noaa-gfs-bdp-pds/gfs.<YYYYMMDD>/06/atmos/
+
+Fetch the forecast hours the map demo expects:
+
+  gfs.t06z.pgrb2.1p00.f000
+  gfs.t06z.pgrb2.1p00.f003
+  gfs.t06z.pgrb2.1p00.f006
+  gfs.t06z.pgrb2.1p00.f009
+
+The demo fetches these four parts and concatenates them in the browser, so for
+the map demo alone this step is enough - stop here.
+
+
+2. Optional: build the single combined file
+-------------------------------------------
+Some scripts (test-grid.js, test-trim.js, test-map-demo-whole.js,
+scripts/perf/config.mjs) look for one concatenated file. GRIB2 messages
+concatenate natively, so plain `cat` is all it takes:
+
+  cat gfs.t06z.pgrb2.1p00.f000 gfs.t06z.pgrb2.1p00.f003 \
+      gfs.t06z.pgrb2.1p00.f006 gfs.t06z.pgrb2.1p00.f009 > gfs_timeseries.grb2
+
+Caveat: the gfs_timeseries.grb2 used during development was built from a
+different set of forecast hours (f000/f006/f012/f018/f024) and is about 105 KB
+larger than the four parts above. A file built with the command here is valid
+GRIB2 and works with every script, but it will not be byte-identical to that
+original, and it carries 4 timesteps rather than 5.

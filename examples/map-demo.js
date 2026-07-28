@@ -678,7 +678,7 @@ async function fetchAsFile(entry, datasetLabel) {
     if (!response.ok) {
       const what = url.split('/').pop();
       throw new Error(response.status === 404
-        ? `${what} is missing \u2014 run the prep scripts in benchmarks/pybench first`
+        ? `${what} is missing \u2014 see examples/timeseries/method.txt for how to fetch it`
         : `${what}: HTTP ${response.status}`);
     }
     blobs.push(await response.blob());

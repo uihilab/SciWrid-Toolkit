@@ -8,6 +8,13 @@ node_modules/
 .claude/
 .codex/
 
+# Throwaway browser profiles, created when a demo is launched with
+# --user-data-dir (Chromium/Edge/Chrome/Brave) or -profile (Firefox)
+# pointing inside the repo. Hundreds of MB of cache — never commit.
+.verify-*/
+.*-profile/
+.*-user-data/
+
 # Build artifacts
 *.exe
 *.o
@@ -22,8 +29,19 @@ data/*.bin
 data/*.json
 data/*_query.json
 
-# Large example/test data
+# Large example/test data. Raw GFS products are re-downloadable, so they are
+# fetched locally rather than committed — see examples/timeseries/method.txt.
+# NOTE: the gfs.t06z.* parts have no file extension, so the *.grb2 rule below
+# does not match them; that is how 164 MB was committed by accident once.
 examples/timeseries/*.grb2
+examples/timeseries/gfs.*
 
 # Internal manual QA checklist — not for published repo
 examples/CHECKLIST.md
+
+# Test harness — kept on disk, out of git. .testkit/ sits at the same depth as
+# scripts/ so every '../lib' import and resolve(root, …) inside it still works.
+# examples/testfile holds the fixtures those tests read, so it stays in place.
+# NOTE: `npm test` therefore does NOT run from a fresh clone; see CONTRIBUTING.
+.testkit/
+examples/testfile/
