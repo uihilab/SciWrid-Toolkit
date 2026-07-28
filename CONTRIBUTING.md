@@ -11,13 +11,25 @@ work needs only **Node 18+** - no Python, no Emscripten.
 ```bash
 npm install            # install dev + optional deps
 npm run build          # bundle the publishable package into dist/ (Node only)
-npm test               # run the smoke-test suite (see scripts/test-*.js)
 npm run demo:web       # serve examples/ (api-demo, map-demo) on localhost
 ```
 
-Individual smoke tests: `npm run test:api`, `test:zarr`, `test:tiff`,
-`test:trim`, `test:grid`, `test:render`, `test:time`, `test:kerchunk`, ... (see
-`package.json` `scripts`).
+## Tests
+
+The test suite is **not in this repository**. It lives in an out-of-tree
+`.testkit/` directory alongside the fixtures it reads (`examples/testfile/`),
+both of which are gitignored to keep clones small.
+
+This means `npm test` does **not** work from a fresh clone - the `.testkit/`
+scripts it invokes are absent. The library itself is unaffected: nothing under
+`lib/`, `core/`, `formats/`, or `wasm/` imports from `.testkit/`, and the
+published package never contained tests (`package.json` `files` ships only
+`dist/`, `README.md`, and `LICENSE`).
+
+If you need to run or change the tests, ask a maintainer for the `.testkit/`
+bundle. Drop it in at the repo root - it resolves paths relative to the repo,
+so no configuration is needed - and `npm test` plus the individual
+`npm run test:*` scripts will work as before.
 
 ## Changing the C / WASM core
 
