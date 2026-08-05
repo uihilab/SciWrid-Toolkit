@@ -171,9 +171,37 @@ Format-specific fields in the result:
 
 | Format      | Extra fields on `ScanResult`                                         |
 | ----------- | -------------------------------------------------------------------- |
-| GRIB2       | `grid_templates[]`, `data_templates[]`                               |
-| NetCDF3/4   | `shapes[]`, `units[]`                                                |
-| Zarr v2     | `shapes[]`, `dtypes[]`, `compressors[]`                              |
+| GRIB2       | `grid_templates[]`, `data_templates[]`, `bbox`                       |
+| NetCDF3/4   | `shapes[]`, `units[]`, `bbox`                                        |
+| Zarr v2     | `shapes[]`, `dtypes[]`, `compressors[]`, `bbox`                      |
+| Parquet     | `gridTypes[]`, `bbox`                                                |
+
+### `meta.bbox` — where the data actually is
+
+```js
+const meta = await scan(file);
+meta.bbox;   // [minLon, minLat, maxLon, maxLat]  in degrees, or undefined
+```
+
+**Use it as the `bbox` you pass to [`extractGrid`](#extractgridsource-options), and as the
+bounds you place the resulting image at.** `extractGrid` requires a `bbox` and returns the
+same one it was given, so those two must agree or the raster lands in the wrong place.
+
+For projected grids (polar stereographic, Lambert) this is the envelope of the whole grid
+rectangle, which is wider than the area holding valid data — that is intentional. The extra
+cells come back as `NaN`, and the image is correctly georeferenced. NCEP Stage IV, for
+example, reports `[-134.04, 19.81, -59.96, 57.84]`: its maximum latitude occurs in the
+*middle* of the north edge, not at a corner, so a four-corner box would clip it by 4°.
+
+Note Leaflet expects `[[south, west], [north, east]]` while `bbox` is longitude-first:
+
+```js
+const [w, s, e, n] = meta.bbox;
+L.imageOverlay(pngUrl, [[s, w], [n, e]]).addTo(map);
+```
+
+`bbox` is `undefined` when the extent cannot be derived — a grid template whose coordinates
+we do not build, or a store with only synthetic axes. Treat it as optional.
 
 Each variable in `variables[]` also carries format-specific fields:
 

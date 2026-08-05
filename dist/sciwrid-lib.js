@@ -129,6 +129,14 @@ export class SciWridToolkit {
     if (this._format === 'grib2') {
       base.grid_templates = [...new Set(this.vars.map(v => v.grid_template))];
       base.data_templates = [...new Set(this.vars.map(v => v.data_template))];
+      /* Same contract as the NetCDF/Zarr/Parquet branches below: tell the
+       * caller where the grid actually is. Without this, GRIB2 metadata gave
+       * nx/ny and a template number and nothing else, so a consumer had to
+       * invent an extent -- which is how a CONUS Stage IV field ended up drawn
+       * over Canada. Computed on demand and cached; absent for templates whose
+       * coordinates we cannot build. */
+      if (!this._geoBbox) this._geoBbox = this._grib2GeoBbox();
+      if (this._geoBbox) base.bbox = this._geoBbox;
     }
 
     if (this._format === 'netcdf3' || this._format === 'netcdf4') {
@@ -521,6 +529,84 @@ export class SciWridToolkit {
    * time } if the variable's grid is curvilinear, else null (rectilinear →
    * caller falls through to the normal 1D-axis path). Decodes only timestep t.
    * --------------------------------------------------------------------- */
+  /* -----------------------------------------------------------------------
+   * _grib2GeoBbox — geographic envelope of the first GRIB2 grid we can place.
+   *
+   * wp_grid_coords already materialises real lat/lon for every supported
+   * template, including polar stereographic (via polar_stereo_compute_latlon),
+   * so the envelope is a min/max over those coordinates.
+   *
+   * Deliberately NOT a four-corner box: on a projected grid the extreme
+   * latitude sits mid-edge, not at a corner, so corners would under-report the
+   * northern extent of exactly the domains this exists to fix.
+   * --------------------------------------------------------------------- */
+  _grib2GeoBbox() {
+    const wasm = this.wasm;
+    if (this._format !== 'grib2' || !wasm || !this.scanPtr) return null;
+    if (typeof wasm._wp_grid_coords !== 'function') return null;
+
+    for (const v of this.vars) {
+      let ds = 0;
+      try {
+        ds = wasm.ccall('wp_grid_coords', 'number', ['number', 'number'],
+          [this.scanPtr, v.index]);
+        if (!ds) continue;                       /* template we cannot place */
+
+        const curv    = wasm.ccall('wp_is_curvilinear', 'number', ['number'], [ds]);
+        const nx      = wasm.ccall('wp_nx', 'number', ['number'], [ds]);
+        const ny      = wasm.ccall('wp_ny', 'number', ['number'], [ds]);
+        const latsPtr = wasm.ccall('wp_ds_lats_ptr', 'number', ['number'], [ds]);
+        const lonsPtr = wasm.ccall('wp_ds_lons_ptr', 'number', ['number'], [ds]);
+        if (!nx || !ny) continue;
+
+        let minLat = Infinity, maxLat = -Infinity;
+        let minLon = Infinity, maxLon = -Infinity;
+        const see = (a, o) => {
+          if (Number.isFinite(a)) { if (a < minLat) minLat = a; if (a > maxLat) maxLat = a; }
+          if (Number.isFinite(o)) {
+            if (o > 180) o -= 360;      /* GRIB2 stores 0..360; we speak -180..180 */
+            if (o < minLon) minLon = o;
+            if (o > maxLon) maxLon = o;
+          }
+        };
+
+        if (curv) {
+          /* Curvilinear grids keep a lat/lon per cell, which refs_lats()/
+           * refs_lons() do not expose, so read cells directly. Only the
+           * boundary is walked: the projection is smooth, so the lat/lon
+           * extremes of a rectangular index region lie on its edges. That is
+           * 2*(nx+ny) cells instead of nx*ny -- 4k rather than ~1M for Stage IV. */
+          const cellLat = wasm.cwrap('wp_cell_lat', 'number', ['number', 'number', 'number']);
+          const cellLon = wasm.cwrap('wp_cell_lon', 'number', ['number', 'number', 'number']);
+          for (let ix = 0; ix < nx; ix++) {
+            see(cellLat(ds, 0, ix),      cellLon(ds, 0, ix));
+            see(cellLat(ds, ny - 1, ix), cellLon(ds, ny - 1, ix));
+          }
+          for (let iy = 0; iy < ny; iy++) {
+            see(cellLat(ds, iy, 0),      cellLon(ds, iy, 0));
+            see(cellLat(ds, iy, nx - 1), cellLon(ds, iy, nx - 1));
+          }
+        } else {
+          if (!latsPtr || !lonsPtr) continue;
+          const lats = new Float32Array(wasm.HEAPF32.buffer, latsPtr, ny);
+          const lons = new Float32Array(wasm.HEAPF32.buffer, lonsPtr, nx);
+          for (let i = 0; i < ny; i++) see(lats[i], undefined);
+          for (let i = 0; i < nx; i++) see(undefined, lons[i]);
+        }
+
+        if (!Number.isFinite(minLat) || !Number.isFinite(minLon) ||
+            !(maxLat > minLat) || !(maxLon > minLon)) continue;
+
+        return [minLon, minLat, maxLon, maxLat];
+      } catch (_) {
+        /* try the next variable rather than failing the whole scan */
+      } finally {
+        if (ds) { try { wasm.ccall('wp_close', null, ['number'], [ds]); } catch (_) {} }
+      }
+    }
+    return null;
+  }
+
   _extractGridCurvilinear(v, bbox, width, height, time, variable) {
     if (this._format !== 'grib2') return null;
     const wasm = this.wasm;
