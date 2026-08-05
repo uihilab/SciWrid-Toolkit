@@ -6,11 +6,11 @@
   "author": "Khoa Le <dle5@tulane.edu>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/uihilab/webparsers.git"
+    "url": "git+https://github.com/uihilab/SciWrid-Toolkit.git"
   },
-  "homepage": "https://github.com/uihilab/webparsers#readme",
+  "homepage": "https://github.com/uihilab/SciWrid-Toolkit#readme",
   "bugs": {
-    "url": "https://github.com/uihilab/webparsers/issues"
+    "url": "https://github.com/uihilab/SciWrid-Toolkit/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",

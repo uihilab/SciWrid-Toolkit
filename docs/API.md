@@ -92,7 +92,7 @@ internal — import only from the package root (`'sciwrid-toolkit'`).
 
 ```bash
 # from GitHub (until published to npm)
-npm install git+https://github.com/<org>/webparsers.git
+npm install git+https://github.com/uihilab/SciWrid-Toolkit.git
 ```
 
 ---

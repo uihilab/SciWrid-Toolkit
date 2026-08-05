@@ -7,7 +7,7 @@ JavaScript / TypeScript library for parsing meteorological and geospatial data f
 Until published to npm:
 
 ```bash
-npm install git+https://github.com/uihilab/webparsers.git
+npm install git+https://github.com/uihilab/SciWrid-Toolkit.git
 ```
 
 > You do **not** need Python or Emscripten to install, use, or bundle this
