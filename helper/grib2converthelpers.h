@@ -192,6 +192,11 @@ int     parse_sec3_polar(const uint8_t* sec, uint32_t sec_len,
                          grid_polar_t* g);
 int64_t parse_sec1_reftime(const uint8_t* sec, uint32_t sec_len);
 int64_t parse_sec4_forecast_offset(const uint8_t* sec, uint32_t sec_len);
+
+/* Absolute valid time for interval products (template 4.8): returns 1 and
+ * writes epoch seconds to *out, or 0 when the section carries no usable
+ * interval end and the caller should fall back to reftime + forecast offset. */
+int parse_sec4_interval_end(const uint8_t* sec, uint32_t sec_len, int64_t* out);
 int     parse_sec5(const uint8_t* sec, uint32_t sec_len, packing_t* pk);
 
 /* Section 6 bit-map. Returns 0 on success (bm populated), -1 on malformed input. */

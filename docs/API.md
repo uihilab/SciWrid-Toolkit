@@ -237,6 +237,22 @@ meta.times;
 meta.variables[0].times;
 ```
 
+**GRIB2 accumulation products are stamped at the END of their accumulation
+window.** Templates whose name ends "in a time interval" (product template 4.8 —
+accumulations, averages, extremes) carry an explicit *end of overall time
+interval*, and that is the valid time reported. Their forecast-time field marks
+the start of the window and is usually `0`.
+
+So NCEP Stage IV `st4_conus.2026080412.24h.grb2` reports
+`2026-08-04T12:00:00Z` — the end of its 24-hour window — matching how NCEP names
+and publishes the file, not the `2026-08-03T12:00:00Z` reference time. Hourly
+Stage IV behaves the same way, one hour later than its reference time.
+
+Instantaneous products (template 4.0) are unchanged: reference time plus
+forecast offset. Templates 4.9–4.14 are also interval products, but they place
+the interval-end field at different offsets and are not yet decoded, so they
+still report the reference time.
+
 Each time axis also carries convenience `start` / `end` (first and last
 timestamp), and `scan()` adds a file-level **`timeRange`** spanning the whole
 file — the earliest start and latest end across every axis:

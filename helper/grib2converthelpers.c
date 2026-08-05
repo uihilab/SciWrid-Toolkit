@@ -115,6 +115,69 @@ int64_t parse_sec4_forecast_offset(const uint8_t* sec, uint32_t sec_len) {
     return (int64_t)ft * mult;
 }
 
+/* Days-since-epoch arithmetic shared with parse_sec1_reftime. */
+static int64_t civil_to_epoch(int year, int month, int day,
+                              int hour, int min, int secs) {
+    static const int dpm[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+
+    int64_t days = 0;
+    for (int y = 1970; y < year; y++) {
+        int leap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
+        days += 365 + leap;
+    }
+    int leap_year = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    for (int m = 1; m < month; m++) {
+        days += dpm[m - 1];
+        if (m == 2) days += leap_year;
+    }
+    days += day - 1;
+
+    return days * 86400LL + hour * 3600LL + min * 60LL + secs;
+}
+
+/* =========================================================================
+ * Section 4 – "End of overall time interval" (product template 4.8)
+ *
+ * Templates whose name ends "in a time interval" carry an explicit end time.
+ * Their forecast-time field marks the START of the window and is normally 0,
+ * so treating them like template 4.0 stamps the data a whole window early --
+ * an hour for hourly Stage IV, a full day for the 24h product.
+ *
+ * Template 4.8 body (0-indexed from section start):
+ *   [7..8]   product definition template number
+ *   [34..35] year   [36] month   [37] day
+ *   [38]     hour   [39] minute  [40] second
+ *
+ * Only 4.8 is handled. Templates 4.9-4.14 are also interval products but put
+ * this field at different offsets, and guessing them would silently produce
+ * wrong timestamps -- precisely the failure this exists to fix. They keep the
+ * old behaviour until there is a real file to verify against.
+ *
+ * Returns 1 and writes the epoch seconds to *out when it applies, else 0.
+ * ======================================================================= */
+
+int parse_sec4_interval_end(const uint8_t* sec, uint32_t sec_len, int64_t* out) {
+    if (!out || sec_len < 41) return 0;
+    if (be16(sec + 7) != 8) return 0;          /* not template 4.8 */
+
+    int year  = (int)be16(sec + 34);
+    int month = sec[36];
+    int day   = sec[37];
+    int hour  = sec[38];
+    int min   = sec[39];
+    int secs  = sec[40];
+
+    /* A malformed or absent interval end must fall back rather than invent a
+     * date: a wrong timestamp is worse than the old one, being equally silent. */
+    if (year < 1970 || year > 3000)      return 0;
+    if (month < 1 || month > 12)         return 0;
+    if (day   < 1 || day   > 31)         return 0;
+    if (hour  > 23 || min > 59 || secs > 60) return 0;
+
+    *out = civil_to_epoch(year, month, day, hour, min, secs);
+    return 1;
+}
+
 /* =========================================================================
  * Section 3 – Grid Definition  (template 0 / 40 — regular lat/lon)
  *

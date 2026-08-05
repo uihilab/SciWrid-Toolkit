@@ -23,6 +23,24 @@
 #include "../tools/query_refs.h"
 #include "../core/util/base64.h"
 
+/* Valid time of one GRIB2 message.
+ *
+ * Accumulation / average / extreme products (template 4.8) carry an explicit
+ * "end of overall time interval"; their forecast-time field marks the START of
+ * the window and is normally 0. Adding it to the reference time -- the
+ * template 4.0 rule -- therefore stamped every such field a whole window early:
+ * one hour for hourly Stage IV, a full day for the 24h product.
+ *
+ * Falls back to reference time + forecast offset for everything else, which is
+ * still correct for instantaneous products. */
+static int64_t grib2_msg_valid_time(const uint8_t* data, const grib2_msg_t* m) {
+    int64_t end;
+    if (parse_sec4_interval_end(data + m->sec4_off, (uint32_t)m->sec4_len, &end))
+        return end;
+    return parse_sec1_reftime(data + m->sec1_off, (uint32_t)m->sec1_len)
+         + parse_sec4_forecast_offset(data + m->sec4_off, (uint32_t)m->sec4_len);
+}
+
 /* Portable strnlen (not in C99). */
 static size_t wp_strnlen(const char* s, size_t maxlen) {
     size_t i = 0;
@@ -264,7 +282,7 @@ char* wp_scan_messages_layout(const wp_scan_result_t* s) {
                 m->param_cat, m->param_num, name_esc,
                 gtmpl, m->data_template,
                 (long long)ref_time, (long long)fc_off,
-                (long long)(ref_time + fc_off),
+                (long long)grib2_msg_valid_time(s->grb_data, m),
                 supported ? "true" : "false",
                 (i + 1 < s->n_msgs) ? "," : "");
     }
@@ -419,8 +437,7 @@ refs_dataset_t* wp_grid_coords(wp_scan_result_t* s, int var_index) {
     if (!times) { free(sel); free(lats); free(lons); free(lat2d); free(lon2d); return NULL; }
     for (uint32_t t = 0; t < nt; t++) {
         grib2_msg_t* m = &msgs[sel[t]];
-        times[t] = parse_sec1_reftime(data + m->sec1_off, (uint32_t)m->sec1_len)
-                 + parse_sec4_forecast_offset(data + m->sec4_off, (uint32_t)m->sec4_len);
+        times[t] = grib2_msg_valid_time(data, m);
     }
     free(sel);
     const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
@@ -481,8 +498,7 @@ refs_dataset_t* wp_normalize_range(wp_scan_result_t* s, int var_index,
                     free(times); free(chunk); return NULL; }
         for (uint32_t t = 0; t < nt; t++) {
             grib2_msg_t* m = &msgs[sel[w0 + t]];
-            times[t] = parse_sec1_reftime(data + m->sec1_off, (uint32_t)m->sec1_len)
-                     + parse_sec4_forecast_offset(data + m->sec4_off, (uint32_t)m->sec4_len);
+            times[t] = grib2_msg_valid_time(data, m);
             if (grib2_decode_one_field(data, m, n_pts, chunk) != 0) {
                 free(out); free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
                 free(times); free(chunk); return NULL;
@@ -505,8 +521,7 @@ refs_dataset_t* wp_normalize_range(wp_scan_result_t* s, int var_index,
                      free(times); free(chunk); return NULL; }
     for (uint32_t t = 0; t < nt; t++) {
         grib2_msg_t* m = &msgs[sel[w0 + t]];
-        times[t] = parse_sec1_reftime(data + m->sec1_off, (uint32_t)m->sec1_len)
-                 + parse_sec4_forecast_offset(data + m->sec4_off, (uint32_t)m->sec4_len);
+        times[t] = grib2_msg_valid_time(data, m);
         if (grib2_decode_one_field(data, m, n_pts, chunk) != 0) {
             free(all_data); free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
             free(times); free(chunk); return NULL;
