@@ -1,0 +1,390 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SciWrid — HTTP Range fetch test</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.55 system-ui, sans-serif; margin: 0 auto; padding: 28px;
+         max-width: 940px; }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  .sub { color: #6b7280; margin: 0 0 22px; }
+  label { display: block; font-weight: 600; margin: 12px 0 6px; font-size: 13px; }
+  input { width: 100%; padding: 9px 11px; font: 13px ui-monospace, monospace;
+          border: 1px solid #c9ced6; border-radius: 6px; box-sizing: border-box;
+          background: #fff; color: #111; }
+  .grid3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+  .row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  button { padding: 8px 15px; font: 600 13px system-ui, sans-serif;
+           border: 1px solid #c9ced6; border-radius: 6px; background: #fff;
+           color: #111; cursor: pointer; }
+  button.go { background: #2563eb; border-color: #2563eb; color: #fff; }
+  button:disabled { opacity: .55; cursor: default; }
+  .presets { margin-top: 26px; }
+  .presets h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+                color: #6b7280; margin: 0 0 8px; }
+  .preset { display: block; width: 100%; text-align: left; margin-bottom: 6px;
+            font-weight: 600; }
+  .preset small { color: #6b7280; font-weight: 400; }
+  #out { margin-top: 26px; }
+  .step { border: 1px solid #e3e6ea; border-radius: 7px; padding: 12px 14px;
+          margin-bottom: 10px; }
+  .step h3 { margin: 0 0 7px; font-size: 13px; }
+  .ok { border-left: 4px solid #16a34a; }
+  .bad { border-left: 4px solid #dc2626; }
+  .warn { border-left: 4px solid #d97706; }
+  .run { border-left: 4px solid #9ca3af; }
+  pre { margin: 6px 0 0; font: 12px/1.45 ui-monospace, monospace;
+        white-space: pre-wrap; word-break: break-word; }
+  .verdict { margin-top: 18px; padding: 14px 16px; border-radius: 7px;
+             background: #f3f4f6; }
+  code { font: 12px ui-monospace, monospace; }
+  @media (prefers-color-scheme: dark) {
+    input, button { background: #1c1f24; color: #e6e8eb; border-color: #3a3f47; }
+    button.go { background: #2563eb; border-color: #2563eb; color: #fff; }
+    .step { border-color: #333840; }
+    .verdict { background: #1c1f24; }
+  }
+</style>
+
+<h1>SciWrid — HTTP Range fetch test</h1>
+<p class="sub">Can range-native extraction run <em>from a browser</em>? Paste a URL
+below. This runs the same steps the library does and reports exactly where it
+succeeds or fails, including how many bytes it actually moved.</p>
+
+<label for="url">File URL to fetch <span style="font-weight:400;color:#6b7280">— paste here</span></label>
+<input id="url" spellcheck="false"
+       placeholder="https://…  ← paste a URL to a .grib2 or .nc file">
+
+<label for="proxy">CORS proxy <span style="font-weight:400;color:#6b7280">— optional.
+  cors-anywhere style: end with <code>/</code> and the target is appended raw.
+  Use <code>{url}</code> only for proxies that want it percent-encoded.</span></label>
+<input id="proxy" spellcheck="false"
+       placeholder="e.g. https://hydroinformatics.tulane.edu/lab/cors/">
+
+<div class="grid3">
+  <div>
+    <label for="variable">Variable</label>
+    <input id="variable" spellcheck="false" placeholder="e.g. Temperature">
+  </div>
+  <div>
+    <label for="lat">Latitude</label>
+    <input id="lat" placeholder="29.82">
+  </div>
+  <div>
+    <label for="lon">Longitude</label>
+    <input id="lon" placeholder="-83.59">
+  </div>
+</div>
+
+<div class="row">
+  <button class="go" id="go">Run range test</button>
+  <button id="clear">Clear</button>
+</div>
+
+<div class="presets">
+  <h2>Verified public files</h2>
+  <div id="presetList"></div>
+</div>
+
+<div id="out"></div>
+
+<script type="module">
+// Import the SOURCE entry, not dist/index.js — the bundle hoists a top-level
+// `import ... from "node:fs"` that no browser can resolve.
+import { extract, detectFormat } from '../index.js';
+
+// Captured before anything can wrap it, so the byte meter always measures real
+// network calls and always restores a clean fetch.
+const NATIVE_FETCH = window.fetch.bind(window);
+
+// Every preset below was verified from Node first: the URL resolves, the server
+// returns 206 with Content-Range, and the variable name is one the library
+// actually reports for that file.
+const PRESETS = [
+  { name: 'NOAA HRRR — GRIB2, 139 MB  (best demo)',
+    note: 'From Node: 175 requests, 503 KB moved = 0.362% of the file, ~9 s.',
+    url: 'https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20230830/conus/hrrr.t12z.wrfsfcf00.grib2',
+    variable: 'Variable (cat=16, num=196)', lat: '29.82', lon: '-83.59' },
+
+  { name: 'NOAA GFS — GRIB2, 488 MB  (slow: ~70 s)',
+    note: 'From Node: 701 requests, 1.6 MB moved = 0.326%. Many messages to walk.',
+    url: 'https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.20230830/12/atmos/gfs.t12z.pgrb2.0p25.f000',
+    variable: 'Pressure reduced to MSL', lat: '29.82', lon: '-83.59' },
+
+  { name: 'NEXRAD on Google Cloud — negative control',
+    note: 'Serves ranges correctly but sends NO CORS header. Expect a block at step 1.',
+    url: 'https://storage.googleapis.com/gcp-public-data-nexrad-l2/2023/08/30/KTBW/NWS_NEXRAD_NXL2DPBL_KTBW_20230830120000_20230830125959.tar',
+    variable: '', lat: '29.82', lon: '-83.59' },
+];
+
+const $ = (id) => document.getElementById(id);
+const out = $('out');
+
+for (const p of PRESETS) {
+  const b = document.createElement('button');
+  b.className = 'preset';
+  b.innerHTML = `${p.name}<br><small>${p.note}</small>`;
+  b.onclick = () => {
+    $('url').value = p.url; $('variable').value = p.variable;
+    $('lat').value = p.lat; $('lon').value = p.lon;
+    run();
+  };
+  $('presetList').appendChild(b);
+}
+
+function step(title, cls, body) {
+  const d = document.createElement('div');
+  d.className = 'step ' + cls;
+  d.innerHTML = `<h3>${title}</h3><pre>${body}</pre>`;
+  out.appendChild(d);
+  return d;
+}
+const fmt = (n) => !Number.isFinite(n) ? String(n)
+  : n >= 1e6 ? (n / 1e6).toFixed(2) + ' MB'
+  : n >= 1e3 ? (n / 1e3).toFixed(1) + ' KB' : n + ' B';
+
+$('clear').onclick = () => { out.innerHTML = ''; };
+$('go').onclick = run;
+for (const id of ['url', 'variable', 'lat', 'lon'])
+  $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+
+/* A proxy only helps if it forwards the Range REQUEST header, returns 206, and
+   re-exposes Content-Range. Many CORS proxies do none of those: they swallow
+   Range, return 200 with the entire body, and turn a 500 KB read into a full
+   download routed through someone else's server. That is worse than the bug. */
+function proxied(url) {
+  const p = $('proxy').value.trim();
+  if (!p) return url;
+  return p.includes('{url}') ? p.replace('{url}', encodeURIComponent(url)) : p + url;
+}
+
+async function run() {
+  const raw = $('url').value.trim();
+  out.innerHTML = '';
+  if (!raw) { step('No URL', 'bad', 'Paste a URL above first.'); return; }
+  const url = proxied(raw);
+  if (url !== raw) {
+    step('0. Routing through a proxy', 'run',
+      `target:    ${raw}\n` +
+      `requested: ${url}\n\n` +
+      `Steps 1-3 now test THE PROXY, not the origin. A proxy passes only if it\n` +
+      `returns 206 AND re-exposes Content-Range. If step 1 shows 200 instead of\n` +
+      `206, it is swallowing the Range header and will stream the whole file.`);
+  }
+  $('go').disabled = true;
+  try { await diagnose(url); }
+  catch (e) { step('Unexpected error', 'bad', String((e && e.stack) || e)); }
+  finally { $('go').disabled = false; }
+}
+
+async function diagnose(url) {
+  /* 1 — CORS gate. A browser refuses to hand the response to JS unless the
+     server sends Access-Control-Allow-Origin. Node has no such rule, which is
+     why a URL can work from the CLI and fail here. */
+  let probe;
+  try {
+    probe = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+  } catch (e) {
+    step('1. Ranged GET — BLOCKED BY THE BROWSER', 'bad',
+      `fetch() threw before returning a response:\n  ${e}\n\n` +
+      `This is CORS. The server did not send Access-Control-Allow-Origin, so\n` +
+      `the browser refused to expose the response to this page. The bytes were\n` +
+      `very likely served — the browser just will not let JavaScript read them.\n\n` +
+      `Nothing below can run. The same URL will usually work from Node.`);
+    return verdict(false, null, 0, 'cors');
+  }
+  const is206 = probe.status === 206;
+  // A 200 to "bytes=0-0" means Range was ignored and the FULL body is coming.
+  const ignoredRange = probe.status === 200 && Number(probe.headers.get('content-length')) > 2;
+  step(`1. Ranged GET — HTTP ${probe.status}`,
+    is206 ? 'ok' : (ignoredRange ? 'bad' : 'warn'),
+    `Sent:   Range: bytes=0-0\n` +
+    `Status: ${probe.status} ${is206 ? '(206 Partial Content — ranges honoured)'
+                                     : '(expected 206)'}\n` +
+    (ignoredRange
+      ? `\nRANGE IGNORED. A one-byte request came back with ` +
+        `${fmt(Number(probe.headers.get('content-length')))} of body.\n` +
+        `This host streams the whole object no matter what is asked for, so\n` +
+        `range-native cannot work through it. If you are using a proxy, the\n` +
+        `proxy is the problem — every read will pull the entire file through it.`
+      : ''));
+
+  /* 2 — Header visibility. Only CORS-safelisted response headers are readable
+     unless the server sends Access-Control-Expose-Headers. Content-Length is
+     safelisted; Content-Range and Accept-Ranges are NOT. */
+  const cr = probe.headers.get('content-range');
+  const cl = probe.headers.get('content-length');
+  const ar = probe.headers.get('accept-ranges');
+  step('2. Which response headers can JavaScript read?', cr ? 'ok' : 'warn',
+    `content-range:  ${cr ?? '(hidden)'}\n` +
+    `content-length: ${cl ?? '(hidden)'}\n` +
+    `accept-ranges:  ${ar ?? '(hidden)'}\n` +
+    `all readable:   ${[...probe.headers.keys()].join(', ') || '(none)'}\n\n` +
+    (cr
+      ? 'Content-Range is exposed, so size discovery below will be correct.'
+      : 'Content-Range is HIDDEN. It arrived on the wire, but the server did\n' +
+        'not send  Access-Control-Expose-Headers: Content-Range,  so the\n' +
+        'browser strips it. This is the single biggest difference between\n' +
+        'Node and the browser on this code path.'));
+
+  /* 3 — Size discovery, reproducing GrbRangeReader.size() exactly, then the
+     HEAD-based alternative that would fix it. We need a trustworthy size
+     independently, or step 5's percentages are meaningless. */
+  const m = cr && /\/(\d+)\s*$/.exec(cr);
+  let size = null, how = 'no usable header';
+  if (m) { size = Number(m[1]); how = 'parsed from Content-Range'; }
+  else if (Number(cl) > 0) { size = Number(cl); how = 'fell back to Content-Length'; }
+  const bogus = size != null && size <= 2;
+
+  // The proposed client-side fix: HEAD returns the FULL Content-Length, and
+  // Content-Length is CORS-safelisted, so it survives where Content-Range does not.
+  let headSize = null, headNote;
+  try {
+    const h = await fetch(url, { method: 'HEAD' });
+    const hl = Number(h.headers.get('content-length'));
+    if (h.ok && Number.isFinite(hl) && hl > 0) { headSize = hl; headNote = `HEAD → ${h.status}`; }
+    else headNote = `HEAD → ${h.status}, no usable Content-Length`;
+  } catch (e) { headNote = 'HEAD blocked: ' + e; }
+
+  const trueSize = headSize ?? (bogus ? null : size);
+  step(`3. File size discovery → ${size == null ? 'FAILED' : fmt(size)}`,
+    size == null || bogus ? 'bad' : 'ok',
+    `What the library does:\n` +
+    `  method: ${how}\n` +
+    `  size:   ${size == null ? '(undeterminable)' : size + ' bytes'}\n\n` +
+    `The HEAD-based alternative:\n` +
+    `  ${headNote}\n` +
+    `  size:   ${headSize == null ? '(unavailable)' : headSize + ' bytes  ← the real size'}\n\n` +
+    (bogus
+      ? `THIS IS THE BUG, and it is browser-only.\n\n` +
+        `Content-Range was hidden, so the reader fell back to Content-Length —\n` +
+        `but on a "bytes=0-0" probe that is the length of the ONE byte returned,\n` +
+        `not the file. The reader believes this ${size}-byte file is complete and\n` +
+        `clamps every later read to it.\n\n` +
+        (headSize
+          ? `Note that HEAD recovered the true size (${fmt(headSize)}). That is the\n` +
+            `client-side fix, and it needs no cooperation from the server.`
+          : `HEAD did not help here, so this one needs the server to expose\n` +
+            `Content-Range.`)
+      : size == null
+        ? 'Neither header was usable, so the file cannot be sized.'
+        : 'Size discovery is sound — the reader can seek inside this file.'));
+
+  /* 4 — Format sniff. Range-native by design: a handful of bytes. */
+  let bytes = 0, reqs = 0;
+  // Always wrap and restore NATIVE_FETCH, never window.fetch: capturing
+  // window.fetch here would re-wrap a wrapper left behind by an earlier run and
+  // count every request twice over, which is how a 139 MB read once reported
+  // itself as 76 GB.
+  const meter = () => {
+    bytes = 0; reqs = 0;
+    window.fetch = async (...a) => {
+      const r = await NATIVE_FETCH(...a); reqs++;
+      // A HEAD reports the FULL Content-Length but transfers no body. Size
+      // discovery issues one per file, so counting it would turn a 0.4% read
+      // into a 100.4% one.
+      const method = String((a[1] && a[1].method) || 'GET').toUpperCase();
+      if (method !== 'HEAD') {
+        const n = Number(r.headers.get('content-length'));
+        if (Number.isFinite(n)) bytes += n;
+      }
+      return r;
+    };
+  };
+  const unmeter = () => { window.fetch = NATIVE_FETCH; };
+
+  meter();
+  let format = null;
+  try { format = await detectFormat(url); }
+  catch (e) { format = 'ERROR: ' + e.message; }
+  unmeter();
+  step(`4. detectFormat() → ${format}`, 'ok',
+    `Moved ${fmt(bytes)} in ${reqs} request(s) to identify the format.`);
+
+  /* 5 — The real range-native path. It lives inside extract() as a fast path
+     and needs variable + lat + lon on an http(s) URL; scan() does NOT use it
+     and will pull the whole object. */
+  const variable = $('variable').value.trim();
+  const lat = parseFloat($('lat').value), lon = parseFloat($('lon').value);
+  if (!variable || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+    step('5. extract() — skipped', 'warn',
+      'Range-native extraction is a fast path inside extract() and needs a\n' +
+      'variable, a latitude and a longitude. Fill those in and run again.\n\n' +
+      'Note: scan() does NOT take this path — it downloads the whole file.');
+    return verdict(false, size, bytes, 'incomplete');
+  }
+
+  const d = step('5. extract() — range-native point query', 'run', 'running…');
+  meter();
+  const t0 = performance.now();
+  try {
+    const res = await extract(url, { variable, lat, lon });
+    const ms = (performance.now() - t0).toFixed(0);
+    const first = res && res.timeseries && res.timeseries[0];
+
+    // A correct ANSWER does not mean the range path ran. tryGrib2RangePoint
+    // swallows every error and returns null, and extract() then quietly takes
+    // the whole-file path. The only way to tell the two apart is the byte count.
+    const pctNum = trueSize ? (100 * bytes / trueSize) : null;
+    const fellBack = trueSize != null && bytes > 0.5 * trueSize;
+    d.className = 'step ' + (fellBack ? 'bad' : 'ok');
+    d.innerHTML = `<h3>5. extract() — ${fellBack
+        ? 'CORRECT ANSWER, BUT NOT RANGE-NATIVE' : 'SUCCESS'}</h3><pre>` +
+      `variable:    ${variable}\n` +
+      `at:          ${lat}, ${lon}\n` +
+      `value:       ${first ? `${first.value}  @ ${first.time}` : JSON.stringify(res).slice(0, 120)}\n` +
+      `requests:    ${reqs}\n` +
+      `transferred: ${fmt(bytes)}${trueSize ? ' of ' + fmt(trueSize) : ''}` +
+      `${pctNum != null ? `  (${pctNum.toFixed(2)}% of the file)` : ''}\n` +
+      `elapsed:     ${ms} ms` +
+      (fellBack
+        ? `\n\nThe value is right, but the whole object was downloaded to get it.\n` +
+          `Range-native threw on the 1-byte size from step 3; that error is\n` +
+          `swallowed by  catch (_) { return null; }  in tryGrib2RangePoint, and\n` +
+          `extract() fell through to the whole-file path without saying so.\n\n` +
+          `This is the real defect: not a wrong answer, but a silent ${fmt(trueSize)}\n` +
+          `download in a library whose entire premise is not doing that.`
+        : '') + `</pre>`;
+    verdict(!fellBack, trueSize, bytes, fellBack ? 'fellback' : 'ok');
+  } catch (e) {
+    d.className = 'step bad';
+    d.innerHTML = `<h3>5. extract() — FAILED</h3><pre>` +
+      `${String((e && e.message) || e)}\n\n` +
+      `requests:    ${reqs}\ntransferred: ${fmt(bytes)}</pre>`;
+    verdict(false, trueSize, bytes, 'extract');
+  } finally {
+    unmeter();
+  }
+}
+
+function verdict(ok, size, bytes, why) {
+  const v = document.createElement('div');
+  v.className = 'verdict';
+  if (ok) {
+    const pct = size ? ((100 * bytes / size).toFixed(2) + '%') : 'a small fraction';
+    v.innerHTML = `<strong>Range-native works in this browser.</strong> The library
+      answered a point query by moving ${fmt(bytes)}${size ? ' of ' + fmt(size) : ''}
+      — ${pct} of the object. It never downloaded the whole file.`;
+  } else if (why === 'fellback') {
+    v.innerHTML = `<strong>Range-native is silently broken in this browser.</strong>
+      The answer returned is correct, so nothing looks wrong — but the library
+      moved ${fmt(bytes)}${size ? ' of ' + fmt(size) : ''}, i.e. the whole object.
+      The CORS-hidden <code>Content-Range</code> made size discovery return 1 byte,
+      the range reader threw, and <code>tryGrib2RangePoint</code> swallowed the
+      error and fell back to a full download. A silent full download is worse
+      than a loud failure: nothing in the API tells the caller it happened.`;
+  } else if (why === 'cors') {
+    v.innerHTML = `<strong>Blocked by CORS, not by the library.</strong> This host
+      does not permit cross-origin reads. Either use a host that sends
+      <code>Access-Control-Allow-Origin</code>, or proxy the request.`;
+  } else if (why === 'incomplete') {
+    v.innerHTML = `<strong>Diagnostics only.</strong> Steps 1–4 ran; fill in
+      variable, latitude and longitude to exercise the actual range path.`;
+  } else {
+    v.innerHTML = `<strong>Range-native did not complete in the browser.</strong>
+      Check step 3 first: if the discovered size is 1 byte, the cause is the
+      hidden <code>Content-Range</code> header, not WASM and not decoding. The
+      same URL will usually work from Node.`;
+  }
+  out.appendChild(v);
+}
+</script>
