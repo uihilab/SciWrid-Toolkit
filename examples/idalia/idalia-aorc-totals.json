@@ -1,0 +1,14 @@
+{
+  "product": "NOAA AORC",
+  "format": "zarr",
+  "variable": "APCP_surface",
+  "coarsenFactor": 4,
+  "totals": {
+    "Big Bend FL": 72.3,
+    "Tampa": 79.4,
+    "Cedar Key FL": 35.9,
+    "Valdosta GA": 190.8,
+    "Savannah GA": 51.3,
+    "Charleston SC": 71.8
+  }
+}

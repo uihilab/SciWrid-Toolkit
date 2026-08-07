@@ -4,13 +4,30 @@ node_modules/
 # VS Code
 .vscode/
 
-# Claude Code / agent harness footprint — never commit
+# Local editor / tooling directories
 .claude/
+.codex/
+
+# Throwaway browser profiles, created when a demo is launched with
+# --user-data-dir (Chromium/Edge/Chrome/Brave) or -profile (Firefox)
+# pointing inside the repo. Hundreds of MB of cache — never commit.
+.verify-*/
+.*-profile/
+.*-user-data/
 
 # Build artifacts
 *.exe
 *.o
 *.obj
+
+# Built npm package (produced by `npm run build`) IS committed on purpose:
+# `package.json` points main/module/types at dist/, and `files` ships only
+# dist/. Committing it means `npm install git+https://github.com/uihilab/
+# SciWrid-Toolkit.git` works from a clean clone with no build step for the
+# consumer.
+#
+# The tradeoff: dist/ can drift from source. Re-run `npm run build` and stage
+# dist/ as part of any change to index.js, lib/, worker/, or wasm/.
 
 # Normalized data output
 data/*.refs.json
@@ -18,5 +35,24 @@ data/*.bin
 data/*.json
 data/*_query.json
 
-# Large example/test data
+# Large example/test data.
+#
+# The four gfs.t06z.* forecast parts ARE committed on purpose: each is ~40 MB,
+# comfortably under GitHub's 100 MiB per-file limit, and the map demo fetches
+# and concatenates them in the browser. That keeps the "GFS forecast" button
+# working from a clean clone with no setup.
+#
+# The combined gfs_timeseries.grb2 is NOT committed: at 164 MiB it exceeds
+# GitHub's hard limit and would be rejected on push. Only the test harness
+# reads it, and it is rebuilt locally with the cat command in method.txt.
 examples/timeseries/*.grb2
+
+# Internal manual QA checklist — not for published repo
+examples/CHECKLIST.md
+
+# Test harness — kept on disk, out of git. .testkit/ sits at the same depth as
+# scripts/ so every '../lib' import and resolve(root, …) inside it still works.
+# examples/testfile holds the fixtures those tests read, so it stays in place.
+# NOTE: `npm test` therefore does NOT run from a fresh clone; see CONTRIBUTING.
+.testkit/
+examples/testfile/
