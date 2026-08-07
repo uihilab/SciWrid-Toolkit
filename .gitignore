@@ -23,7 +23,8 @@ node_modules/
 # Built npm package (produced by `npm run build`) IS committed on purpose:
 # `package.json` points main/module/types at dist/, and `files` ships only
 # dist/. Committing it means `npm install git+https://github.com/uihilab/
-# webparsers.git` works from a clean clone with no build step for the consumer.
+# SciWrid-Toolkit.git` works from a clean clone with no build step for the
+# consumer.
 #
 # The tradeoff: dist/ can drift from source. Re-run `npm run build` and stage
 # dist/ as part of any change to index.js, lib/, worker/, or wasm/.

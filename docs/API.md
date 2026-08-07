@@ -59,7 +59,7 @@ Reusing one loaded file for many queries? ............ SciWridToolkit (class) �
 Every reader produces the **same** `scan` / `extract` / `extractGrid` shapes
 regardless of format, so once you've chosen a pathway it works identically for
 GRIB2, NetCDF3/4, Zarr, and TIFF/COG. For the *internals* of how each format is
-decoded, see the decode-logic docs under `docs/webparsers/logic/`.
+decoded, read the reader sources under `lib/`.
 
 ---
 
@@ -172,8 +172,9 @@ Format-specific fields in the result:
 | Format      | Extra fields on `ScanResult`                                         |
 | ----------- | -------------------------------------------------------------------- |
 | GRIB2       | `grid_templates[]`, `data_templates[]`, `bbox`                       |
-| NetCDF3/4   | `shapes[]`, `units[]`, `bbox`                                        |
-| Zarr v2     | `shapes[]`, `dtypes[]`, `compressors[]`, `bbox`                      |
+| NetCDF4     | `shapes[]`, `units[]`, `bbox`                                        |
+| NetCDF3     | `shapes[]`, `units[]` — no `bbox` yet                                |
+| Zarr v2/v3  | `shapes[]`, `dtypes[]`, `compressors[]`, `bbox`                      |
 | Parquet     | `gridTypes[]`, `bbox`                                                |
 
 ### `meta.bbox` — where the data actually is
@@ -200,8 +201,17 @@ const [w, s, e, n] = meta.bbox;
 L.imageOverlay(pngUrl, [[s, w], [n, e]]).addTo(map);
 ```
 
-`bbox` is `undefined` when the extent cannot be derived — a grid template whose coordinates
-we do not build, or a store with only synthetic axes. Treat it as optional.
+`bbox` is `undefined` when the extent cannot be derived. Treat it as optional. Known cases:
+
+| Case                                   | Why                                                          |
+| -------------------------------------- | ------------------------------------------------------------ |
+| NetCDF3                                | The extent is not derived for NetCDF3 yet — NetCDF4 is.        |
+| GRIB2 template 101 (unstructured/ICON) | Cell coordinates live in an external grid file, not the GRIB2. |
+| GRIB2 templates other than 0/20/30/40  | Coordinates are not built for them.                            |
+| Zarr with synthetic axes               | No real lat/lon coordinate arrays in the store.                |
+
+All formats derive `bbox` through one entry point (`_geoBboxFor`), which dispatches on the
+detected format. Adding a format means adding one `case`, not another attach site.
 
 Each variable in `variables[]` also carries format-specific fields:
 

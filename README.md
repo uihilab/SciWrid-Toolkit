@@ -35,6 +35,12 @@ import { scan, extract, extractGrid, gridToGeoTIFF, gridToImageData, trim } from
 const meta = await scan(file);          // file: Uint8Array | Blob | File | URL | string
 console.log(meta.format, meta.variables.map(v => v.name));
 
+// 1b. Where on Earth the file's grid actually is — use this instead of
+//     assuming an extent. [minLon, minLat, maxLon, maxLat] for every format
+//     (Leaflet wants lat first: [[bbox[1], bbox[0]], [bbox[3], bbox[2]]]).
+//     Optional: absent when the coordinates can't be derived, so check it.
+if (meta.bbox) console.log('extent', meta.bbox);
+
 // 2. Point extract
 const point = await extract(file, {
   variable: 'TMP', lat: 40.7, lon: -74.0, t1: 0, t2: 0,
@@ -61,8 +67,9 @@ const tiff = gridToGeoTIFF(grid);    // Uint8Array
 const img = gridToImageData(grid, { ramp: 'viridis' });   // { width, height, data }
 const canvas = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
 canvas.getContext('2d').putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
+const [w, s, e, n] = grid.bbox;   // the grid carries back the bbox it was cut to
 map.addSource('data', { type: 'image', url: canvas.toDataURL('image/png'),
-  coordinates: [[bbox[0], bbox[3]], [bbox[2], bbox[3]], [bbox[2], bbox[1]], [bbox[0], bbox[1]]] });
+  coordinates: [[w, n], [e, n], [e, s], [w, s]] });
 map.addLayer({ id: 'data', type: 'raster', source: 'data' });
 // Need a PNG instead (server-side, <img> src)? `await gridToPNG(grid, { ramp })`.
 // Full drop-a-file MapLibre demo: examples/map-demo.html (npm run demo:web)
@@ -175,19 +182,22 @@ The `demo:web` server hosts several pages:
 ## Current state
 
 ### ✅ Working
-- **GRIB2** — grid templates 0, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → `NaN`).
+- **GRIB2** — grid templates 0, 20, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → `NaN`).
 - **NetCDF3 Classic** — full CF coordinate support.
 - **NetCDF4 / HDF5** — via lazy-loaded `h5wasm`.
 - **Zarr v2 (zip)** — compressors `null`, `gzip`, `zlib`, `blosc`, `zstd`, `lz4`.
 - **TIFF / GeoTIFF** — UInt8/16, Int16, Float32; LZW + Deflate; horizontal + floating-point predictors; WGS84 / UTM / sinusoidal; strip + tile; **COG over HTTP Range**.
 - **Point + bbox extraction** — `extract`, `extractGrid` (parallel workers, abortable, progress).
+- **Geographic extent** — `scan()` reports `meta.bbox` for GRIB2, NetCDF4/HDF5, Zarr, Parquet and TIFF, so a map can place the grid without guessing. Projected grids (polar stereographic, Lambert) report the envelope of their real lat/lon, not a four-corner box.
 - **CF time axis** — decode timesteps; select a timestep by `date` (nearest match); `timeRange` / per-axis start–end exposed by `scan`.
 - **Output** — `gridToGeoTIFF`, `gridToJSON`, `gridToImageData` / `gridToPNG` (viridis / plasma / grayscale / RdBu ramps).
 - **`trim()`** — in-place file trimming across GRIB2 / NetCDF3 / NetCDF4 / Zarr.
 
 ### ⚠️ Not yet supported
 - Zarr filters (`fixedscaleoffset`, `delta`, …).
-- Zarr v3.
+- Zarr v3 — reads fine, but `trim()` refuses it.
+- `meta.bbox` for NetCDF3 (every other format reports one) and for GRIB2 grid templates outside 0 / 20 / 30 / 40.
+- GRIB2 interval products: only template 4.8 is stamped at the interval end; 4.9–4.14 still report the reference time.
 
 ## Roadmap
 
