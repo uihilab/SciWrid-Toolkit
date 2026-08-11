@@ -2,29 +2,271 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>webparsers - Library Usage Example</title>
+  <title>SciWrid Toolkit - Library Usage Example</title>
   <style>
-    body { font-family: monospace; margin: 2rem; background: #1a1a2e; color: #e0e0e0; max-width: 1000px; }
-    h1, h2 { color: #00d4ff; }
-    .section { margin: 1rem 0; padding: 1rem; background: #16213e; border-radius: 8px; }
-    button { padding: 8px 16px; margin: 4px; background: #0f3460; color: white;
-             border: 1px solid #00d4ff; border-radius: 4px; cursor: pointer; }
-    button:hover { background: #00d4ff; color: #1a1a2e; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-    pre { background: #0f0f23; padding: 1rem; border-radius: 4px; overflow-x: auto;
-          max-height: 400px; overflow-y: auto; font-size: 12px; }
-    input[type="number"] { padding: 6px; margin: 4px; background: #0f3460; color: white;
-            border: 1px solid #444; border-radius: 4px; width: 120px; }
-    .label { color: #00d4ff; font-weight: bold; }
-    .success { color: #44ff44; }
-    .error { color: #ff4444; }
-    .warn { color: #ffaa00; }
-    code { background: #0f0f23; padding: 2px 6px; border-radius: 3px; color: #ffaa00; }
+    :root {
+      --radius: 0.625rem;
+      --background: oklch(0.992 0.004 240);
+      --foreground: oklch(0.21 0.03 252);
+      --card: oklch(1 0.002 240);
+      --card-foreground: oklch(0.21 0.03 252);
+      --primary: oklch(0.28 0.04 252);
+      --primary-foreground: oklch(0.99 0.005 240);
+      --secondary: oklch(0.96 0.01 240);
+      --secondary-foreground: oklch(0.28 0.04 252);
+      --muted: oklch(0.965 0.008 240);
+      --muted-foreground: oklch(0.52 0.03 248);
+      --accent: oklch(0.95 0.02 242);
+      --accent-foreground: oklch(0.28 0.04 252);
+      --brand: oklch(0.55 0.16 245);
+      --brand-foreground: oklch(0.99 0.005 240);
+      --border: oklch(0.91 0.012 245);
+      --input: oklch(0.86 0.014 245);
+      --ring: oklch(0.55 0.16 245);
+      --success: oklch(0.6 0.13 165);
+      --warn: oklch(0.68 0.15 70);
+      --destructive: oklch(0.637 0.237 25.331);
+      --shadow-tint: oklch(0.45 0.05 250 / 0.10);
+      --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, "Cascadia Code", "Consolas", "Courier New", monospace;
+    }
+    .dark {
+      --background: oklch(0.17 0.022 250);
+      --foreground: oklch(0.97 0.006 240);
+      --card: oklch(0.205 0.025 252);
+      --card-foreground: oklch(0.97 0.006 240);
+      --primary: oklch(0.97 0.006 240);
+      --primary-foreground: oklch(0.21 0.03 252);
+      --secondary: oklch(0.27 0.03 252);
+      --secondary-foreground: oklch(0.97 0.006 240);
+      --muted: oklch(0.24 0.025 252);
+      --muted-foreground: oklch(0.69 0.025 245);
+      --accent: oklch(0.29 0.04 250);
+      --accent-foreground: oklch(0.97 0.006 240);
+      --brand: oklch(0.70 0.13 240);
+      --brand-foreground: oklch(0.17 0.022 250);
+      --border: oklch(0.30 0.03 252);
+      --input: oklch(0.30 0.03 252);
+      --ring: oklch(0.70 0.13 240);
+      --success: oklch(0.72 0.15 165);
+      --warn: oklch(0.78 0.15 75);
+      --destructive: oklch(0.396 0.141 25.723);
+      --shadow-tint: oklch(0 0 0 / 0.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-sans);
+      margin: 0;
+      background-color: var(--background);
+      background-image:
+        radial-gradient(1100px 480px at 8% -10%, oklch(from var(--brand) l c h / 0.10), transparent 55%),
+        radial-gradient(900px 420px at 100% 0%, oklch(from var(--brand) l c h / 0.06), transparent 60%);
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+      color: var(--foreground);
+      line-height: 1.5;
+    }
+
+    h1, h2 { color: var(--foreground); margin: 0 0 .5rem; font-weight: 600; letter-spacing: -0.022em; }
+    h1 { font-size: clamp(1.55rem, 1.25rem + 1.2vw, 1.9rem); line-height: 1.1; }
+
+    a { color: inherit; text-decoration: none; }
+
+    .site-header {
+      position: sticky; top: 0; z-index: 20;
+      background: oklch(from var(--background) l c h / 0.92);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+    }
+    .site-header-inner {
+      width: min(1000px, calc(100% - 2rem));
+      margin: 0 auto; min-height: 64px;
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    }
+    .brand { display: inline-flex; align-items: center; gap: .75rem; min-width: max-content; }
+    .brand-mark {
+      width: 32px; height: 32px;
+      display: inline-grid; place-items: center;
+      background: var(--brand); color: var(--brand-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 12px; font-weight: 700;
+      box-shadow: 0 2px 8px oklch(from var(--brand) l c h / 0.35);
+    }
+    .brand strong { display: block; font-size: 14px; line-height: 1.1; }
+    .brand span:last-child span { display: block; color: var(--muted-foreground); font-size: 11px; line-height: 1.2; }
+
+    .site-nav { display: flex; align-items: center; gap: .25rem; margin-left: auto; }
+    .site-nav a {
+      padding: 6px 10px; color: var(--muted-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 13px; font-weight: 500; white-space: nowrap;
+    }
+    .site-nav a:hover, .site-nav a:focus-visible { background: var(--accent); color: var(--accent-foreground); outline: none; }
+
+    #theme-toggle {
+      padding: 6px 10px; min-width: 36px;
+      background: transparent; color: var(--muted-foreground);
+      border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+      cursor: pointer; opacity: .85; font-size: 14px;
+    }
+    #theme-toggle:hover { opacity: 1; background: var(--accent); }
+
+    /* Lab attribution. Parked past the nav controls in the far-right corner so it
+       reads as provenance, not as a second brand competing with the SW mark. */
+    .hilab {
+      display: inline-flex; align-items: center; flex: 0 0 auto;
+      margin-left: .4rem; padding-left: .8rem;
+      border-left: 1px solid var(--border);
+    }
+    .hilab img { display: block; height: 24px; width: auto; }
+
+    .page { width: min(1000px, calc(100% - 2rem)); margin: 0 auto; padding: 1.5rem 0 3rem; }
+
+    .hero {
+      position: relative; isolation: isolate; overflow: hidden;
+      margin: 1.1rem 0 .25rem;
+      padding: clamp(1.4rem, 1rem + 2.5vw, 2.4rem) clamp(1.1rem, .6rem + 2vw, 2rem);
+      border: 1px solid var(--border); border-radius: calc(var(--radius) + 4px);
+      background: linear-gradient(180deg, oklch(from var(--brand) l c h / 0.06), transparent 45%), var(--card);
+      box-shadow: 0 1px 2px var(--shadow-tint), 0 24px 50px -40px var(--shadow-tint);
+    }
+    .hero-bg {
+      position: absolute; inset: 0; z-index: -1;
+      pointer-events: none; overflow: hidden; opacity: .5;
+      -webkit-mask-image: linear-gradient(100deg, transparent 0%, #000 48%);
+              mask-image: linear-gradient(100deg, transparent 0%, #000 48%);
+    }
+    .hero-bg svg { position: absolute; top: 50%; left: 0; width: 140%; height: 180%; transform: translateY(-50%); }
+    .hero-bg path { fill: none; stroke: var(--brand); stroke-width: 1.1; }
+    .hero-bg .flow { animation: drift 26s linear infinite; }
+    @keyframes drift { from { transform: translateX(0); } to { transform: translateX(-90px); } }
+    @media (prefers-reduced-motion: reduce) { .hero-bg .flow { animation: none; } }
+    .hero p { max-width: 720px; margin: .5rem 0 0; color: var(--muted-foreground); }
+    .kicker {
+      color: var(--brand); font-size: 12px; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase; margin: 0 0 .5rem;
+      display: inline-flex; align-items: center; gap: .5rem;
+    }
+    .kicker::before { content: ""; width: 18px; height: 2px; border-radius: 2px; background: var(--brand); }
+
+    .section {
+      margin: 1.25rem 0; padding: 1.25rem 1.5rem 1.5rem;
+      background: var(--card); color: var(--card-foreground);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: 0 1px 2px var(--shadow-tint), 0 12px 30px -18px var(--shadow-tint);
+    }
+
+    button {
+      padding: 8px 16px; margin: 4px 4px 4px 0;
+      background: var(--primary); color: var(--primary-foreground);
+      border: 1px solid transparent; border-radius: calc(var(--radius) - 2px);
+      cursor: pointer; font-family: var(--font-sans); font-size: 13px; font-weight: 500;
+      transition: opacity .15s ease, transform .1s ease;
+    }
+    button:hover:not(:disabled) { opacity: .9; }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    label { font-family: var(--font-sans); font-size: 13px; }
+
+    input[type="number"], select {
+      padding: 6px 8px; margin: 4px;
+      background: var(--background); color: var(--foreground);
+      border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px);
+      font-size: 13px; font-family: var(--font-sans);
+    }
+    input[type="number"] { width: 120px; }
+    input[type="number"]:focus-visible, select:focus-visible {
+      outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--ring);
+    }
+    input[type=file] {
+      padding: 6px; background: var(--background); color: var(--foreground);
+      border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px); font-size: 13px;
+    }
+    input[type=file]::file-selector-button {
+      margin-right: 10px; padding: 6px 12px;
+      background: var(--secondary); color: var(--secondary-foreground);
+      border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+      cursor: pointer; font-family: var(--font-sans); font-size: 13px;
+    }
+
+    pre {
+      background: var(--muted); color: var(--foreground);
+      border: 1px solid var(--border);
+      padding: 1rem; border-radius: calc(var(--radius) - 2px);
+      overflow: auto; max-height: 400px;
+      font-family: var(--font-mono); font-size: 12px; line-height: 1.5; margin: 0;
+    }
+
+    code {
+      background: var(--muted); color: var(--foreground);
+      font-family: var(--font-mono); font-size: 12px;
+      padding: 2px 6px; border-radius: 4px;
+    }
+
+    .label { color: var(--foreground); font-weight: 600; }
+    .success { color: var(--success); }
+    .error { color: var(--destructive); }
+    .warn { color: var(--warn); }
   </style>
+  <script>
+    /* Apply the saved/system theme before first paint to avoid a flash.
+       Shares the 'apidemo-theme' key with the other example pages. */
+    (function () {
+      var stored = localStorage.getItem('apidemo-theme');
+      var dark = stored ? stored === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.classList.toggle('dark', dark);
+    })();
+  </script>
 </head>
 <body>
-  <h1>webparsers — Library Usage</h1>
-  <p>This example demonstrates importing <code>webparsers</code> as a library and using its public API.</p>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">SW</span>
+        <span>
+          <strong>SciWrid Toolkit</strong>
+          <span>Library usage</span>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="index.html">← Examples</a>
+        <a href="api-demo.html">API demo</a>
+        <a href="map-demo.html">Map demo</a>
+        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
+        <span class="hilab">
+          <img src="/assets/logo-hilab-mini.png" alt="HiLab" width="662" height="283">
+        </span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div class="hero-bg" aria-hidden="true">
+        <svg viewBox="0 0 960 280" preserveAspectRatio="none">
+          <g class="flow">
+            <path d="M-60 26 C70 6,170 46,300 26 C430 6,530 46,660 26 C790 6,890 46,1020 26" stroke-opacity="0.85"/>
+            <path d="M-60 70 C70 50,170 90,300 70 C430 50,530 90,660 70 C790 50,890 90,1020 70" stroke-opacity="0.55"/>
+            <path d="M-60 114 C70 94,170 134,300 114 C430 94,530 134,660 114 C790 94,890 134,1020 114" stroke-opacity="0.8"/>
+            <path d="M-60 158 C70 138,170 178,300 158 C430 138,530 178,660 158 C790 138,890 178,1020 158" stroke-opacity="0.5"/>
+            <path d="M-60 202 C70 182,170 222,300 202 C430 182,530 222,660 202 C790 182,890 222,1020 202" stroke-opacity="0.7"/>
+            <path d="M-60 246 C70 226,170 266,300 246 C430 226,530 266,660 246 C790 226,890 266,1020 246" stroke-opacity="0.45"/>
+          </g>
+        </svg>
+      </div>
+      <p class="kicker">Class API</p>
+      <h1>SciWrid Toolkit — library usage</h1>
+      <p>
+        Importing <code>SciWrid Toolkit</code> as a library and driving its class-based
+        public API: load a file once, then reuse the instance across metadata and
+        extract calls.
+      </p>
+    </section>
 
   <!-- Step 1: Load -->
   <div class="section">
@@ -48,10 +290,9 @@
   <div class="section">
     <span class="label">3. Extract</span><br><br>
     <code>lib.extract({ variable, lat, lon, type })</code><br><br>
-    <label>Variables: <span style="color:#888; font-size:11px;">(Ctrl/Cmd+click for multiple, or none = all)</span><br>
+    <label>Variables: <span class="muted" style="font-size:11px; color:var(--muted-foreground);">(Ctrl/Cmd+click for multiple, or none = all)</span><br>
       <select id="ex-var-select" multiple
-              style="width:280px; height:100px; padding:4px; background:#0f3460;
-                     color:white; border:1px solid #444; border-radius:4px; margin-top:4px;">
+              style="width:280px; height:100px; margin-top:4px;">
       </select>
     </label>
     <br><br>
@@ -59,7 +300,7 @@
     <label>Lon: <input type="number" id="ex-lon" step="0.1" value="-74.0"></label>
     <label>T1 (start step): <input type="number" id="ex-t1" min="0" value="0" style="width:80px;"></label>
     <label>T2 (end step): <input type="number" id="ex-t2" min="0" placeholder="last" style="width:80px;"></label>
-    <br><span style="color:#888; font-size:11px;">T1/T2 are time step indices (0-based). Leave T2 blank for all steps up to the end.</span><br><br>
+    <br><span style="color:var(--muted-foreground); font-size:11px;">T1/T2 are time step indices (0-based). Leave T2 blank for all steps up to the end.</span><br><br>
     <button id="btn-ex-json">Extract → JSON</button>
     <button id="btn-ex-csv">Extract → CSV</button>
     <button id="btn-ex-geo">Extract → GeoJSON</button>
@@ -74,16 +315,36 @@
     <span id="close-status"></span>
   </div>
 
+  </main>
+
+  <!-- Theme toggle — touches only the .dark class + localStorage. -->
+  <script>
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      function sync() {
+        var dark = document.documentElement.classList.contains('dark');
+        btn.textContent = dark ? '☀' : '◐';
+        btn.setAttribute('aria-pressed', String(dark));
+      }
+      btn.addEventListener('click', function () {
+        var dark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('apidemo-theme', dark ? 'dark' : 'light');
+        sync();
+      });
+      sync();
+    })();
+  </script>
+
   <!-- Load WASM (the Emscripten-generated loader) -->
-  <script src="../wasm/webparsers.js"></script>
+  <script src="../wasm/sciwrid.js"></script>
 
   <!-- Use the library as an ES module -->
   <script type="module">
-    import { webparsers } from '../lib/webparsers-lib.js';
+    import { SciWridToolkit } from '../lib/sciwrid-lib.js';
 
     // === This is the public library API ===
-    // Pass WebParsers factory explicitly — avoids global lookup issues
-    const lib = new webparsers({ wasmFactory: WebParsers });
+    // Pass SciWridToolkit factory explicitly — avoids global lookup issues
+    const lib = new SciWridToolkit({ wasmFactory: SciWridToolkit });
 
     document.getElementById('btn-load').addEventListener('click', async () => {
       const file = document.getElementById('grb-file').files[0];
@@ -91,12 +352,12 @@
       const status = document.getElementById('load-status');
       status.innerHTML = '<span class="warn">Loading...</span>';
       try {
-        console.log('[webparsers] Reading file:', file.name, `(${(file.size / 1024).toFixed(1)} KB)`);
+        console.log('[sciwrid] Reading file:', file.name, `(${(file.size / 1024).toFixed(1)} KB)`);
         await lib.read(file);
         const vars = lib.getvariables();
         const supported = vars.filter(v => v.supported);
-        console.log('[webparsers] Load complete.', vars.length, 'variables found:', vars.map(v => v.name));
-        console.log('[webparsers] Supported (extractable):', supported.map(v => v.name));
+        console.log('[sciwrid] Load complete.', vars.length, 'variables found:', vars.map(v => v.name));
+        console.log('[sciwrid] Supported (extractable):', supported.map(v => v.name));
         status.innerHTML = '<span class="success">Loaded! ' + vars.length + ' variable(s) found, '
           + supported.length + ' extractable.</span>';
 
@@ -110,7 +371,7 @@
           sel.appendChild(opt);
         });
       } catch (e) {
-        console.error('[webparsers] Load failed:', e);
+        console.error('[sciwrid] Load failed:', e);
         status.innerHTML = '<span class="error">' + e.message + '</span>';
       }
     });
@@ -120,10 +381,10 @@
       try {
         const result = fn();
         out.textContent = JSON.stringify(result, null, 2);
-        console.log('[webparsers] inspect result:', result);
+        console.log('[sciwrid] inspect result:', result);
       } catch (e) {
         out.textContent = 'Error: ' + e.message;
-        console.error('[webparsers] inspect error:', e);
+        console.error('[sciwrid] inspect error:', e);
       }
     }
 
@@ -163,7 +424,7 @@
 
         const out = await lib.extract(opts);
         outEl.textContent = (typeof out === 'string') ? out : JSON.stringify(out, null, 2);
-        console.log('[webparsers] extract result:', out);
+        console.log('[sciwrid] extract result:', out);
 
         lastExtractResult   = out;
         lastExtractType     = type;
@@ -171,7 +432,7 @@
       } catch (e) {
         outEl.textContent   = 'Error: ' + e.message;
         downloadEl.disabled = true;
-        console.error('[webparsers] extract error:', e);
+        console.error('[sciwrid] extract error:', e);
       }
     }
 
@@ -190,7 +451,7 @@
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = `webparsers_extract.${ext}`;
+      a.download = `sciwrid_extract.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
     });
@@ -203,8 +464,8 @@
 
     // Expose for console debugging
     window.lib = lib;
-    console.log('[webparsers] Library ready. Try `lib` in the console.');
-    console.log('[webparsers] API: lib.read(file), lib.metadata(), lib.getvariables(), lib.variables(), lib.extract({...}), lib.close()');
+    console.log('[sciwrid] Library ready. Try `lib` in the console.');
+    console.log('[sciwrid] API: lib.read(file), lib.metadata(), lib.getvariables(), lib.variables(), lib.extract({...}), lib.close()');
   </script>
 </body>
 </html>

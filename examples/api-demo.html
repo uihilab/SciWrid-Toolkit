@@ -2,58 +2,459 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>webparsers/api — functional demo</title>
+  <title>sciwrid-toolkit/api — functional demo</title>
   <style>
-    body { font-family: monospace; margin: 2rem; background: #1a1a2e; color: #e0e0e0; max-width: 1100px; }
-    h1, h2 { color: #00d4ff; margin: 0 0 .5rem; }
-    .section { margin: 1rem 0; padding: 1rem; background: #16213e; border-radius: 8px; }
-    button { padding: 8px 16px; margin: 4px; background: #0f3460; color: white;
-             border: 1px solid #00d4ff; border-radius: 4px; cursor: pointer; font-family: inherit; }
-    button:hover:not(:disabled) { background: #00d4ff; color: #1a1a2e; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-    pre { background: #0f0f23; padding: 1rem; border-radius: 4px; overflow: auto;
-          max-height: 480px; font-size: 12px; line-height: 1.5; margin: 0; }
-    input, label { font-family: inherit; }
-    input[type=number], input[type=text] {
-      padding: 6px; margin: 4px; background: #0f3460; color: white;
-      border: 1px solid #444; border-radius: 4px;
+    :root {
+      --radius: 0.625rem;
+      --background: oklch(0.992 0.004 240);
+      --foreground: oklch(0.21 0.03 252);
+      --card: oklch(1 0.002 240);
+      --card-foreground: oklch(0.21 0.03 252);
+      --primary: oklch(0.28 0.04 252);
+      --primary-foreground: oklch(0.99 0.005 240);
+      --secondary: oklch(0.96 0.01 240);
+      --secondary-foreground: oklch(0.28 0.04 252);
+      --muted: oklch(0.965 0.008 240);
+      --muted-foreground: oklch(0.52 0.03 248);
+      --accent: oklch(0.95 0.02 242);
+      --accent-foreground: oklch(0.28 0.04 252);
+      --brand: oklch(0.55 0.16 245);
+      --brand-foreground: oklch(0.99 0.005 240);
+      --destructive: oklch(0.637 0.237 25.331);
+      --border: oklch(0.91 0.012 245);
+      --input: oklch(0.86 0.014 245);
+      --ring: oklch(0.55 0.16 245);
+      --success: oklch(0.6 0.13 165);
+      --warn: oklch(0.68 0.15 70);
+      --shadow-tint: oklch(0.45 0.05 250 / 0.10);
+      --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, "Cascadia Code", "Consolas", "Courier New", monospace;
     }
-    .label   { color: #00d4ff; font-weight: bold; }
-    .success { color: #44ff44; }
-    .error   { color: #ff4444; }
-    .warn    { color: #ffaa00; }
-    .muted   { color: #888; font-size: 11px; }
-    code     { background: #0f0f23; padding: 2px 6px; border-radius: 3px; color: #ffaa00; }
+    .dark {
+      --background: oklch(0.17 0.022 250);
+      --foreground: oklch(0.97 0.006 240);
+      --card: oklch(0.205 0.025 252);
+      --card-foreground: oklch(0.97 0.006 240);
+      --primary: oklch(0.97 0.006 240);
+      --primary-foreground: oklch(0.21 0.03 252);
+      --secondary: oklch(0.27 0.03 252);
+      --secondary-foreground: oklch(0.97 0.006 240);
+      --muted: oklch(0.24 0.025 252);
+      --muted-foreground: oklch(0.69 0.025 245);
+      --accent: oklch(0.29 0.04 250);
+      --accent-foreground: oklch(0.97 0.006 240);
+      --brand: oklch(0.70 0.13 240);
+      --brand-foreground: oklch(0.17 0.022 250);
+      --destructive: oklch(0.396 0.141 25.723);
+      --border: oklch(0.30 0.03 252);
+      --input: oklch(0.30 0.03 252);
+      --ring: oklch(0.70 0.13 240);
+      --success: oklch(0.72 0.15 165);
+      --warn: oklch(0.78 0.15 75);
+      --shadow-tint: oklch(0 0 0 / 0.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-sans);
+      margin: 0;
+      background-color: var(--background);
+      background-image:
+        radial-gradient(1100px 480px at 8% -10%, oklch(from var(--brand) l c h / 0.10), transparent 55%),
+        radial-gradient(900px 420px at 100% 0%, oklch(from var(--brand) l c h / 0.06), transparent 60%);
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+      color: var(--foreground);
+      line-height: 1.5;
+    }
+
+    h1, h2 { color: var(--foreground); margin: 0 0 .5rem; font-weight: 600; letter-spacing: -0.022em; }
+    h1 { font-size: clamp(1.55rem, 1.25rem + 1.2vw, 1.9rem); line-height: 1.1; }
+    h2 { font-size: 1.18rem; }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: oklch(from var(--background) l c h / 0.92);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+    }
+
+    .site-header-inner {
+      width: min(1100px, calc(100% - 2rem));
+      margin: 0 auto;
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: .75rem;
+      min-width: max-content;
+    }
+
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      display: inline-grid;
+      place-items: center;
+      background: var(--brand);
+      color: var(--brand-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      box-shadow: 0 2px 8px oklch(from var(--brand) l c h / 0.35);
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 14px;
+      line-height: 1.1;
+    }
+
+    .brand span:last-child span {
+      display: block;
+      color: var(--muted-foreground);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .site-nav {
+      display: flex;
+      align-items: center;
+      gap: .25rem;
+      margin-left: auto;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .site-nav::-webkit-scrollbar { display: none; }
+
+    .site-nav a {
+      padding: 6px 10px;
+      color: var(--muted-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .site-nav a:hover,
+    .site-nav a:focus-visible {
+      background: var(--accent);
+      color: var(--accent-foreground);
+      outline: none;
+    }
+
+    .page {
+      width: min(1100px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 1.5rem 0 2rem;
+    }
+
+    .hero {
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
+      margin: 1.1rem 0 .25rem;
+      padding: clamp(1.4rem, 1rem + 2.5vw, 2.4rem) clamp(1.1rem, .6rem + 2vw, 2rem);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 4px);
+      background: linear-gradient(180deg, oklch(from var(--brand) l c h / 0.06), transparent 45%), var(--card);
+      box-shadow: 0 1px 2px var(--shadow-tint), 0 24px 50px -40px var(--shadow-tint);
+    }
+    .hero-bg {
+      position: absolute; inset: 0; z-index: -1;
+      pointer-events: none; overflow: hidden; opacity: .5;
+      -webkit-mask-image: linear-gradient(100deg, transparent 0%, #000 48%);
+              mask-image: linear-gradient(100deg, transparent 0%, #000 48%);
+    }
+    .hero-bg svg { position: absolute; top: 50%; left: 0; width: 140%; height: 180%; transform: translateY(-50%); }
+    .hero-bg path { fill: none; stroke: var(--brand); stroke-width: 1.1; }
+    .hero-bg .flow { animation: drift 26s linear infinite; }
+    @keyframes drift { from { transform: translateX(0); } to { transform: translateX(-90px); } }
+    @media (prefers-reduced-motion: reduce) { .hero-bg .flow { animation: none; } }
+
+    .hero p {
+      max-width: 760px;
+      margin: .25rem 0 0;
+    }
+
+    .kicker {
+      color: var(--brand);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin: 0 0 .5rem;
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .kicker::before {
+      content: "";
+      width: 18px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--brand);
+    }
+
+    .section {
+      margin: 1rem 0;
+      padding: 1.25rem;
+      background: var(--card);
+      color: var(--card-foreground);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 1px 2px var(--shadow-tint), 0 12px 30px -18px var(--shadow-tint);
+      scroll-margin-top: 88px;
+    }
+
+    .section > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin: -1.25rem -1.25rem 1rem;
+      padding: 1rem 1.25rem;
+      cursor: pointer;
+      list-style: none;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section > summary::-webkit-details-marker { display: none; }
+
+    .section > summary::after {
+      content: "⌄";
+      color: var(--muted-foreground);
+      font-size: 16px;
+      line-height: 1;
+      transition: transform .15s ease;
+    }
+
+    .section:not([open]) {
+      padding-bottom: 0;
+    }
+
+    .section:not([open]) > summary {
+      margin-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .section:not([open]) > summary::after {
+      transform: rotate(-90deg);
+    }
+
+    button {
+      padding: 8px 16px;
+      margin: 4px 4px 4px 0;
+      background: var(--primary);
+      color: var(--primary-foreground);
+      border: 1px solid transparent;
+      border-radius: calc(var(--radius) - 2px);
+      cursor: pointer;
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 500;
+      transition: opacity .15s ease, background .15s ease;
+    }
+    button:hover:not(:disabled) { opacity: .9; }
+    button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
+    input, label { font-family: var(--font-sans); }
+
+    input[type=number], input[type=text] {
+      padding: 6px 8px;
+      margin: 4px;
+      background: var(--background);
+      color: var(--foreground);
+      border: 1px solid var(--input);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 13px;
+    }
+    input[type=number]:focus-visible, input[type=text]:focus-visible {
+      outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--ring);
+    }
+
+    input[type=file] {
+      padding: 6px;
+      background: var(--background);
+      color: var(--foreground);
+      border: 1px solid var(--input);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 13px;
+    }
+    input[type=file]::file-selector-button {
+      margin-right: 10px;
+      padding: 6px 12px;
+      background: var(--secondary);
+      color: var(--secondary-foreground);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) - 2px);
+      cursor: pointer;
+      font-family: var(--font-sans);
+      font-size: 13px;
+    }
+
+    pre {
+      background: var(--muted);
+      color: var(--foreground);
+      border: 1px solid var(--border);
+      padding: 1rem;
+      border-radius: calc(var(--radius) - 2px);
+      overflow: auto;
+      max-height: 480px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    code {
+      background: var(--muted);
+      color: var(--foreground);
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .label   { color: var(--foreground); font-weight: 600; }
+    .muted   { color: var(--muted-foreground); font-size: 11px; }
+    .success { color: var(--success); }
+    .error   { color: var(--destructive); }
+    .warn    { color: var(--warn); }
     .row     { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+
+    #g-canvas {
+      background: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) - 2px);
+      image-rendering: pixelated;
+    }
+
+    #theme-toggle {
+      flex: 0 0 auto;
+      margin: 0;
+      background: var(--secondary);
+      color: var(--secondary-foreground);
+      border: 1px solid var(--border);
+    }
+    #theme-toggle:hover:not(:disabled) { opacity: 1; background: var(--accent); }
+
+    /* Lab attribution. Parked past the nav controls in the far-right corner so it
+       reads as provenance, not as a second brand competing with the SW mark. */
+    .hilab {
+      display: inline-flex; align-items: center; flex: 0 0 auto;
+      margin-left: .4rem; padding-left: .8rem;
+      border-left: 1px solid var(--border);
+    }
+    .hilab img { display: block; height: 24px; width: auto; }
+
+    @media (max-width: 760px) {
+      .site-header-inner {
+        min-height: auto;
+        padding: .75rem 0;
+        flex-wrap: wrap;
+      }
+
+      .site-nav {
+        order: 3;
+        width: 100%;
+      }
+    }
   </style>
+  <script>
+    /* Apply the saved/system theme before first paint to avoid a flash. */
+    (function () {
+      var stored = localStorage.getItem('apidemo-theme');
+      var dark = stored
+        ? stored === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.classList.toggle('dark', dark);
+    })();
+  </script>
 </head>
 <body>
-  <h1>webparsers/api — functional demo</h1>
-  <p class="muted">
-    Calls <code>scan</code>, <code>extract</code>, <code>extractOutput</code> from
-    <code>webparsers-api.js</code> directly. Open the browser console to see every result logged.
-  </p>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">SW</span>
+        <span>
+          <strong>sciwrid-toolkit/api</strong>
+          <span>Functional demo</span>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Demo sections">
+        <a href="index.html">← Examples</a>
+        <a href="#section-file">File</a>
+        <a href="#section-scan">Scan</a>
+        <a href="#section-extract">Extract</a>
+        <a href="#section-grid">Grid</a>
+        <a href="#section-trim">Trim</a>
+      </nav>
+      <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme"></button>
+      <span class="hilab">
+        <img src="/assets/logo-hilab-mini.png" alt="HiLab" width="662" height="283">
+      </span>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-bg" aria-hidden="true">
+        <svg viewBox="0 0 960 280" preserveAspectRatio="none">
+          <g class="flow">
+            <path d="M-60 26 C70 6,170 46,300 26 C430 6,530 46,660 26 C790 6,890 46,1020 26" stroke-opacity="0.85"/>
+            <path d="M-60 70 C70 50,170 90,300 70 C430 50,530 90,660 70 C790 50,890 90,1020 70" stroke-opacity="0.55"/>
+            <path d="M-60 114 C70 94,170 134,300 114 C430 94,530 134,660 114 C790 94,890 134,1020 114" stroke-opacity="0.8"/>
+            <path d="M-60 158 C70 138,170 178,300 158 C430 138,530 178,660 158 C790 138,890 178,1020 158" stroke-opacity="0.5"/>
+            <path d="M-60 202 C70 182,170 222,300 202 C430 182,530 222,660 202 C790 182,890 222,1020 202" stroke-opacity="0.7"/>
+            <path d="M-60 246 C70 226,170 266,300 246 C430 226,530 266,660 246 C790 226,890 266,1020 246" stroke-opacity="0.45"/>
+          </g>
+        </svg>
+      </div>
+      <p class="kicker">Browser API demo</p>
+      <h1 id="page-title">sciwrid-toolkit/api — functional demo</h1>
+      <p class="muted">
+        Calls <code>scan</code>, <code>extract</code>, <code>extractOutput</code> from
+        <code>sciwrid-api.js</code> directly. Open the browser console to see every result logged.
+      </p>
+    </section>
 
   <!-- 1. File picker -->
-  <div class="section">
-    <span class="label">1. Pick a file</span><br>
+  <details class="section" id="section-file" open>
+    <summary><span class="label">1. Pick a file</span></summary>
     <span class="muted">GRIB2 (.grb2 / .grib2), NetCDF3 (.nc3), NetCDF4 / HDF5 (.nc), or Zarr v2 (zipped store, .zip / .zarr)</span><br><br>
     <input type="file" id="file" accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr">
     <button id="btn-detect">detectFormat()</button>
     <span id="detect-out"></span>
-  </div>
+  </details>
 
   <!-- 2. Scan -->
-  <div class="section">
-    <span class="label">2. Scan — list variables [0..20]</span><br>
+  <details class="section" id="section-scan" open>
+    <summary><span class="label">2. Scan — list variables [0..20]</span></summary>
     <code>await scan(file)</code><br><br>
     <button id="btn-scan">scan()</button>
     <pre id="scan-out">(no scan yet)</pre>
-  </div>
+  </details>
 
   <!-- 3. Extract -->
-  <div class="section">
-    <span class="label">3. Extract a variable</span><br>
+  <details class="section" id="section-extract" open>
+    <summary><span class="label">3. Extract a variable</span></summary>
     <code>await extract(file, { variable, lat, lon })</code><br><br>
     <div class="row">
       <label>Variable: <input type="text" id="ex-var" placeholder="(auto: first supported)" style="width:240px;"></label>
@@ -70,12 +471,14 @@
     <button id="btn-extract">extract()</button>
     <button id="btn-csv">extractOutput("csv")</button>
     <button id="btn-json">extractOutput("json")</button>
+    <button id="btn-dl-csv">⬇ Download CSV</button>
+    <button id="btn-dl-json">⬇ Download JSON</button>
     <pre id="ex-out">(no extract yet)</pre>
-  </div>
+  </details>
 
   <!-- 4. Extract grid (bbox) -->
-  <div class="section">
-    <span class="label">4. Extract grid (bbox) — parallel worker pool</span><br>
+  <details class="section" id="section-grid" open>
+    <summary><span class="label">4. Extract grid (bbox) — parallel worker pool</span></summary>
     <code>await extractGrid(file, { variable, bbox, width, height, workers, signal, onProgress })</code><br>
     <span class="muted">Spawns up to N workers (default 5); each handles a row band. Result is rendered as a heatmap.</span><br><br>
     <div class="row">
@@ -98,44 +501,52 @@
     <button id="btn-grid-tiff" disabled>Save GeoTIFF</button>
     <span id="g-progress" class="muted"></span>
     <div style="margin-top:.75rem; display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
-      <canvas id="g-canvas" width="256" height="256" style="background:#0f0f23; border:1px solid #444; image-rendering: pixelated;"></canvas>
+      <canvas id="g-canvas" width="256" height="256"></canvas>
       <pre id="g-out" style="flex:1; min-width:280px; max-height:280px;">(no grid yet)</pre>
     </div>
-  </div>
+  </details>
 
-  <!-- 5. Slim — keep only selected variables (and an optional time slice) -->
-  <div class="section">
-    <span class="label">5. Slim — same-format file trimming</span><br>
-    <code>await slim(file, { variables, t1, t2 })</code><br>
+  <!-- 5. Trim — keep only selected variables (and optional time/bbox slices) -->
+  <details class="section" id="section-trim" open>
+    <summary><span class="label">5. Trim — same-format file trimming</span></summary>
+    <code>await trim(file, { variables, t1, t2, bbox })</code><br>
     <span class="muted">
-      Byte-cut for GRIB2 / NetCDF3 / Zarr (no decode). h5wasm writer for NetCDF4.
-      Zarr time slice widens to chunk boundaries — see warnings.
+      Byte-cut for GRIB2 / NetCDF3 / Zarr where possible. h5wasm writer for NetCDF4.
+      Bbox trim is supported for Zarr / NetCDF4 / TIFF.
+      Stored and DEFLATE-compressed Zarr zip entries are supported.
     </span><br><br>
-    <button id="btn-slim-scan">Scan & list variables</button>
-    <span id="slim-scan-out" class="muted"></span>
-    <div id="slim-vars" style="margin-top:.75rem;
+    <button id="btn-trim-scan">Scan & list variables</button>
+    <span id="trim-scan-out" class="muted"></span>
+    <div id="trim-vars" style="margin-top:.75rem;
          display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:4px;
          max-height:180px; overflow:auto;"></div>
     <div class="row" style="margin-top:.75rem;">
-      <label>t1: <input type="number" id="slim-t1" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
-      <label>t2: <input type="number" id="slim-t2" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
-      <button id="btn-slim">Slim</button>
-      <button id="btn-slim-download" disabled>Download slimmed file</button>
-      <span id="slim-status" class="muted"></span>
+      <label>t1: <input type="number" id="trim-t1" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
+      <label>t2: <input type="number" id="trim-t2" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
+      <label><input type="checkbox" id="trim-use-bbox"> bbox</label>
+      <label>minLon: <input type="number" id="trim-minlon" value="-100" step="any" style="width:88px;"></label>
+      <label>minLat: <input type="number" id="trim-minlat" value="30" step="any" style="width:88px;"></label>
+      <label>maxLon: <input type="number" id="trim-maxlon" value="-80" step="any" style="width:88px;"></label>
+      <label>maxLat: <input type="number" id="trim-maxlat" value="45" step="any" style="width:88px;"></label>
+      <button id="btn-trim">Trim</button>
+      <button id="btn-trim-download" disabled>Download trimmed file</button>
+      <span id="trim-status" class="muted"></span>
     </div>
-    <pre id="slim-out">(no slim yet)</pre>
-  </div>
+    <pre id="trim-out">(no trim yet)</pre>
+  </details>
+
+  </main>
 
   <!-- No import map needed: the lib loads h5wasm from jsdelivr CDN on demand.
        If you'd rather mirror it, pass `{ h5wasmUrl: '<your-url>' }` to the
-       WebParsers class constructor or via the functional API's `wasmFactory`. -->
+       SciWridToolkit class constructor or via the functional API's `wasmFactory`. -->
 
   <script type="module">
     import {
       detectFormat, scan, extract, extractOutput, extractGrid,
-      gridToJSON, gridToGeoTIFF, slim,
-      WebparsersError, SlimError,
-    } from '../lib/webparsers-api.js';
+      gridToJSON, gridToGeoTIFF, trim,
+      SciWridError, TrimError,
+    } from '../lib/sciwrid-api.js';
 
     /* Small browser download helper — Blob + anchor click. */
     function saveBlob(content, mime, filename) {
@@ -163,9 +574,24 @@
     }
     function requireFile() {
       const f = fileInput.files[0];
-      if (!f) throw new WebparsersError('Pick a file first.');
+      if (!f) throw new SciWridError('Pick a file first.');
       return f;
     }
+    function resetResultsForNewFile() {
+      lastScan = null;
+      // Unused: trimScan = null;
+      trimResult = null;
+      $('detect-out').textContent = '';
+      $('scan-out').textContent = '(no scan yet)';
+      $('ex-out').textContent = '(no extract yet)';
+      $('g-out').textContent = '(no grid yet)';
+      $('trim-out').textContent = '(no trim yet)';
+      $('trim-scan-out').textContent = '';
+      $('trim-vars').innerHTML = '';
+      $('btn-trim-download').disabled = true;
+    }
+
+    fileInput.addEventListener('change', resetResultsForNewFile);
 
     /* detectFormat ------------------------------------------------------ */
     $('btn-detect').addEventListener('click', async () => {
@@ -223,7 +649,7 @@
     function buildExtractOpts() {
       const variable = $('ex-var').value.trim()
         || (lastScan?.variables.find(v => v.supported)?.name);
-      if (!variable) throw new WebparsersError('Run scan() first or type a variable name.');
+      if (!variable) throw new SciWridError('Run scan() first or type a variable name.');
       const opts = {
         variable,
         lat: parseFloat($('ex-lat').value),
@@ -283,11 +709,53 @@
       }
     });
 
+    /* Build "<file-stem>_<variable>" for download filenames. */
+    function extractFileStem(opts) {
+      const f = fileInput.files[0];
+      const stem = (f?.name || 'file').replace(/\.[^.]+$/, '');
+      const varPart = String(opts.variable || 'var').replace(/[^A-Za-z0-9._-]+/g, '_');
+      return `${stem}_${varPart}`;
+    }
+
+    $('btn-dl-csv').addEventListener('click', async () => {
+      const out = $('ex-out');
+      out.textContent = 'Extracting…';
+      try {
+        const f = requireFile();
+        const opts = buildExtractOpts();
+        const csv = await extractOutput(f, opts, 'csv');
+        show(out, csv);
+        const name = `${extractFileStem(opts)}.csv`;
+        saveBlob(csv, 'text/csv;charset=utf-8', name);
+        log('Saved CSV', `${name} (${csv.length} chars)`);
+      } catch (e) {
+        show(out, 'Error: ' + e.message, 'error');
+        console.error(e);
+      }
+    });
+
+    $('btn-dl-json').addEventListener('click', async () => {
+      const out = $('ex-out');
+      out.textContent = 'Extracting…';
+      try {
+        const f = requireFile();
+        const opts = buildExtractOpts();
+        const json = await extractOutput(f, opts, 'json');
+        show(out, json);
+        const name = `${extractFileStem(opts)}.json`;
+        saveBlob(json, 'application/json;charset=utf-8', name);
+        log('Saved JSON', `${name} (${json.length} chars)`);
+      } catch (e) {
+        show(out, 'Error: ' + e.message, 'error');
+        console.error(e);
+      }
+    });
+
     /* extractGrid ------------------------------------------------------- */
     function buildGridOpts() {
       const variable = $('g-var').value.trim()
         || (lastScan?.variables.find(v => v.supported)?.name);
-      if (!variable) throw new WebparsersError('Run scan() first or type a variable name.');
+      if (!variable) throw new SciWridError('Run scan() first or type a variable name.');
       const opts = {
         variable,
         bbox: [
@@ -305,9 +773,9 @@
       if (gDate !== '') opts.date = gDate;
       else opts.time = parseInt($('g-time').value, 10) || 0;
       if (!(opts.bbox[2] > opts.bbox[0]) || !(opts.bbox[3] > opts.bbox[1]))
-        throw new WebparsersError('bbox: max must be greater than min');
-      if (!Number.isFinite(opts.width)  || opts.width  <= 0) throw new WebparsersError('width must be > 0');
-      if (!Number.isFinite(opts.height) || opts.height <= 0) throw new WebparsersError('height must be > 0');
+        throw new SciWridError('bbox: max must be greater than min');
+      if (!Number.isFinite(opts.width)  || opts.width  <= 0) throw new SciWridError('width must be > 0');
+      if (!Number.isFinite(opts.height) || opts.height <= 0) throw new SciWridError('height must be > 0');
       return opts;
     }
 
@@ -425,10 +893,10 @@
       }
     });
 
-    $('btn-grid-tiff').addEventListener('click', () => {
+    $('btn-grid-tiff').addEventListener('click', async () => {
       if (!lastGrid) return;
       try {
-        const buf  = gridToGeoTIFF(lastGrid);
+        const buf  = await gridToGeoTIFF(lastGrid);
         const stem = (lastGrid.variable || 'grid').replace(/\W+/g, '_');
         saveBlob(buf, 'image/tiff', `${stem}.tif`);
         log('Saved GeoTIFF', `${stem}.tif (${buf.byteLength} bytes)`);
@@ -438,22 +906,36 @@
       }
     });
 
-    /* ===== Slim ======================================================== */
-    let slimScan   = null;
-    let slimResult = null;   /* last SlimResult */
+    /* ===== Trim ======================================================== */
+    // Unused: let trimScan = null;
+    let trimResult = null;   /* last TrimResult */
 
-    $('btn-slim-scan').addEventListener('click', async () => {
-      const out  = $('slim-scan-out');
-      const list = $('slim-vars');
+    $('btn-trim-scan').addEventListener('click', async () => {
+      const out  = $('trim-scan-out');
+      const list = $('trim-vars');
       list.innerHTML = '';
-      $('slim-out').textContent = '(scan done — pick variables, then click Slim)';
-      $('btn-slim-download').disabled = true;
+      $('trim-out').textContent = '(scan done — pick variables, then click Trim)';
+      $('btn-trim-download').disabled = true;
       try {
         const f = requireFile();
         out.textContent = ' scanning…';
         const meta = await scan(f);
-        slimScan = meta;
-        out.innerHTML = ` <span class="success">${meta.format}</span> · ${meta.total_variables} variables`;
+        // Unused: trimScan = meta;
+        const bboxSupported = ['zarr', 'netcdf4', 'tiff'].includes(meta.format);
+        $('trim-use-bbox').disabled = !bboxSupported;
+        if (!bboxSupported) $('trim-use-bbox').checked = false;
+        $('trim-use-bbox').title = bboxSupported
+          ? 'Enable spatial bbox trimming for this format.'
+          : 'Bbox trim is supported for Zarr, NetCDF4, and TIFF only.';
+        out.innerHTML = ` <span class="success">${meta.format}</span> · ${meta.total_variables} variables` +
+          (bboxSupported ? '' : ' · bbox trim unavailable');
+        if (Array.isArray(meta.bbox) && meta.bbox.length === 4) {
+          const [minLon, minLat, maxLon, maxLat] = meta.bbox;
+          $('trim-minlon').value = minLon;
+          $('trim-minlat').value = minLat;
+          $('trim-maxlon').value = maxLon;
+          $('trim-maxlat').value = maxLat;
+        }
         for (const v of meta.variables) {
           const wrap = document.createElement('label');
           wrap.style.cssText = 'display:flex; gap:.4rem; align-items:center;' +
@@ -476,43 +958,60 @@
       }
     });
 
-    $('btn-slim').addEventListener('click', async () => {
-      const status = $('slim-status');
-      const out    = $('slim-out');
-      $('btn-slim-download').disabled = true;
+    $('btn-trim').addEventListener('click', async () => {
+      const status = $('trim-status');
+      const out    = $('trim-out');
+      $('btn-trim-download').disabled = true;
       try {
         const f = requireFile();
-        const checked = [...$('slim-vars').querySelectorAll('input[type=checkbox]:checked')]
+        const checked = [...$('trim-vars').querySelectorAll('input[type=checkbox]:checked')]
                           .map(c => c.value);
-        if (!checked.length) throw new SlimError('Pick at least one variable.');
+        if (!checked.length) throw new TrimError('Pick at least one variable.');
 
-        const t1raw = $('slim-t1').value.trim();
-        const t2raw = $('slim-t2').value.trim();
+        const t1raw = $('trim-t1').value.trim();
+        const t2raw = $('trim-t2').value.trim();
         const opts  = { variables: checked };
         if (t1raw !== '') opts.t1 = parseInt(t1raw, 10);
         if (t2raw !== '') opts.t2 = parseInt(t2raw, 10);
+        if ($('trim-use-bbox').checked) {
+          opts.bbox = [
+            parseFloat($('trim-minlon').value),
+            parseFloat($('trim-minlat').value),
+            parseFloat($('trim-maxlon').value),
+            parseFloat($('trim-maxlat').value),
+          ];
+          if (opts.bbox.some(v => !Number.isFinite(v)))
+            throw new TrimError('bbox: enter all four numbers.');
+          if (!(opts.bbox[2] > opts.bbox[0]) || !(opts.bbox[3] > opts.bbox[1]))
+            throw new TrimError('bbox: max must be greater than min.');
+        }
 
-        status.innerHTML = ' slimming…';
+        status.innerHTML = ' trimming…';
         const t0 = performance.now();
-        const r = await slim(f, opts);
+        const r = await trim(f, opts);
         const ms = (performance.now() - t0).toFixed(0);
-        slimResult = r;
+        trimResult = r;
+        const trimmedScan = await scan(r.bytes);
 
         const pct = ((r.stats.outputSize / r.stats.inputSize) * 100).toFixed(1);
         const warn = r.warnings.length
           ? '\n\nWarnings:\n' + r.warnings.map(w => '  - ' + w).join('\n')
           : '';
+        const names = trimmedScan.variable_names || trimmedScan.variables.map(v => v.name);
         out.textContent =
           `Format:          ${r.format}\n` +
           `Variables kept:  ${r.stats.variablesKept}\n` +
           `Variables drop:  ${r.stats.variablesDropped}\n` +
           `Input size:      ${r.stats.inputSize} bytes\n` +
           `Output size:     ${r.stats.outputSize} bytes (${pct}% of input)\n` +
-          `Elapsed:         ${ms} ms` + warn;
+          `Elapsed:         ${ms} ms\n` +
+          `Re-scan format:  ${trimmedScan.format}\n` +
+          `Re-scan vars:    ${names.join(', ')}` + warn;
         out.className = 'success';
         status.innerHTML = ` <span class="success">done</span>`;
-        $('btn-slim-download').disabled = false;
-        log('slim result', r);
+        $('btn-trim-download').disabled = false;
+        log('trim result', r);
+        log('scan(trimmed)', trimmedScan);
       } catch (e) {
         out.textContent = 'Error: ' + e.message;
         out.className = 'error';
@@ -521,23 +1020,39 @@
       }
     });
 
-    $('btn-slim-download').addEventListener('click', () => {
-      if (!slimResult) return;
+    $('btn-trim-download').addEventListener('click', () => {
+      if (!trimResult) return;
       const f = fileInput.files[0];
       const stem = (f?.name || 'file').replace(/\.[^.]+$/, '');
       const ext  = (f?.name || '').match(/\.[^.]+$/)?.[0] ||
-                   ({ grib2:'.grb2', netcdf3:'.nc3', netcdf4:'.nc', zarr:'.zip' }[slimResult.format] || '.bin');
-      const mime = slimResult.format === 'zarr'    ? 'application/zip'
-                 : slimResult.format === 'netcdf4' ? 'application/x-hdf'
+                   ({ grib2:'.grb2', netcdf3:'.nc3', netcdf4:'.nc', zarr:'.zip', tiff:'.tif' }[trimResult.format] || '.bin');
+      const mime = trimResult.format === 'zarr'    ? 'application/zip'
+                 : trimResult.format === 'netcdf4' ? 'application/x-hdf'
                  : 'application/octet-stream';
-      saveBlob(slimResult.bytes, mime, `${stem}_slim${ext}`);
-      log('Saved slimmed file', `${stem}_slim${ext} (${slimResult.bytes.length} bytes)`);
+      saveBlob(trimResult.bytes, mime, `${stem}_trim${ext}`);
+      log('Saved trimmed file', `${stem}_trim${ext} (${trimResult.bytes.length} bytes)`);
     });
 
     /* Expose for console hacking */
     window.api = { detectFormat, scan, extract, extractOutput, extractGrid,
-                   gridToJSON, gridToGeoTIFF, slim };
+                   gridToJSON, gridToGeoTIFF, trim };
     console.log('[api-demo] Ready. Try `api.scan(yourFile)` from this console.');
+  </script>
+  <script>
+    /* Theme toggle — independent of the demo module; touches only the .dark class. */
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      function setLabel() {
+        var dark = document.documentElement.classList.contains('dark');
+        btn.textContent = dark ? '☀ Light' : '🌙 Dark';
+      }
+      setLabel();
+      btn.addEventListener('click', function () {
+        var dark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('apidemo-theme', dark ? 'dark' : 'light');
+        setLabel();
+      });
+    })();
   </script>
 </body>
 </html>

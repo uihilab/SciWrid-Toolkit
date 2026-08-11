@@ -1,2 +1,49 @@
-## To combine these file run this:
-cat gfs.t06z.pgrb2.1p00.f000 gfs.t06z.pgrb2.1p00.f006 gfs.t06z.pgrb2.1p00.f012 gfs.t06z.pgrb2.1p00.f018 gfs.t06z.pgrb2.1p00.f024 > gfs_timeseries.grb2
+GFS example data
+================
+
+What is committed
+-----------------
+The four forecast parts ARE in git:
+
+  gfs.t06z.pgrb2.1p00.f000
+  gfs.t06z.pgrb2.1p00.f003
+  gfs.t06z.pgrb2.1p00.f006
+  gfs.t06z.pgrb2.1p00.f009
+
+Each is about 40 MB, under GitHub's 100 MiB per-file limit. The map demo's
+"GFS forecast" button fetches all four and concatenates them in the browser
+(GRIB2 messages concatenate natively), so it works from a clean clone with no
+setup. Nothing needs to be downloaded.
+
+What is NOT committed
+---------------------
+The combined file, gfs_timeseries.grb2, is gitignored. At 164 MiB it exceeds
+GitHub's hard per-file limit and a push containing it would be rejected. It is
+also unnecessary for the demo - only the test harness reads it.
+
+Build it locally if you need it:
+
+  cat gfs.t06z.pgrb2.1p00.f000 gfs.t06z.pgrb2.1p00.f003 \
+      gfs.t06z.pgrb2.1p00.f006 gfs.t06z.pgrb2.1p00.f009 > gfs_timeseries.grb2
+
+Scripts that look for it (test-grid.js, test-trim.js, test-time-select.js,
+test-map-demo-whole.js) all skip or fall back to another fixture when it is
+absent, so the suite passes without it.
+
+Caveat: the gfs_timeseries.grb2 used during development was built from a
+different set of forecast hours (f000/f006/f012/f018/f024) and is about 105 KB
+larger than the four parts above. A file built with the command here is valid
+GRIB2 and works with every script, but it is not byte-identical to that
+original and carries 4 timesteps rather than 5.
+
+Re-downloading the parts
+------------------------
+Only needed if the committed copies are ever lost. GFS 1-degree (1p00)
+products, cycle 06z. Recent cycles come from NOMADS, which retains roughly the
+last 10 days:
+
+  https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gfs.<YYYYMMDD>/06/atmos/
+
+For older dates use the NOAA Open Data archive on S3 (no credentials needed):
+
+  s3://noaa-gfs-bdp-pds/gfs.<YYYYMMDD>/06/atmos/

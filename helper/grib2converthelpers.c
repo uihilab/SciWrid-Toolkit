@@ -115,6 +115,69 @@ int64_t parse_sec4_forecast_offset(const uint8_t* sec, uint32_t sec_len) {
     return (int64_t)ft * mult;
 }
 
+/* Days-since-epoch arithmetic shared with parse_sec1_reftime. */
+static int64_t civil_to_epoch(int year, int month, int day,
+                              int hour, int min, int secs) {
+    static const int dpm[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+
+    int64_t days = 0;
+    for (int y = 1970; y < year; y++) {
+        int leap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
+        days += 365 + leap;
+    }
+    int leap_year = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    for (int m = 1; m < month; m++) {
+        days += dpm[m - 1];
+        if (m == 2) days += leap_year;
+    }
+    days += day - 1;
+
+    return days * 86400LL + hour * 3600LL + min * 60LL + secs;
+}
+
+/* =========================================================================
+ * Section 4 – "End of overall time interval" (product template 4.8)
+ *
+ * Templates whose name ends "in a time interval" carry an explicit end time.
+ * Their forecast-time field marks the START of the window and is normally 0,
+ * so treating them like template 4.0 stamps the data a whole window early --
+ * an hour for hourly Stage IV, a full day for the 24h product.
+ *
+ * Template 4.8 body (0-indexed from section start):
+ *   [7..8]   product definition template number
+ *   [34..35] year   [36] month   [37] day
+ *   [38]     hour   [39] minute  [40] second
+ *
+ * Only 4.8 is handled. Templates 4.9-4.14 are also interval products but put
+ * this field at different offsets, and guessing them would silently produce
+ * wrong timestamps -- precisely the failure this exists to fix. They keep the
+ * old behaviour until there is a real file to verify against.
+ *
+ * Returns 1 and writes the epoch seconds to *out when it applies, else 0.
+ * ======================================================================= */
+
+int parse_sec4_interval_end(const uint8_t* sec, uint32_t sec_len, int64_t* out) {
+    if (!out || sec_len < 41) return 0;
+    if (be16(sec + 7) != 8) return 0;          /* not template 4.8 */
+
+    int year  = (int)be16(sec + 34);
+    int month = sec[36];
+    int day   = sec[37];
+    int hour  = sec[38];
+    int min   = sec[39];
+    int secs  = sec[40];
+
+    /* A malformed or absent interval end must fall back rather than invent a
+     * date: a wrong timestamp is worse than the old one, being equally silent. */
+    if (year < 1970 || year > 3000)      return 0;
+    if (month < 1 || month > 12)         return 0;
+    if (day   < 1 || day   > 31)         return 0;
+    if (hour  > 23 || min > 59 || secs > 60) return 0;
+
+    *out = civil_to_epoch(year, month, day, hour, min, secs);
+    return 1;
+}
+
 /* =========================================================================
  * Section 3 – Grid Definition  (template 0 / 40 — regular lat/lon)
  *
@@ -197,6 +260,57 @@ int parse_sec3_lambert(const uint8_t* sec, uint32_t sec_len,
     if (g->nx == 0 || g->ny == 0 || g->nx > 100000 || g->ny > 100000) {
         fprintf(stderr,
                 "  Error: implausible Lambert grid size %ux%u\n", g->nx, g->ny);
+        return -1;
+    }
+    return 0;
+}
+
+/* =========================================================================
+ * Section 3, Template 20 – Polar Stereographic
+ * Same octet offsets as Lambert for the shared fields; no Latin1/Latin2.
+ * ======================================================================= */
+int parse_sec3_polar(const uint8_t* sec, uint32_t sec_len, grid_polar_t* g) {
+    if (sec_len < 65) {
+        fprintf(stderr,
+                "  Error: Section 3 too short for polar stereographic (%u bytes, need 65)\n",
+                sec_len);
+        return -1;
+    }
+    uint16_t tmpl = be16(sec + 12);
+    if (tmpl != 20) {
+        fprintf(stderr,
+                "  Error: grid template %u is not polar stereographic (20)\n", tmpl);
+        return -1;
+    }
+
+    /* Shape of earth (octet 15 = sec+14); scaled spherical radius sec+15..19 */
+    uint8_t shape = sec[14];
+    double R = 6371229.0;
+    if (shape == 1) {
+        uint8_t  sf = sec[15];
+        uint32_t sv = be32(sec + 16);
+        if (sv != 0 && sv != 0xFFFFFFFFu) {
+            double val = (double)sv;
+            if (sf != 0 && sf != 0xFF) val /= pow(10.0, (double)sf);
+            R = val;
+        }
+    }
+    g->earth_radius = R;
+
+    g->nx            = be32(sec + 30);
+    g->ny            = be32(sec + 34);
+    g->lat1          = grib2_i32(sec + 38) / 1e6;
+    g->lon1          = grib2_i32(sec + 42) / 1e6;
+    g->lad           = grib2_i32(sec + 47) / 1e6;
+    g->lov           = grib2_i32(sec + 51) / 1e6;
+    g->dx            = (double)be32(sec + 55) / 1e3;  /* mm to m */
+    g->dy            = (double)be32(sec + 59) / 1e3;
+    g->proj_flag     = sec[63];
+    g->scanning_mode = sec[64];
+
+    if (g->nx == 0 || g->ny == 0 || g->nx > 100000 || g->ny > 100000) {
+        fprintf(stderr,
+                "  Error: implausible polar grid size %ux%u\n", g->nx, g->ny);
         return -1;
     }
     return 0;
@@ -357,6 +471,75 @@ int lambert_compute_latlon(const grid_lambert_t* g,
         }
     }
 
+    return 0;
+}
+
+/* =========================================================================
+ * Polar Stereographic projection: (i,j) grid index → (lat,lon)
+ * Spherical Earth, true scale at LaD, central meridian LoV.
+ * Reference: WMO Manual on Codes Vol I.2, GDT 3.20; NCEP wgrib2 polar_stereo.
+ * Output order: lats[j*nx+i], lons[j*nx+i].
+ * ======================================================================= */
+int polar_stereo_compute_latlon(const grid_polar_t* g, float* lats, float* lons) {
+    const double DEG2RAD = M_PI / 180.0;
+    const double RAD2DEG = 180.0 / M_PI;
+    double R    = (g->earth_radius > 0.0) ? g->earth_radius : 6371229.0;
+    double h    = (g->proj_flag & 0x80) ? -1.0 : 1.0;   /* +1 north pole, -1 south */
+    double phic = g->lad  * DEG2RAD;
+    double lov  = g->lov  * DEG2RAD;
+    double phi0 = g->lat1 * DEG2RAD;
+    double lam0 = g->lon1 * DEG2RAD;
+
+    double K    = R * (1.0 + sin(h * phic));
+    double rho0 = K * tan(M_PI / 4.0 - h * phi0 / 2.0);
+    double x0   =  rho0 * sin(lam0 - lov);
+    double y0   = -h * rho0 * cos(lam0 - lov);
+
+    double sx = (g->scanning_mode & 0x80) ? -1.0 : 1.0;  /* +i unless -i bit set */
+    double sy = (g->scanning_mode & 0x40) ? 1.0 : -1.0;  /* +j (S->N) if 0x40 set */
+
+    for (uint32_t j = 0; j < g->ny; j++) {
+        for (uint32_t i = 0; i < g->nx; i++) {
+            double X = x0 + sx * g->dx * (double)i;
+            double Y = y0 + sy * g->dy * (double)j;
+            double rho = sqrt(X * X + Y * Y);
+            double phi = h * (M_PI / 2.0) - 2.0 * h * atan2(rho, K);
+            double lam = lov + atan2(X, -h * Y);
+            double lat = phi * RAD2DEG;
+            double lon = lam * RAD2DEG;
+            while (lon > 180.0)  lon -= 360.0;
+            while (lon < -180.0) lon += 360.0;
+            lats[(size_t)j * g->nx + i] = (float)lat;
+            lons[(size_t)j * g->nx + i] = (float)lon;
+        }
+    }
+    return 0;
+}
+
+/* Inverse of polar_stereo_compute_latlon: (lat,lon) → fractional grid (i,j). */
+int polar_stereo_inverse(const grid_polar_t* g, double lat, double lon,
+                         double* fi, double* fj) {
+    const double DEG2RAD = M_PI / 180.0;
+    double R    = (g->earth_radius > 0.0) ? g->earth_radius : 6371229.0;
+    double h    = (g->proj_flag & 0x80) ? -1.0 : 1.0;
+    double phic = g->lad  * DEG2RAD;
+    double lov  = g->lov  * DEG2RAD;
+    double phi0 = g->lat1 * DEG2RAD;
+    double lam0 = g->lon1 * DEG2RAD;
+
+    double K    = R * (1.0 + sin(h * phic));
+    double rho0 = K * tan(M_PI / 4.0 - h * phi0 / 2.0);
+    double x0   =  rho0 * sin(lam0 - lov);
+    double y0   = -h * rho0 * cos(lam0 - lov);
+    double sx   = (g->scanning_mode & 0x80) ? -1.0 : 1.0;
+    double sy   = (g->scanning_mode & 0x40) ? 1.0 : -1.0;
+
+    double phi = lat * DEG2RAD, lam = lon * DEG2RAD;
+    double rho = K * tan(M_PI / 4.0 - h * phi / 2.0);
+    double X   =  rho * sin(lam - lov);
+    double Y   = -h * rho * cos(lam - lov);
+    *fi = (X - x0) / (sx * g->dx);
+    *fj = (Y - y0) / (sy * g->dy);
     return 0;
 }
 
@@ -743,19 +926,22 @@ int decode_complex(const uint8_t* payload, uint32_t payload_len,
     }
 
     /*
-     * Only NG-1 group lengths are stored in the bitstream.
-     * The last group's length comes from Section 5 (last_group_len).
+     * The bitstream stores a scaled length field for ALL NG groups. The last
+     * group's TRUE length comes from Section 5 (last_group_len), but its stored
+     * field still occupies bits_group_len bits that must be stepped over before
+     * the (octet-aligned) values sub-section — otherwise the values section is
+     * read one field too early. (Failing to advance past the last length field
+     * mis-decoded order-1 spatial-differencing fields, e.g. NCEP Stage IV.)
      */
     uint32_t total_check = 0;
-    for (uint32_t g = 0; g < NG - 1; g++) {
+    for (uint32_t g = 0; g < NG; g++) {
         uint32_t raw = (pk->bits_group_len > 0)
                        ? extract_bits(p, p_len, bit_off, pk->bits_group_len) : 0;
-        gl[g] = pk->ref_group_len + raw * pk->len_increment;
         bit_off += pk->bits_group_len;
+        gl[g] = (g == NG - 1) ? pk->last_group_len
+                              : pk->ref_group_len + raw * pk->len_increment;
         total_check += gl[g];
     }
-    gl[NG - 1] = pk->last_group_len;
-    total_check += pk->last_group_len;
     bit_off = OCTET_ALIGN(bit_off);   /* align before values */
 
     if (total_check != N) {

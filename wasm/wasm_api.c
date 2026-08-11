@@ -23,6 +23,24 @@
 #include "../tools/query_refs.h"
 #include "../core/util/base64.h"
 
+/* Valid time of one GRIB2 message.
+ *
+ * Accumulation / average / extreme products (template 4.8) carry an explicit
+ * "end of overall time interval"; their forecast-time field marks the START of
+ * the window and is normally 0. Adding it to the reference time -- the
+ * template 4.0 rule -- therefore stamped every such field a whole window early:
+ * one hour for hourly Stage IV, a full day for the 24h product.
+ *
+ * Falls back to reference time + forecast offset for everything else, which is
+ * still correct for instantaneous products. */
+static int64_t grib2_msg_valid_time(const uint8_t* data, const grib2_msg_t* m) {
+    int64_t end;
+    if (parse_sec4_interval_end(data + m->sec4_off, (uint32_t)m->sec4_len, &end))
+        return end;
+    return parse_sec1_reftime(data + m->sec1_off, (uint32_t)m->sec1_len)
+         + parse_sec4_forecast_offset(data + m->sec4_off, (uint32_t)m->sec4_len);
+}
+
 /* Portable strnlen (not in C99). */
 static size_t wp_strnlen(const char* s, size_t maxlen) {
     size_t i = 0;
@@ -185,7 +203,7 @@ char* wp_scan_get_vars_json(const wp_scan_result_t* s) {
                i, name, v->cat, v->num,
                v->grid_tmpl, v->data_tmpl,
                v->nx, v->ny, v->count,
-               (v->grid_tmpl == 0 || v->grid_tmpl == 40 || v->grid_tmpl == 30 || v->grid_tmpl == 101) ? "true" : "false",
+               (v->grid_tmpl == 0 || v->grid_tmpl == 40 || v->grid_tmpl == 30 || v->grid_tmpl == 101 || v->grid_tmpl == 20) ? "true" : "false",
                (i + 1 < s->n_vars) ? "," : "");
     }
     APPEND("]\n");
@@ -195,12 +213,12 @@ char* wp_scan_get_vars_json(const wp_scan_result_t* s) {
 }
 
 /* =========================================================================
- * Slim helper: per-message byte-range layout for the JS slim pipeline.
+ * Trim helper: per-message byte-range layout for the JS trim pipeline.
  *
  * Returns a JSON array describing every GRIB2 message in the source. Each
  * entry carries the message's byte span in the original buffer, the
  * (cat, num) and human-readable variable name, the reference time (Unix
- * seconds), and the forecast offset (seconds). JS slim filters this array
+ * seconds), and the forecast offset (seconds). JS trim filters this array
  * by variable + time and concatenates the kept byte spans verbatim — no
  * decode involved.
  *
@@ -253,7 +271,7 @@ char* wp_scan_messages_layout(const wp_scan_result_t* s) {
                     name_esc, sizeof(name_esc));
 
         int supported = (gtmpl == 0 || gtmpl == 30 ||
-                         gtmpl == 40 || gtmpl == 101);
+                         gtmpl == 40 || gtmpl == 101 || gtmpl == 20);
 
         MAPPEND("  {\"index\": %d, \"start\": %llu, \"len\": %llu, "
                 "\"cat\": %u, \"num\": %u, \"name\": %s, "
@@ -264,7 +282,7 @@ char* wp_scan_messages_layout(const wp_scan_result_t* s) {
                 m->param_cat, m->param_num, name_esc,
                 gtmpl, m->data_template,
                 (long long)ref_time, (long long)fc_off,
-                (long long)(ref_time + fc_off),
+                (long long)grib2_msg_valid_time(s->grb_data, m),
                 supported ? "true" : "false",
                 (i + 1 < s->n_msgs) ? "," : "");
     }
@@ -278,239 +296,336 @@ char* wp_scan_messages_layout(const wp_scan_result_t* s) {
  * Returns a refs_dataset_t* ready for querying
  * ======================================================================= */
 
-EMSCRIPTEN_KEEPALIVE
-refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
-    if (!s || var_index < 0 || var_index >= s->n_vars) return NULL;
+/* ── Shared GRIB2 decode helpers (used by wp_grid_coords + wp_normalize_range) ── */
+typedef struct {
+    int kind;                 /* 0 latlon, 1 lambert, 2 unstructured, 3 polar */
+    uint32_t nx, ny;
+    grid_latlon_t       ll;
+    grid_lambert_t      lc;
+    grid_unstructured_t un;
+    grid_polar_t        ps;
+} grib2_grid_t;
 
-    wp_var_info_t* vi = &s->vars[var_index];
-    uint8_t target_cat = vi->cat;
-    uint8_t target_num = vi->num;
-
-    const uint8_t* data = s->grb_data;
-    grib2_msg_t*   msgs = s->msgs;
-    int            n_msgs = s->n_msgs;
-
-    /* Support grid templates 0, 40 (regular lat/lon), 30 (Lambert),
-     * and 101 (general unstructured — ICON / DWD) */
-    if (vi->grid_tmpl != 0 && vi->grid_tmpl != 40 &&
-        vi->grid_tmpl != 30 && vi->grid_tmpl != 101)
-        return NULL;
-
-    /* Find first matching message */
-    int first_idx = -1;
-    for (int i = 0; i < n_msgs; i++) {
-        if (msgs[i].param_cat == target_cat &&
-            msgs[i].param_num == target_num) {
-            first_idx = i; break;
-        }
+static int grib2_parse_grid(const wp_var_info_t* vi, const uint8_t* sec3,
+                            uint32_t sec3_len, grib2_grid_t* g) {
+    if (vi->grid_tmpl != 0 && vi->grid_tmpl != 40 && vi->grid_tmpl != 30 &&
+        vi->grid_tmpl != 101 && vi->grid_tmpl != 20)
+        return -1;
+    if (vi->grid_tmpl == 20) {
+        if (parse_sec3_polar(sec3, sec3_len, &g->ps) != 0) return -1;
+        g->kind = 3; g->nx = g->ps.nx; g->ny = g->ps.ny;
+    } else if (vi->grid_tmpl == 101) {
+        if (parse_sec3_unstructured(sec3, sec3_len, &g->un) != 0) return -1;
+        g->kind = 2; g->nx = g->un.num_points; g->ny = 1;
+    } else if (vi->grid_tmpl == 30) {
+        if (parse_sec3_lambert(sec3, sec3_len, &g->lc) != 0) return -1;
+        g->kind = 1; g->nx = g->lc.nx; g->ny = g->lc.ny;
+    } else {
+        if (parse_sec3_latlon(sec3, sec3_len, &g->ll) != 0) return -1;
+        g->kind = 0; g->nx = g->ll.nx; g->ny = g->ll.ny;
     }
+    if (g->nx == 0 || g->ny == 0) return -1;
+    return 0;
+}
+
+static int grib2_build_coords(const grib2_grid_t* g, float** lats, float** lons,
+                              float** lat2d, float** lon2d, int* is_curv) {
+    uint32_t nx = g->nx, ny = g->ny, n_pts = nx * ny;
+    *lats = *lons = *lat2d = *lon2d = NULL; *is_curv = 0;
+    if (g->kind == 3) {                       /* polar: full 2D */
+        *lat2d = (float*)malloc((size_t)n_pts * sizeof(float));
+        *lon2d = (float*)malloc((size_t)n_pts * sizeof(float));
+        if (!*lat2d || !*lon2d) { free(*lat2d); free(*lon2d); return -1; }
+        if (polar_stereo_compute_latlon(&g->ps, *lat2d, *lon2d) != 0) {
+            free(*lat2d); free(*lon2d); *lat2d = *lon2d = NULL; return -1;
+        }
+        *is_curv = 1;
+        return 0;
+    }
+    *lats = (float*)malloc(ny * sizeof(float));
+    *lons = (float*)malloc(nx * sizeof(float));
+    if (!*lats || !*lons) { free(*lats); free(*lons); return -1; }
+    if (g->kind == 2) {                       /* unstructured: cell index axis */
+        (*lats)[0] = 0.0f;
+        for (uint32_t i = 0; i < nx; i++) (*lons)[i] = (float)i;
+    } else if (g->kind == 1) {                /* lambert: reduce 2D -> 1D axes */
+        float* fl = (float*)malloc((size_t)n_pts * sizeof(float));
+        float* fo = (float*)malloc((size_t)n_pts * sizeof(float));
+        if (!fl || !fo || lambert_compute_latlon(&g->lc, fl, fo) != 0) {
+            free(fl); free(fo); free(*lats); free(*lons);
+            *lats = *lons = NULL; return -1;
+        }
+        for (uint32_t j = 0; j < ny; j++) (*lats)[j] = fl[j * nx];
+        for (uint32_t i = 0; i < nx; i++) (*lons)[i] = fo[i];
+        free(fl); free(fo);
+    } else {                                  /* regular lat/lon */
+        for (uint32_t j = 0; j < ny; j++)
+            (*lats)[j] = (g->ll.scanning_mode & 0x40)
+                ? (float)(g->ll.lat1 + j * g->ll.dj)
+                : (float)(g->ll.lat1 - j * g->ll.dj);
+        for (uint32_t i = 0; i < nx; i++)
+            (*lons)[i] = (float)(g->ll.lon1 + i * g->ll.di);
+    }
+    return 0;
+}
+
+static int grib2_decode_one_field(const uint8_t* data, const grib2_msg_t* m,
+                                  uint32_t n_pts, float* chunk) {
+    packing_t pk; memset(&pk, 0, sizeof(pk));
+    if (parse_sec5(data + m->sec5_off, (uint32_t)m->sec5_len, &pk) != 0) return -1;
+    bitmap_t bm; bm.indicator = 255; bm.bits = NULL; bm.nbytes = 0;
+    if (m->sec6_off != 0) {
+        uint32_t sec6_len = be32(data + m->sec6_off);
+        parse_sec6(data + m->sec6_off, sec6_len, &bm);
+    }
+    if (bm.indicator == 255) {
+        if (pk.num_pts != n_pts) return -1;
+        if (decode_sec7(data + m->sec7_off, (uint32_t)m->sec7_len, &pk, chunk) != 0)
+            return -1;
+    } else if (bm.indicator == 0) {
+        uint32_t present = bitmap_popcount(&bm, n_pts);
+        if (pk.num_pts != present) return -1;
+        if (present == 0) {
+            for (uint32_t i = 0; i < n_pts; i++) chunk[i] = NAN;
+        } else {
+            float* pv = (float*)malloc((size_t)present * sizeof(float));
+            if (!pv) return -1;
+            if (decode_sec7(data + m->sec7_off, (uint32_t)m->sec7_len, &pk, pv) != 0) {
+                free(pv); return -1;
+            }
+            uint32_t next = 0;
+            for (uint32_t i = 0; i < n_pts; i++)
+                chunk[i] = bitmap_get(&bm, i) ? pv[next++] : NAN;
+            free(pv);
+        }
+    } else {
+        return -1;   /* pre-defined bitmap: unsupported */
+    }
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+refs_dataset_t* wp_grid_coords(wp_scan_result_t* s, int var_index) {
+    if (!s || var_index < 0 || var_index >= s->n_vars) return NULL;
+    wp_var_info_t* vi = &s->vars[var_index];
+    const uint8_t* data = s->grb_data; grib2_msg_t* msgs = s->msgs; int n_msgs = s->n_msgs;
+
+    int first_idx = -1;
+    for (int i = 0; i < n_msgs; i++)
+        if (msgs[i].param_cat == vi->cat && msgs[i].param_num == vi->num) { first_idx = i; break; }
     if (first_idx < 0) return NULL;
 
-    /* Parse reference grid — branch on template */
-    uint32_t nx, ny;
-    int is_lambert      = (vi->grid_tmpl == 30);
-    int is_unstructured = (vi->grid_tmpl == 101);
+    grib2_grid_t g;
+    if (grib2_parse_grid(vi, data + msgs[first_idx].sec3_off,
+                         (uint32_t)msgs[first_idx].sec3_len, &g) != 0) return NULL;
+    uint32_t nx = g.nx, ny = g.ny, ref_npts = nx * ny;
 
-    grid_latlon_t       grid_ll;
-    grid_lambert_t      grid_lc;
-    grid_unstructured_t grid_un;
-
-    if (is_unstructured) {
-        if (parse_sec3_unstructured(data + msgs[first_idx].sec3_off,
-                                    (uint32_t)msgs[first_idx].sec3_len,
-                                    &grid_un) != 0)
-            return NULL;
-        /* Flatten the unstructured cell list into (nx=num_points, ny=1) */
-        nx = grid_un.num_points;
-        ny = 1;
-    } else if (is_lambert) {
-        if (parse_sec3_lambert(data + msgs[first_idx].sec3_off,
-                               (uint32_t)msgs[first_idx].sec3_len, &grid_lc) != 0)
-            return NULL;
-        nx = grid_lc.nx;
-        ny = grid_lc.ny;
-    } else {
-        if (parse_sec3_latlon(data + msgs[first_idx].sec3_off,
-                              (uint32_t)msgs[first_idx].sec3_len, &grid_ll) != 0)
-            return NULL;
-        nx = grid_ll.nx;
-        ny = grid_ll.ny;
-    }
-
-    /* Collect matching messages with same grid size */
-    uint32_t ref_npts = nx * ny;
     int* sel = (int*)malloc((size_t)n_msgs * sizeof(int));
-    int  sel_cnt = 0;
-
+    if (!sel) return NULL;
+    int sel_cnt = 0;
     for (int i = 0; i < n_msgs; i++) {
-        if (msgs[i].param_cat != target_cat ||
-            msgs[i].param_num != target_num)
-            continue;
-        uint32_t npts = (msgs[i].sec5_len >= 9)
-                        ? be32(data + msgs[i].sec5_off + 5) : 0;
-        /* Full field: Section-5 point count == grid size. Bitmapped field:
-         * the count is the number of *present* (unmasked) points (< grid), so
-         * accept when a Section 6 bitmap is present and let the per-step decode
-         * validate it against the bitmap. */
-        int has_bitmap = (msgs[i].sec6_off != 0);
-        if (npts == ref_npts || has_bitmap)
-            sel[sel_cnt++] = i;
+        if (msgs[i].param_cat != vi->cat || msgs[i].param_num != vi->num) continue;
+        uint32_t npts = (msgs[i].sec5_len >= 9) ? be32(data + msgs[i].sec5_off + 5) : 0;
+        if (npts == ref_npts || msgs[i].sec6_off != 0) sel[sel_cnt++] = i;
     }
-
     if (sel_cnt == 0) { free(sel); return NULL; }
-
     uint32_t nt = (uint32_t)sel_cnt;
-    uint32_t n_pts = nx * ny;
 
-    /* Build coordinate arrays */
-    float* lats = (float*)malloc(ny * sizeof(float));
-    float* lons = (float*)malloc(nx * sizeof(float));
+    float *lats, *lons, *lat2d, *lon2d; int is_curv;
+    if (grib2_build_coords(&g, &lats, &lons, &lat2d, &lon2d, &is_curv) != 0) { free(sel); return NULL; }
     int64_t* times = (int64_t*)malloc(nt * sizeof(int64_t));
-    float* all_data = (float*)malloc((size_t)nt * n_pts * sizeof(float));
-    float* chunk = (float*)malloc(n_pts * sizeof(float));
+    if (!times) { free(sel); free(lats); free(lons); free(lat2d); free(lon2d); return NULL; }
+    for (uint32_t t = 0; t < nt; t++) {
+        grib2_msg_t* m = &msgs[sel[t]];
+        times[t] = grib2_msg_valid_time(data, m);
+    }
+    free(sel);
+    const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
+    if (is_curv)
+        return refs_open_from_arrays_2d(var_name, nx, ny, nt, lat2d, lon2d, times, NULL);
+    return refs_open_from_arrays(var_name, nx, ny, nt, lats, lons, times, NULL);
+}
 
-    if (!lats || !lons || !times || !all_data || !chunk) {
-        free(sel); free(lats); free(lons); free(times);
-        free(all_data); free(chunk);
+EMSCRIPTEN_KEEPALIVE
+refs_dataset_t* wp_normalize_range(wp_scan_result_t* s, int var_index,
+                                   int32_t t1, int32_t t2, int32_t iy, int32_t ix) {
+    if (!s || var_index < 0 || var_index >= s->n_vars) return NULL;
+    wp_var_info_t* vi = &s->vars[var_index];
+    const uint8_t* data = s->grb_data; grib2_msg_t* msgs = s->msgs; int n_msgs = s->n_msgs;
+
+    int first_idx = -1;
+    for (int i = 0; i < n_msgs; i++)
+        if (msgs[i].param_cat == vi->cat && msgs[i].param_num == vi->num) { first_idx = i; break; }
+    if (first_idx < 0) return NULL;
+
+    grib2_grid_t g;
+    if (grib2_parse_grid(vi, data + msgs[first_idx].sec3_off,
+                         (uint32_t)msgs[first_idx].sec3_len, &g) != 0) return NULL;
+    uint32_t nx = g.nx, ny = g.ny, n_pts = nx * ny, ref_npts = n_pts;
+
+    int* sel = (int*)malloc((size_t)n_msgs * sizeof(int));
+    if (!sel) return NULL;
+    int sel_cnt = 0;
+    for (int i = 0; i < n_msgs; i++) {
+        if (msgs[i].param_cat != vi->cat || msgs[i].param_num != vi->num) continue;
+        uint32_t npts = (msgs[i].sec5_len >= 9) ? be32(data + msgs[i].sec5_off + 5) : 0;
+        if (npts == ref_npts || msgs[i].sec6_off != 0) sel[sel_cnt++] = i;
+    }
+    if (sel_cnt == 0) { free(sel); return NULL; }
+    uint32_t nt_total = (uint32_t)sel_cnt;
+
+    /* clamp the window */
+    if (t1 < 0) t1 = 0;
+    if (t2 < 0 || t2 > (int32_t)nt_total - 1) t2 = (int32_t)nt_total - 1;
+    if (t1 > t2) t1 = t2;
+    uint32_t w0 = (uint32_t)t1, nt = (uint32_t)(t2 - t1 + 1);
+
+    int point_reduce = (iy >= 0 && ix >= 0 && (uint32_t)iy < ny && (uint32_t)ix < nx);
+
+    float *lats, *lons, *lat2d, *lon2d; int is_curv;
+    if (grib2_build_coords(&g, &lats, &lons, &lat2d, &lon2d, &is_curv) != 0) { free(sel); return NULL; }
+
+    int64_t* times = (int64_t*)malloc(nt * sizeof(int64_t));
+    float* chunk = (float*)malloc(n_pts * sizeof(float));
+    if (!times || !chunk) {
+        free(sel); free(lats); free(lons); free(lat2d); free(lon2d); free(times); free(chunk);
         return NULL;
     }
 
-    if (is_unstructured) {
-        /* Unstructured grid: GRIB2 file does NOT carry per-cell lat/lon
-         * (those live in an external ICON grid file referenced by UUID).
-         * Expose the 1D cell array as ny=1, with lons[i] = i (cell index)
-         * so the existing query/nearest-lookup API stays usable. */
-        lats[0] = 0.0f;
-        for (uint32_t i = 0; i < nx; i++)
-            lons[i] = (float)i;
-    } else if (is_lambert) {
-        /* Lambert: compute full 2D lat/lon grid, then extract 1D axes.
-         * lat axis = first column (all rows, col 0)
-         * lon axis = first row (row 0, all cols) */
-        float* full_lats = (float*)malloc(n_pts * sizeof(float));
-        float* full_lons = (float*)malloc(n_pts * sizeof(float));
-        if (!full_lats || !full_lons) {
-            free(full_lats); free(full_lons);
-            free(sel); free(lats); free(lons); free(times);
-            free(all_data); free(chunk);
-            return NULL;
+    if (point_reduce) {
+        float* out = (float*)malloc(nt * sizeof(float));
+        if (!out) { free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
+                    free(times); free(chunk); return NULL; }
+        for (uint32_t t = 0; t < nt; t++) {
+            grib2_msg_t* m = &msgs[sel[w0 + t]];
+            times[t] = grib2_msg_valid_time(data, m);
+            if (grib2_decode_one_field(data, m, n_pts, chunk) != 0) {
+                free(out); free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
+                free(times); free(chunk); return NULL;
+            }
+            out[t] = chunk[(size_t)iy * nx + ix];
         }
-        if (lambert_compute_latlon(&grid_lc, full_lats, full_lons) != 0) {
-            free(full_lats); free(full_lons);
-            free(sel); free(lats); free(lons); free(times);
-            free(all_data); free(chunk);
-            return NULL;
-        }
-        /* Extract lat from first column (index j*nx + 0) */
-        for (uint32_t j = 0; j < ny; j++)
-            lats[j] = full_lats[j * nx];
-        /* Extract lon from first row (index 0*nx + i) */
-        for (uint32_t i = 0; i < nx; i++)
-            lons[i] = full_lons[i];
-        free(full_lats);
-        free(full_lons);
-    } else {
-        /* Regular lat/lon: build evenly-spaced arrays */
-        for (uint32_t j = 0; j < ny; j++) {
-            if (grid_ll.scanning_mode & 0x40)
-                lats[j] = (float)(grid_ll.lat1 + j * grid_ll.dj);
-            else
-                lats[j] = (float)(grid_ll.lat1 - j * grid_ll.dj);
-        }
-        for (uint32_t i = 0; i < nx; i++) {
-            lons[i] = (float)(grid_ll.lon1 + i * grid_ll.di);
-        }
+        float clat = is_curv ? lat2d[(size_t)iy * nx + ix] : lats[iy];
+        float clon = is_curv ? lon2d[(size_t)iy * nx + ix] : lons[ix];
+        free(lats); free(lons); free(lat2d); free(lon2d); free(chunk); free(sel);
+        float* c_lat = (float*)malloc(sizeof(float)); float* c_lon = (float*)malloc(sizeof(float));
+        if (!c_lat || !c_lon) { free(c_lat); free(c_lon); free(times); free(out); return NULL; }
+        c_lat[0] = clat; c_lon[0] = clon;
+        const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
+        return refs_open_from_arrays(var_name, 1, 1, nt, c_lat, c_lon, times, out);
     }
 
-    /* Parse timestamps and decode each time step */
+    /* windowed full decode */
+    float* all_data = (float*)malloc((size_t)nt * n_pts * sizeof(float));
+    if (!all_data) { free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
+                     free(times); free(chunk); return NULL; }
     for (uint32_t t = 0; t < nt; t++) {
-        grib2_msg_t* m = &msgs[sel[t]];
-        int64_t ref = parse_sec1_reftime(data + m->sec1_off,
-                                         (uint32_t)m->sec1_len);
-        int64_t off = parse_sec4_forecast_offset(data + m->sec4_off,
-                                                 (uint32_t)m->sec4_len);
-        times[t] = ref + off;
-
-        packing_t pk;
-        memset(&pk, 0, sizeof(pk));
-        if (parse_sec5(data + m->sec5_off, (uint32_t)m->sec5_len, &pk) != 0) {
-            free(sel); free(lats); free(lons); free(times);
-            free(all_data); free(chunk);
-            return NULL;
+        grib2_msg_t* m = &msgs[sel[w0 + t]];
+        times[t] = grib2_msg_valid_time(data, m);
+        if (grib2_decode_one_field(data, m, n_pts, chunk) != 0) {
+            free(all_data); free(sel); free(lats); free(lons); free(lat2d); free(lon2d);
+            free(times); free(chunk); return NULL;
         }
-
-        /* Section 6 bit map (if present in the stream) tells us which grid
-         * points carry a value; the rest are missing → NaN. */
-        bitmap_t bm;
-        bm.indicator = 255; bm.bits = NULL; bm.nbytes = 0;
-        if (m->sec6_off != 0) {
-            uint32_t sec6_len = be32(data + m->sec6_off);
-            parse_sec6(data + m->sec6_off, sec6_len, &bm);
-        }
-
-        if (bm.indicator == 255) {
-            /* No bit map: every grid point is present. */
-            if (pk.num_pts != n_pts) {
-                free(sel); free(lats); free(lons); free(times);
-                free(all_data); free(chunk);
-                return NULL;
-            }
-            if (decode_sec7(data + m->sec7_off, (uint32_t)m->sec7_len,
-                            &pk, chunk) != 0) {
-                free(sel); free(lats); free(lons); free(times);
-                free(all_data); free(chunk);
-                return NULL;
-            }
-        } else if (bm.indicator == 0) {
-            /* Bit map present: decode only the present points, then scatter
-             * them onto the full grid with NaN in the masked cells. */
-            uint32_t present = bitmap_popcount(&bm, n_pts);
-            if (pk.num_pts != present) {
-                free(sel); free(lats); free(lons); free(times);
-                free(all_data); free(chunk);
-                return NULL;
-            }
-            if (present == 0) {
-                for (uint32_t i = 0; i < n_pts; i++) chunk[i] = NAN;
-            } else {
-                float* present_vals = (float*)malloc((size_t)present * sizeof(float));
-                if (!present_vals) {
-                    free(sel); free(lats); free(lons); free(times);
-                    free(all_data); free(chunk);
-                    return NULL;
-                }
-                if (decode_sec7(data + m->sec7_off, (uint32_t)m->sec7_len,
-                                &pk, present_vals) != 0) {
-                    free(present_vals);
-                    free(sel); free(lats); free(lons); free(times);
-                    free(all_data); free(chunk);
-                    return NULL;
-                }
-                uint32_t next = 0;
-                for (uint32_t i = 0; i < n_pts; i++)
-                    chunk[i] = bitmap_get(&bm, i) ? present_vals[next++] : NAN;
-                free(present_vals);
-            }
-        } else {
-            /* Pre-defined / previously-defined bit map (indicator 1-254):
-             * not supported. */
-            free(sel); free(lats); free(lons); free(times);
-            free(all_data); free(chunk);
-            return NULL;
-        }
-
         memcpy(all_data + (size_t)t * n_pts, chunk, n_pts * sizeof(float));
     }
-    free(chunk);
+    free(chunk); free(sel);
+    const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
+    if (is_curv)
+        return refs_open_from_arrays_2d(var_name, nx, ny, nt, lat2d, lon2d, times, all_data);
+    return refs_open_from_arrays(var_name, nx, ny, nt, lats, lons, times, all_data);
+}
+
+EMSCRIPTEN_KEEPALIVE
+refs_dataset_t* wp_normalize(wp_scan_result_t* s, int var_index) {
+    return wp_normalize_range(s, var_index, 0, INT32_MAX, -1, -1);
+}
+
+/* Curvilinear (polar) grid window export: decode timestep tt and resample onto
+ * a width×height bbox grid via the exact inverse projection (O(1) per pixel).
+ * Returns a malloc'd width*height Float32 buffer (NaN outside the grid); caller
+ * frees via wp_free. NULL if the variable is not a polar grid. */
+EMSCRIPTEN_KEEPALIVE
+float* wp_grid_resample_polar(wp_scan_result_t* s, int var_index, int32_t tt,
+                              double minLon, double minLat, double maxLon, double maxLat,
+                              int32_t width, int32_t height) {
+    if (!s || var_index < 0 || var_index >= s->n_vars) return NULL;
+    if (width <= 0 || height <= 0) return NULL;
+    wp_var_info_t* vi = &s->vars[var_index];
+    const uint8_t* data = s->grb_data; grib2_msg_t* msgs = s->msgs; int n_msgs = s->n_msgs;
+
+    int first_idx = -1;
+    for (int i = 0; i < n_msgs; i++)
+        if (msgs[i].param_cat == vi->cat && msgs[i].param_num == vi->num) { first_idx = i; break; }
+    if (first_idx < 0) return NULL;
+
+    grib2_grid_t g;
+    if (grib2_parse_grid(vi, data + msgs[first_idx].sec3_off,
+                         (uint32_t)msgs[first_idx].sec3_len, &g) != 0) return NULL;
+    if (g.kind != 3) return NULL;             /* polar only */
+    uint32_t nx = g.nx, ny = g.ny, n_pts = nx * ny, ref_npts = n_pts;
+
+    int* sel = (int*)malloc((size_t)n_msgs * sizeof(int));
+    if (!sel) return NULL;
+    int sel_cnt = 0;
+    for (int i = 0; i < n_msgs; i++) {
+        if (msgs[i].param_cat != vi->cat || msgs[i].param_num != vi->num) continue;
+        uint32_t npts = (msgs[i].sec5_len >= 9) ? be32(data + msgs[i].sec5_off + 5) : 0;
+        if (npts == ref_npts || msgs[i].sec6_off != 0) sel[sel_cnt++] = i;
+    }
+    if (sel_cnt == 0) { free(sel); return NULL; }
+    if (tt < 0) tt = 0;
+    if (tt > sel_cnt - 1) tt = sel_cnt - 1;
+
+    float* field = (float*)malloc((size_t)n_pts * sizeof(float));
+    if (!field) { free(sel); return NULL; }
+    if (grib2_decode_one_field(data, &msgs[sel[tt]], n_pts, field) != 0) {
+        free(field); free(sel); return NULL;
+    }
     free(sel);
 
-    /* Create dataset directly using the open_from_arrays function */
-    const char* var_name = grib2_get_variable_name(target_cat, target_num);
-    refs_dataset_t* ds = refs_open_from_arrays(
-        var_name, nx, ny, nt, lats, lons, times, all_data);
+    float* out = (float*)malloc((size_t)width * height * sizeof(float));
+    if (!out) { free(field); return NULL; }
+    double dx = (maxLon - minLon) / width, dy = (maxLat - minLat) / height;
+    for (int y = 0; y < height; y++) {
+        double lat = maxLat - (y + 0.5) * dy;
+        for (int x = 0; x < width; x++) {
+            double lon = minLon + (x + 0.5) * dx;
+            double fi, fj;
+            polar_stereo_inverse(&g.ps, lat, lon, &fi, &fj);
+            long ii = (long)floor(fi + 0.5), jj = (long)floor(fj + 0.5);
+            out[(size_t)y * width + x] =
+                (ii >= 0 && ii < (long)nx && jj >= 0 && jj < (long)ny)
+                ? field[(size_t)jj * nx + ii] : NAN;
+        }
+    }
+    free(field);
+    return out;
+}
 
-    /* lats, lons, times, all_data are now owned by ds */
-    return ds;
+/* Decode ONE message's field and return the value at grid cell (iy,ix), with no
+ * coordinate build, dataset, or JSON. Used by the range-native streaming loop,
+ * where the cell is already known — avoids re-projecting the whole grid and
+ * re-marshalling per message. Returns NaN on any error / fill (caller → null). */
+EMSCRIPTEN_KEEPALIVE
+double wp_scan_decode_cell(wp_scan_result_t* s, int var_index, int32_t iy, int32_t ix) {
+    if (!s || var_index < 0 || var_index >= s->n_vars) return NAN;
+    wp_var_info_t* vi = &s->vars[var_index];
+    const uint8_t* data = s->grb_data; grib2_msg_t* msgs = s->msgs; int n_msgs = s->n_msgs;
+    int first = -1;
+    for (int i = 0; i < n_msgs; i++)
+        if (msgs[i].param_cat == vi->cat && msgs[i].param_num == vi->num) { first = i; break; }
+    if (first < 0) return NAN;
+    grib2_grid_t g;
+    if (grib2_parse_grid(vi, data + msgs[first].sec3_off,
+                         (uint32_t)msgs[first].sec3_len, &g) != 0) return NAN;
+    uint32_t nx = g.nx, ny = g.ny, n_pts = nx * ny;
+    if (iy < 0 || ix < 0 || (uint32_t)iy >= ny || (uint32_t)ix >= nx) return NAN;
+    float* chunk = (float*)malloc((size_t)n_pts * sizeof(float));
+    if (!chunk) return NAN;
+    if (grib2_decode_one_field(data, &msgs[first], n_pts, chunk) != 0) { free(chunk); return NAN; }
+    float v = chunk[(size_t)iy * nx + ix];
+    free(chunk);
+    return (double)v;
 }
 
 /* =========================================================================
@@ -750,7 +865,7 @@ char* wp_nc3_scan_get_vars_json(const wp_nc3_scan_result_t* s) {
 }
 
 /* ------------------------------------------------------------------
- * Slim helper: full header layout for the JS slim pipeline.
+ * Trim helper: full header layout for the JS trim pipeline.
  *
  * Returns a JSON dump of the parsed nc3_file_t — version, numrecs, dims,
  * global attrs, and per-variable definitions including the byte offset
@@ -1020,6 +1135,24 @@ uint32_t wp_ny(const refs_dataset_t* ds) { return refs_ny(ds); }
 
 EMSCRIPTEN_KEEPALIVE
 uint32_t wp_nt(const refs_dataset_t* ds) { return refs_nt(ds); }
+
+EMSCRIPTEN_KEEPALIVE
+int wp_is_curvilinear(const refs_dataset_t* ds) { return refs_is_curvilinear(ds); }
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t wp_find_nearest_cell(const refs_dataset_t* ds, double lat, double lon) {
+    return refs_find_nearest_cell(ds, lat, lon);
+}
+
+EMSCRIPTEN_KEEPALIVE
+float wp_cell_lat(const refs_dataset_t* ds, uint32_t iy, uint32_t ix) {
+    return refs_cell_lat(ds, iy, ix);
+}
+
+EMSCRIPTEN_KEEPALIVE
+float wp_cell_lon(const refs_dataset_t* ds, uint32_t iy, uint32_t ix) {
+    return refs_cell_lon(ds, iy, ix);
+}
 
 /* ---- Pointer accessors for parallel bbox grid extraction (extractGrid) ----
  *

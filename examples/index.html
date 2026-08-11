@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SciWrid Toolkit — examples</title>
+  <style>
+    :root {
+      --radius: 0.625rem;
+      --background: oklch(0.992 0.004 240);
+      --foreground: oklch(0.21 0.03 252);
+      --card: oklch(1 0.002 240);
+      --card-foreground: oklch(0.21 0.03 252);
+      --primary: oklch(0.28 0.04 252);
+      --primary-foreground: oklch(0.99 0.005 240);
+      --secondary: oklch(0.96 0.01 240);
+      --secondary-foreground: oklch(0.28 0.04 252);
+      --muted: oklch(0.965 0.008 240);
+      --muted-foreground: oklch(0.52 0.03 248);
+      --accent: oklch(0.95 0.02 242);
+      --accent-foreground: oklch(0.28 0.04 252);
+      --brand: oklch(0.55 0.16 245);
+      --brand-foreground: oklch(0.99 0.005 240);
+      --border: oklch(0.91 0.012 245);
+      --input: oklch(0.86 0.014 245);
+      --ring: oklch(0.55 0.16 245);
+      --shadow-tint: oklch(0.45 0.05 250 / 0.10);
+      --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, "Cascadia Code", "Consolas", "Courier New", monospace;
+    }
+    .dark {
+      --background: oklch(0.17 0.022 250);
+      --foreground: oklch(0.97 0.006 240);
+      --card: oklch(0.205 0.025 252);
+      --card-foreground: oklch(0.97 0.006 240);
+      --primary: oklch(0.97 0.006 240);
+      --primary-foreground: oklch(0.21 0.03 252);
+      --secondary: oklch(0.27 0.03 252);
+      --secondary-foreground: oklch(0.97 0.006 240);
+      --muted: oklch(0.24 0.025 252);
+      --muted-foreground: oklch(0.69 0.025 245);
+      --accent: oklch(0.29 0.04 250);
+      --accent-foreground: oklch(0.97 0.006 240);
+      --brand: oklch(0.70 0.13 240);
+      --brand-foreground: oklch(0.17 0.022 250);
+      --border: oklch(0.30 0.03 252);
+      --input: oklch(0.30 0.03 252);
+      --ring: oklch(0.70 0.13 240);
+      --shadow-tint: oklch(0 0 0 / 0.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-sans);
+      margin: 0;
+      background-color: var(--background);
+      background-image:
+        radial-gradient(1100px 480px at 8% -10%, oklch(from var(--brand) l c h / 0.10), transparent 55%),
+        radial-gradient(900px 420px at 100% 0%, oklch(from var(--brand) l c h / 0.06), transparent 60%);
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+      color: var(--foreground);
+      line-height: 1.5;
+    }
+
+    h1, h2 { color: var(--foreground); margin: 0 0 .5rem; font-weight: 600; letter-spacing: -0.022em; }
+    h1 { font-size: clamp(1.7rem, 1.3rem + 1.6vw, 2.15rem); line-height: 1.08; }
+    h2 { font-size: 1.2rem; }
+
+    a { color: inherit; text-decoration: none; }
+
+    code { font-family: var(--font-mono); font-size: .85em; }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: oklch(from var(--background) l c h / 0.92);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+    }
+    .site-header-inner {
+      width: min(1100px, calc(100% - 2rem));
+      margin: 0 auto;
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .brand { display: inline-flex; align-items: center; gap: .75rem; min-width: max-content; }
+    .brand-mark {
+      width: 32px; height: 32px;
+      display: inline-grid; place-items: center;
+      background: var(--brand); color: var(--brand-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 12px; font-weight: 700;
+      box-shadow: 0 2px 8px oklch(from var(--brand) l c h / 0.35);
+    }
+    .brand strong { display: block; font-size: 14px; line-height: 1.1; }
+    .brand span:last-child span { display: block; color: var(--muted-foreground); font-size: 11px; line-height: 1.2; }
+
+    .site-nav { display: flex; align-items: center; gap: .25rem; margin-left: auto; }
+    .site-nav a {
+      padding: 6px 10px;
+      color: var(--muted-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      font-size: 13px; font-weight: 500; white-space: nowrap;
+    }
+    .site-nav a:hover, .site-nav a:focus-visible { background: var(--accent); color: var(--accent-foreground); outline: none; }
+
+    #theme-toggle {
+      padding: 6px 10px; min-width: 36px;
+      background: transparent; color: var(--muted-foreground);
+      border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+      cursor: pointer; opacity: .85; font-size: 14px;
+    }
+    #theme-toggle:hover { opacity: 1; background: var(--accent); }
+
+    /* Lab attribution. Parked past the nav controls in the far-right corner so it
+       reads as provenance, not as a second brand competing with the SW mark. */
+    .hilab {
+      display: inline-flex; align-items: center; flex: 0 0 auto;
+      margin-left: .4rem; padding-left: .8rem;
+      border-left: 1px solid var(--border);
+    }
+    .hilab img { display: block; height: 24px; width: auto; }
+
+    .page { width: min(1100px, calc(100% - 2rem)); margin: 0 auto; padding: 1.5rem 0 3rem; }
+
+    /* ── Hero ───────────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      overflow: hidden;
+      margin: 1.25rem 0 0;
+      padding: clamp(1.75rem, 1rem + 4vw, 3.75rem) clamp(1.25rem, 0.5rem + 3vw, 3rem);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 6px);
+      background:
+        linear-gradient(180deg, oklch(from var(--brand) l c h / 0.07), transparent 42%),
+        var(--card);
+      box-shadow: 0 1px 2px var(--shadow-tint), 0 30px 70px -45px var(--shadow-tint);
+    }
+    /* animated bathymetric/flow contour motif */
+    .hero-bg {
+      position: absolute; inset: 0; z-index: 0;
+      pointer-events: none; overflow: hidden;
+      opacity: .55;
+      -webkit-mask-image: linear-gradient(105deg, transparent 0%, #000 35%, #000 100%);
+              mask-image: linear-gradient(105deg, transparent 0%, #000 35%, #000 100%);
+    }
+    .hero-bg svg { position: absolute; top: 50%; left: 0; width: 135%; height: 150%; transform: translateY(-50%); }
+    .hero-bg path { fill: none; stroke: var(--brand); stroke-width: 1.1; }
+    .hero-bg .flow { animation: drift 26s linear infinite; }
+    @keyframes drift { from { transform: translateX(0); } to { transform: translateX(-90px); } }
+    @media (prefers-reduced-motion: reduce) { .hero-bg .flow { animation: none; } }
+
+    .hero-grid {
+      position: relative; z-index: 1;
+      display: grid; grid-template-columns: 1.12fr 0.88fr;
+      gap: clamp(1.5rem, 1rem + 3vw, 3rem); align-items: center;
+    }
+    .hero h1 {
+      font-size: clamp(1.9rem, 1.3rem + 2.8vw, 2.95rem);
+      line-height: 1.04; letter-spacing: -0.03em; margin: 0;
+    }
+    .hero h1 .accent { color: var(--brand); }
+    .hero-lead { max-width: 46ch; margin: 1rem 0 0; color: var(--muted-foreground); font-size: 1.02rem; }
+    .hero-cta { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.5rem; }
+    .btn {
+      display: inline-flex; align-items: center; gap: .45rem;
+      padding: 10px 16px; font-size: 13px; font-weight: 600;
+      border-radius: calc(var(--radius) - 1px); border: 1px solid transparent;
+      cursor: pointer; transition: filter .15s ease, transform .1s ease, background .15s ease;
+    }
+    .btn-primary { background: var(--brand); color: var(--brand-foreground); box-shadow: 0 6px 18px -8px oklch(from var(--brand) l c h / 0.55); }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-ghost { background: transparent; color: var(--foreground); border-color: var(--border); }
+    .btn-ghost:hover { background: var(--accent); }
+    .btn:active { transform: translateY(1px); }
+
+    /* glass readout panel */
+    .readout {
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 2px);
+      background: oklch(from var(--card) l c h / 0.72);
+      backdrop-filter: blur(10px);
+      box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.08), 0 24px 50px -32px var(--shadow-tint);
+      overflow: hidden;
+    }
+    .readout-head {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .6rem .85rem; border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground);
+    }
+    .readout-dots { display: inline-flex; gap: 5px; }
+    .readout-dots i { width: 9px; height: 9px; border-radius: 999px; background: var(--border); }
+    .readout-dots i:first-child { background: var(--brand); }
+    .readout pre {
+      margin: 0; padding: .9rem 1rem;
+      font-family: var(--font-mono); font-size: 12px; line-height: 1.7;
+      color: var(--foreground); overflow-x: auto;
+    }
+    .readout .k { color: var(--brand); }
+    .readout .c { color: var(--muted-foreground); }
+    .readout .n { color: var(--success); }
+
+    @media (max-width: 820px) {
+      .hero-grid { grid-template-columns: 1fr; }
+      .readout { order: 2; }
+    }
+    .hero p { max-width: 760px; margin: .5rem 0 0; color: var(--muted-foreground); font-size: 1.02rem; }
+    .kicker {
+      color: var(--brand); font-size: 12px; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase; margin: 0 0 .5rem;
+      display: inline-flex; align-items: center; gap: .5rem;
+    }
+    .kicker::before {
+      content: ""; width: 18px; height: 2px; border-radius: 2px;
+      background: var(--brand);
+    }
+    .formats { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: .4rem; }
+    .pill {
+      font-size: 12px; font-weight: 600;
+      padding: 3px 10px; border-radius: 999px;
+      background: var(--secondary); color: var(--secondary-foreground);
+      border: 1px solid var(--border);
+    }
+
+    /* ── Card shell ─────────────────────────────────────────── */
+    .section {
+      margin: 1.5rem 0; padding: 1.25rem 1.5rem 1.5rem;
+      background: var(--card); color: var(--card-foreground);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: 0 1px 2px var(--shadow-tint), 0 12px 30px -18px var(--shadow-tint);
+    }
+
+    /* ── Pathways ───────────────────────────────────────────── */
+    .pathways { display: grid; gap: .5rem; margin-top: 1rem; }
+    .path {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 1rem; align-items: start;
+      padding: .75rem .9rem;
+      border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+      background: oklch(from var(--accent) l c h / 0.5);
+    }
+    .path-when { font-weight: 600; font-size: .92rem; }
+    .path-when small { display: block; font-weight: 400; color: var(--muted-foreground); font-size: .8rem; margin-top: 2px; }
+    .path-do { font-size: .9rem; }
+    .path-do a {
+      font-family: var(--font-mono); font-size: .85em; font-weight: 600;
+      color: var(--brand);
+      border-bottom: 1px dashed oklch(from var(--brand) l c h / 0.5);
+    }
+    .path-do a:hover { border-bottom-style: solid; border-bottom-color: var(--brand); }
+    .path-do .arrow { color: var(--muted-foreground); }
+    .path-do .ret { color: var(--muted-foreground); }
+
+    /* ── Demo cards ─────────────────────────────────────────── */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .demo-card {
+      display: flex; flex-direction: column;
+      padding: 1.1rem 1.2rem;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--card);
+      transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+    }
+    .demo-card:hover { border-color: var(--brand); transform: translateY(-2px); box-shadow: 0 10px 28px -12px oklch(from var(--brand) l c h / 0.30); }
+    .demo-card h3 { margin: 0 0 .35rem; font-size: 1.05rem; }
+    .demo-card p { margin: 0 0 .9rem; color: var(--muted-foreground); font-size: .9rem; flex: 1; }
+    .demo-tags { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .9rem; }
+    .demo-tags span { font-size: 11px; font-family: var(--font-mono); padding: 2px 7px; border-radius: 999px; background: var(--secondary); color: var(--secondary-foreground); }
+    .demo-card .open {
+      align-self: flex-start;
+      padding: 7px 14px; font-size: 13px; font-weight: 600;
+      background: var(--brand); color: var(--brand-foreground);
+      border-radius: calc(var(--radius) - 2px);
+      transition: filter .15s ease, transform .1s ease;
+    }
+    .demo-card .open:hover { filter: brightness(1.08); }
+    .demo-card .open:active { transform: translateY(1px); }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    .foot { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: .85rem; }
+    .foot a { border-bottom: 1px dashed var(--muted-foreground); }
+    .foot code { background: var(--secondary); padding: 1px 6px; border-radius: 5px; }
+
+    @media (max-width: 560px) {
+      .path { grid-template-columns: 1fr; gap: .35rem; }
+    }
+  </style>
+  <script>
+    /* Apply the saved/system theme before first paint to avoid a flash.
+       Shares the 'apidemo-theme' key with api-demo.html so the choice sticks. */
+    (function () {
+      var stored = localStorage.getItem('apidemo-theme');
+      var dark = stored ? stored === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.classList.toggle('dark', dark);
+    })();
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <span class="brand">
+        <span class="brand-mark">SW</span>
+        <span><strong>SciWrid Toolkit</strong><span>examples</span></span>
+      </span>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md" target="_blank" rel="noopener">Docs</a>
+        <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/README.md" target="_blank" rel="noopener">README</a>
+        <a href="https://github.com/uihilab/SciWrid-Toolkit" target="_blank" rel="noopener">GitHub</a>
+        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
+        <span class="hilab">
+          <img src="/assets/logo-hilab-mini.png" alt="HiLab" width="662" height="283">
+        </span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div class="hero-bg" aria-hidden="true">
+        <svg viewBox="0 0 960 280" preserveAspectRatio="none">
+          <g class="flow">
+            <path d="M-60 26 C70 6,170 46,300 26 C430 6,530 46,660 26 C790 6,890 46,1020 26" stroke-opacity="0.85"/>
+            <path d="M-60 60 C70 40,170 80,300 60 C430 40,530 80,660 60 C790 40,890 80,1020 60" stroke-opacity="0.6"/>
+            <path d="M-60 94 C70 74,170 114,300 94 C430 74,530 114,660 94 C790 74,890 114,1020 94" stroke-opacity="0.8"/>
+            <path d="M-60 128 C70 108,170 148,300 128 C430 108,530 148,660 128 C790 108,890 148,1020 128" stroke-opacity="0.5"/>
+            <path d="M-60 162 C70 142,170 182,300 162 C430 142,530 182,660 162 C790 142,890 182,1020 162" stroke-opacity="0.75"/>
+            <path d="M-60 196 C70 176,170 216,300 196 C430 176,530 216,660 196 C790 176,890 216,1020 196" stroke-opacity="0.45"/>
+            <path d="M-60 230 C70 210,170 250,300 230 C430 210,530 250,660 230 C790 210,890 250,1020 230" stroke-opacity="0.7"/>
+          </g>
+        </svg>
+      </div>
+
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <p class="kicker">WebAssembly geospatial toolkit</p>
+          <h1>Read weather &amp; geospatial grids <span class="accent">right in the browser</span></h1>
+          <p class="hero-lead">
+            GRIB2, NetCDF, Zarr and GeoTIFF through one mental model: scan a file,
+            pull a point or an area, render it on a map, or trim it down — no server,
+            no Python.
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="/examples/api-demo.html">Open API demo →</a>
+            <a class="btn btn-ghost" href="/examples/map-demo.html">Map demo</a>
+            <a class="btn btn-ghost" href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md">Read the docs</a>
+          </div>
+          <div class="formats">
+            <span class="pill">GRIB2</span>
+            <span class="pill">NetCDF3</span>
+            <span class="pill">NetCDF4 / HDF5</span>
+            <span class="pill">Zarr v2</span>
+            <span class="pill">TIFF / GeoTIFF / COG</span>
+          </div>
+        </div>
+
+        <div class="readout" aria-hidden="true">
+          <div class="readout-head">
+            <span class="readout-dots"><i></i><i></i><i></i></span>
+            <span>SciWrid Toolkit · console</span>
+          </div>
+<pre><span class="c">// one model, every format</span>
+<span class="k">scan</span>(file)
+  format:    <span class="n">"grib2"</span>
+  variables: <span class="n">83</span>
+  bbox:      [-180,-90,180,90]
+
+<span class="k">extractGrid</span>(file, {
+  bbox, width: <span class="n">256</span>, height: <span class="n">256</span>
+})
+  → Float32 <span class="n">256×256</span>  <span class="c">// parallel</span></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="pathways-title">
+      <p class="kicker">Choosing your pathway</p>
+      <h2 id="pathways-title">From a file to what you need</h2>
+      <p style="color: var(--muted-foreground); font-size: .92rem; margin:.25rem 0 0;">
+        The two questions that branch the API: <strong>point or area?</strong>
+        and <strong>object or file-ready output?</strong>
+      </p>
+
+      <div class="pathways">
+        <div class="path">
+          <div class="path-when">What is this file?<small>format · variables · time · bbox</small></div>
+          <div class="path-do">
+            <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md#detectformatsource">detectFormat</a> /
+            <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md#scansource-opts">scan</a>
+            <span class="arrow">→</span> <span class="ret">format + metadata</span>
+          </div>
+        </div>
+
+        <div class="path">
+          <div class="path-when">A value at one point<small>nearest lat / lon</small></div>
+          <div class="path-do">
+            <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md#extractsource-options">extract</a>
+            <span class="arrow">→</span> <span class="ret">object</span>
+            &nbsp;·&nbsp;
+            <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md#extractoutputsource-options-format">extractOutput</a>
+            <span class="arrow">→</span> <span class="ret">JSON / CSV</span>
+          </div>
+        </div>
+
+        <div class="path">
+          <div class="path-when">A grid over an area<small>bounding box, parallel + abortable</small></div>
+          <div class="path-do">
+            <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md#extractgridsource-options">extractGrid</a>
+            <span class="arrow">→</span> <span class="ret">Float32 grid</span>
+            &nbsp;·&nbsp;
+            <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md#extractgridoutputsource-options-format">extractGridOutput</a>
+            <span class="arrow">→</span> <span class="ret">JSON / GeoTIFF / PNG</span>
+          </div>
+        </div>
+
+        <div class="path">
+          <div class="path-when">Draw it on a map<small>grid → pixels</small></div>
+          <div class="path-do">
+            <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md#gridtoimagedatagrid-opts">gridToImageData</a> /
+            <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md#gridtopnggrid-opts">gridToPNG</a>
+            <span class="arrow">→</span> <span class="ret">RGBA / PNG (+ color ramps)</span>
+          </div>
+        </div>
+
+        <div class="path">
+          <div class="path-when">A smaller file, same format<small>keep only what you need</small></div>
+          <div class="path-do">
+            <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md#trimsource-options">trim</a>
+            <span class="arrow">→</span> <span class="ret">{ bytes, … }</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="try-title">
+      <p class="kicker">Try it</p>
+      <h2 id="try-title">Interactive demos</h2>
+      <p style="color: var(--muted-foreground); font-size: .92rem; margin:.25rem 0 0;">
+        Drop one of your own files (or a fixture from <code>examples/testfile/</code>) into any demo.
+      </p>
+
+      <div class="cards">
+        <article class="demo-card">
+          <h3>API demo</h3>
+          <p>The full functional API on one page: detect, scan, extract a point, export a bbox grid, and trim a file — with live JSON output.</p>
+          <div class="demo-tags">
+            <span>scan</span><span>extract</span><span>extractGrid</span><span>trim</span>
+          </div>
+          <a class="open" href="/examples/api-demo.html">Open API demo →</a>
+        </article>
+
+        <article class="demo-card">
+          <h3>Map demo</h3>
+          <p>Render any file onto a MapLibre basemap with a color ramp, then click the map to read back the underlying value. Worker-offloaded.</p>
+          <div class="demo-tags">
+            <span>extractGrid</span><span>gridToImageData</span><span>render</span>
+          </div>
+          <a class="open" href="/examples/map-demo.html">Open map demo →</a>
+        </article>
+
+        <article class="demo-card">
+          <h3>Library usage</h3>
+          <p>A minimal copy-paste page showing the class-based <code>SciWridToolkit</code> API — load a file once and reuse it across queries.</p>
+          <div class="demo-tags">
+            <span>SciWridToolkit</span><span>class API</span>
+          </div>
+          <a class="open" href="/examples/library-usage.html">Open usage example →</a>
+        </article>
+      </div>
+    </section>
+
+    <!-- <footer class="foot">
+      Serve these pages with <code>npm run demo:web</code> (then open
+      <code>/examples/</code>). Full reference: <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md">docs/API.md</a>.
+      Decode internals: the reader sources under <code>lib/</code>.
+    </footer> -->
+  </main>
+
+  <script>
+    /* Theme toggle — touches only the .dark class + localStorage. */
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      function sync() {
+        var dark = document.documentElement.classList.contains('dark');
+        btn.textContent = dark ? '☀' : '◐';
+        btn.setAttribute('aria-pressed', String(dark));
+      }
+      btn.addEventListener('click', function () {
+        var dark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('apidemo-theme', dark ? 'dark' : 'light');
+        sync();
+      });
+      sync();
+    })();
+  </script>
+</body>
+</html>

@@ -101,6 +101,20 @@ typedef struct {
 } grid_lambert_t;
 
 /*
+ * Polar stereographic grid parameters (Section 3, template 20).
+ */
+typedef struct {
+    uint32_t nx, ny;
+    double   lat1, lon1;     /* first grid point (degrees) */
+    double   lad;            /* standard/true-scale latitude (degrees) */
+    double   lov;            /* orientation longitude (degrees) */
+    double   dx, dy;         /* grid spacing at LaD (meters) */
+    uint8_t  proj_flag;      /* projection-centre flag: bit 0x80 set = south pole */
+    uint8_t  scanning_mode;
+    double   earth_radius;   /* meters (WMO 6371229 default) */
+} grid_polar_t;
+
+/*
  * Unstructured (general) grid parameters (Section 3, template 101).
  * Used by ICON (DWD) and other unstructured-mesh models.  The cell
  * coordinates are NOT stored in the GRIB2 message — they live in an
@@ -174,8 +188,15 @@ int     parse_sec3_lambert(const uint8_t* sec, uint32_t sec_len,
                            grid_lambert_t* g);
 int     parse_sec3_unstructured(const uint8_t* sec, uint32_t sec_len,
                                 grid_unstructured_t* g);
+int     parse_sec3_polar(const uint8_t* sec, uint32_t sec_len,
+                         grid_polar_t* g);
 int64_t parse_sec1_reftime(const uint8_t* sec, uint32_t sec_len);
 int64_t parse_sec4_forecast_offset(const uint8_t* sec, uint32_t sec_len);
+
+/* Absolute valid time for interval products (template 4.8): returns 1 and
+ * writes epoch seconds to *out, or 0 when the section carries no usable
+ * interval end and the caller should fall back to reftime + forecast offset. */
+int parse_sec4_interval_end(const uint8_t* sec, uint32_t sec_len, int64_t* out);
 int     parse_sec5(const uint8_t* sec, uint32_t sec_len, packing_t* pk);
 
 /* Section 6 bit-map. Returns 0 on success (bm populated), -1 on malformed input. */
@@ -189,6 +210,16 @@ uint32_t bitmap_popcount(const bitmap_t* bm, uint32_t n);
  * Caller must allocate lats[ny*nx] and lons[ny*nx]. */
 int lambert_compute_latlon(const grid_lambert_t* g,
                            float* lats, float* lons);
+
+/* Polar stereographic projection: compute lat/lon arrays for all grid points.
+ * Caller must allocate lats[ny*nx] and lons[ny*nx]. */
+int polar_stereo_compute_latlon(const grid_polar_t* g,
+                                float* lats, float* lons);
+
+/* Inverse polar stereographic: (lat,lon in degrees) → fractional grid (i,j).
+ * Round to nearest int for the covering cell; caller checks 0<=i<nx, 0<=j<ny. */
+int polar_stereo_inverse(const grid_polar_t* g, double lat, double lon,
+                         double* fi, double* fj);
 
 /* Data decoders */
 int decode_simple (const uint8_t* payload, uint32_t payload_len,
