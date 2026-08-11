@@ -173,7 +173,7 @@ Format-specific fields in the result:
 | ----------- | -------------------------------------------------------------------- |
 | GRIB2       | `grid_templates[]`, `data_templates[]`, `bbox`                       |
 | NetCDF4     | `shapes[]`, `units[]`, `bbox`                                        |
-| NetCDF3     | `shapes[]`, `units[]` — no `bbox` yet                                |
+| NetCDF3     | `shapes[]`, `units[]`, `bbox`                                        |
 | Zarr v2/v3  | `shapes[]`, `dtypes[]`, `compressors[]`, `bbox`                      |
 | Parquet     | `gridTypes[]`, `bbox`                                                |
 
@@ -205,7 +205,8 @@ L.imageOverlay(pngUrl, [[s, w], [n, e]]).addTo(map);
 
 | Case                                   | Why                                                          |
 | -------------------------------------- | ------------------------------------------------------------ |
-| NetCDF3                                | The extent is not derived for NetCDF3 yet — NetCDF4 is.        |
+| NetCDF3/4 without CF coordinates       | No variable identifiable as latitude/longitude by name, `axis`, `standard_name` or `units`. |
+| NetCDF3 whose axes are record variables | Record data is interleaved, so the axis is not contiguous and is not read. |
 | GRIB2 template 101 (unstructured/ICON) | Cell coordinates live in an external grid file, not the GRIB2. |
 | GRIB2 templates other than 0/20/30/40  | Coordinates are not built for them.                            |
 | Zarr with synthetic axes               | No real lat/lon coordinate arrays in the store.                |

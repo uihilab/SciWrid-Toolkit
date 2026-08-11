@@ -188,7 +188,7 @@ The `demo:web` server hosts several pages:
 - **Zarr v2 (zip)** — compressors `null`, `gzip`, `zlib`, `blosc`, `zstd`, `lz4`.
 - **TIFF / GeoTIFF** — UInt8/16, Int16, Float32; LZW + Deflate; horizontal + floating-point predictors; WGS84 / UTM / sinusoidal; strip + tile; **COG over HTTP Range**.
 - **Point + bbox extraction** — `extract`, `extractGrid` (parallel workers, abortable, progress).
-- **Geographic extent** — `scan()` reports `meta.bbox` for GRIB2, NetCDF4/HDF5, Zarr, Parquet and TIFF, so a map can place the grid without guessing. Projected grids (polar stereographic, Lambert) report the envelope of their real lat/lon, not a four-corner box.
+- **Geographic extent** — `scan()` reports `meta.bbox` for GRIB2, NetCDF3, NetCDF4/HDF5, Zarr, Parquet and TIFF, so a map can place the grid without guessing. Projected grids (polar stereographic, Lambert) report the envelope of their real lat/lon, not a four-corner box.
 - **CF time axis** — decode timesteps; select a timestep by `date` (nearest match); `timeRange` / per-axis start–end exposed by `scan`.
 - **Output** — `gridToGeoTIFF`, `gridToJSON`, `gridToImageData` / `gridToPNG` (viridis / plasma / grayscale / RdBu ramps).
 - **`trim()`** — in-place file trimming across GRIB2 / NetCDF3 / NetCDF4 / Zarr.
@@ -196,7 +196,7 @@ The `demo:web` server hosts several pages:
 ### ⚠️ Not yet supported
 - Zarr filters (`fixedscaleoffset`, `delta`, …).
 - Zarr v3 — reads fine, but `trim()` refuses it.
-- `meta.bbox` for NetCDF3 (every other format reports one) and for GRIB2 grid templates outside 0 / 20 / 30 / 40.
+- `meta.bbox` for GRIB2 grid templates outside 0 / 20 / 30 / 40.
 - GRIB2 interval products: only template 4.8 is stamped at the interval end; 4.9–4.14 still report the reference time.
 
 ## Roadmap
