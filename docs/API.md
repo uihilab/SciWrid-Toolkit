@@ -182,8 +182,9 @@ Format-specific fields in the result:
 A GRIB2 message does not carry a name or a unit. It carries three integers —
 discipline (Section 0), parameter category and parameter number (Section 4) —
 and the meaning lives in **WMO Code Table 4.2**. SciWrid ships that table
-(`lib/grib2/param-table.js`), so `scan()`, `extract()` and `extractGrid()` all
-report a real name and real units.
+(`formats/grib2/grib2_param_table.h`, generated), so `scan()`, `extract()` and
+`extractGrid()` all report a real name and real units. `scan()` also exposes the
+`discipline` and `centre` a name depends on.
 
 Numbers 192–254 are reserved by WMO for the **originating centre** and are not in
 Table 4.2 at all, so the centre's own table is shipped for the centres that
@@ -200,7 +201,12 @@ A parameter in neither table keeps an honest label rather than a guess:
   warnings: ["Not in WMO Code Table 4.2, nor in the local table for centre 7"] }
 ```
 
-To refresh the tables (they change rarely, and only additively):
+Variables are identified by **(discipline, category, number)**, not by
+(category, number): one file can carry the same pair under two disciplines
+meaning two different quantities. A GFS file carries disciplines 0, 2 and 10,
+and seven of its pairs occur under two of them.
+
+To refresh the table (it changes rarely, and only additively):
 
 ```bash
 npm run tables:grib2:check   # report what would change, exit 1 if anything does
@@ -252,7 +258,8 @@ Each variable in `variables[]` also carries format-specific fields:
 ```js
 // GRIB2 variable
 { index: 0, name: 'Total precipitation', units: 'kg m-2', supported: true,
-  cat: 1, num: 8, grid_template: 20, nx: 1121, ny: 881, messages: 120 }
+  discipline: 0, centre: 7, cat: 1, num: 8,
+  grid_template: 20, nx: 1121, ny: 881, messages: 120 }
 
 // NetCDF3 / NetCDF4 variable
 { index: 0, name: 'precipitation', supported: true, long_name: '...', units: 'mm', shape: '1x721x1440', ndims: 3 }

@@ -672,6 +672,10 @@ int parse_message(const uint8_t* data, uint64_t file_len,
                   grib2_msg_t* m) {
     (void)file_len;
     memset(m, 0, sizeof(*m));
+    /* Section 0 is 16 fixed bytes: "GRIB", 2 reserved, discipline, edition,
+     * then the 8-byte total length. Take the discipline before skipping it --
+     * a parameter cannot be named without it. */
+    if (msg_start + 8 <= msg_end) m->discipline = data[msg_start + 6];
     uint64_t pos = msg_start + 16; /* skip Section 0 (fixed 16 bytes) */
 
     while (pos + 5 <= msg_end) {
@@ -693,6 +697,10 @@ int parse_message(const uint8_t* data, uint64_t file_len,
         switch (sec_num) {
             case 1:
                 m->sec1_off = pos; m->sec1_len = sec_len;
+                /* Originating centre, octets 6-7. Numbers 192-254 are reserved
+                 * for it, so the same (cat, num) means different things in
+                 * files from different centres. */
+                if (sec_len >= 7) m->centre = be16(data + pos + 5);
                 break;
             case 3:
                 m->sec3_off = pos; m->sec3_len = sec_len;

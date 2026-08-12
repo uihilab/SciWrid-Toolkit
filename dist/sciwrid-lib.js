@@ -21,8 +21,6 @@ import * as Zarr from './zarr-helper.js';
 import * as Parquet from './parquet-helper.js';
 import { decodeTimes } from './time-decoder.js';
 import { h5TempName } from './hdf5/vfs-name.js';
-import { indexMessagesSync } from './grib2/grib2-index.js';
-import { paramsFromMessages } from './grib2/params.js';
 import SciWridWasm from '../wasm/sciwrid.js';
 
 /* =========================================================================
@@ -142,13 +140,15 @@ export class SciWridToolkit {
 
     /* Unique units across the file's variables.
      *
-     * GRIB2 is included now that it HAS units to report -- they are resolved
-     * from WMO Code Table 4.2 rather than stored in the file (see
-     * _nameGrib2Params). This is also why that resolution normalises unit
-     * spelling: a GRIB2 file draws parameters from both the WMO table and its
-     * centre's local table, which disagree ("kg m-2" vs "kg m**-2"), and WMO's
-     * own tables mix solidus and exponent forms ("m/s" vs "m s-1"). Two
-     * spellings of one unit would put it in this list twice. */
+     * GRIB2 is included now that it HAS units to report. They are not stored
+     * in the file -- the C engine resolves them from WMO Code Table 4.2, via
+     * the generated formats/grib2/grib2_param_table.h.
+     *
+     * That generator normalises unit spelling, which is what lets this list
+     * mean anything: a GRIB2 file draws parameters from both the WMO table and
+     * its originating centre's, and the two disagree ("kg m-2" vs "kg m**-2"),
+     * while WMO's own tables mix solidus and exponent forms ("m/s" vs
+     * "m s-1"). Two spellings of one unit would put it here twice. */
     if (this._format === 'netcdf3' || this._format === 'netcdf4' ||
         this._format === 'grib2') {
       base.units = [...new Set(this.vars.map(v => v.units).filter(Boolean))];
@@ -1031,55 +1031,6 @@ export class SciWridToolkit {
       /* Best-effort — leave v.times absent on failure. */
     }
 
-    this._nameGrib2Params(data);
-  }
-
-  /* Resolve each variable's NAME and UNITS from WMO Code Table 4.2.
-   *
-   * A GRIB2 message does not carry either one -- it carries discipline,
-   * parameter category and parameter number, and the meaning lives in the WMO
-   * tables. The WASM scan resolves names from a small hand-written table that
-   * knows nothing about units and ignores discipline, so on a routine GFS file
-   * 60% of variables came back as "Wind (unknown)" or "Variable (cat=16,
-   * num=195)" and NO variable ever reported units.
-   *
-   * Done here rather than in C because the tables are data, not logic: keeping
-   * them in JS means refreshing them is a generated-file diff
-   * (scripts/fetch-grib2-tables.js) instead of a WASM rebuild.
-   *
-   * Best-effort by design. A parameter that resolves gets a real name and unit;
-   * one that does not keeps exactly the label it already had, because a
-   * generic-but-honest "Variable (cat=16, num=195)" beats a confident guess. */
-  _nameGrib2Params(data) {
-    try {
-      const messages = indexMessagesSync(data);
-      if (!messages.length) return;
-      const resolved = paramsFromMessages(messages);
-      if (!resolved.size) return;
-
-      for (const v of this.vars) {
-        const hit = resolved.get(`${v.cat}.${v.num}`);
-        if (!hit) continue;
-        if (hit.name) {
-          v.name = hit.name;
-          if (hit.units) v.units = hit.units;
-          continue;
-        }
-        /* Unresolved. The WASM table's fallback names a CATEGORY it is only
-         * guessing at -- "Wind (unknown)" for category 2 -- which reads like a
-         * partial identification when it is really a miss, and is wrong outright
-         * when the discipline is not the one it assumed. Say what is actually
-         * known instead: the numbers, including the discipline it never had. */
-        if (/\(unknown\)$/.test(v.name || '')) {
-          v.name = `Variable (discipline=${hit.discipline}, cat=${v.cat}, num=${v.num})`;
-        }
-        (v.warnings ||= []).push(
-          'Not in WMO Code Table 4.2, nor in the local table for centre ' +
-          `${hit.centre ?? 'unknown'}`);
-      }
-    } catch (_) {
-      /* Leave the WASM-supplied names in place. */
-    }
   }
 
   /* Attach a variable's units to a point-extract result.

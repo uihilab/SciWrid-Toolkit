@@ -73,6 +73,12 @@ typedef struct {
     uint16_t data_template;
     uint8_t  param_cat;
     uint8_t  param_num;
+    /* Section 0, octet 7. WMO Code Table 4.2 is keyed on (discipline,
+     * category, number) -- without this, category 7 under discipline 0
+     * (thermodynamic stability indices) is indistinguishable from category 7
+     * under any other discipline, and the name is a guess. */
+    uint8_t  discipline;
+    uint16_t centre;             /* Section 1, octets 6-7 */
 } grib2_msg_t;
 
 /*

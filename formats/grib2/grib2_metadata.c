@@ -1,128 +1,80 @@
 #include "grib2_metadata.h"
+#include "grib2_param_table.h"
 #include <string.h>
 #include <stdio.h>
 
-/* Get human-readable variable name from parameter category/number */
-const char* grib2_get_variable_name(uint16_t category, uint16_t number) {
-  /* Category 0: Temperature */
-  if (category == 0) {
-    switch (number) {
-      case 0: return "Temperature";
-      case 2: return "Temperature anomaly";
-      case 5: return "Temperature gradient";
-      case 6: return "Maximum temperature";
-      case 7: return "Minimum temperature";
-      case 8: return "Dew point temperature";
-      case 11: return "Wet bulb temperature";
-      case 13: return "Potential temperature";
-      case 14: return "Virtual potential temperature";
-      case 15: return "Saturated equivalent potential temperature";
-      default: return "Temperature (unknown)";
-    }
-  }
-  
-  /* Category 1: Moisture (WMO standard) */
-  if (category == 1) {
-    switch (number) {
-      case 0:  return "Specific humidity";
-      case 1:  return "Relative humidity";
-      case 2:  return "Humidity mixing ratio";
-      case 3:  return "Precipitable water";
-      case 4:  return "Vapor pressure";
-      case 7:  return "Precipitation rate";
-      case 8:  return "Total precipitation";
-      case 9:  return "Large scale precipitation";
-      case 10: return "Convective precipitation";
-      case 11: return "Snowfall rate";
-      case 12: return "Snow depth";
-      case 22: return "Precipitable water category";
-      case 23: return "Hail";
-      case 24: return "Graupel";
-      case 25: return "Freezing rain";
-      case 32: return "Percent frozen precipitation";
-      case 52: return "Total snowfall";
-      default: return "Moisture (unknown)";
-    }
-  }
+/* Look up a parameter's name in WMO Code Table 4.2.
+ *
+ * The table this replaces was written by hand and keyed on (category, number).
+ * An audit against WMO found 54 of its 67 entries wrong under EVERY discipline:
+ * real parameter names sitting on the wrong numbers, so a dewpoint temperature
+ * field (0.0.6) reported itself as "Maximum temperature", which is 0.0.4.
+ * Ignoring discipline compounded it -- category 7 held a verbatim copy of the
+ * category 1 moisture list, while discipline 0 category 7 is thermodynamic
+ * stability indices.
+ *
+ * The table is now generated from WMO's published tables alongside the JS one
+ * (grib2_param_table.h), so the two layers cannot drift and neither can be
+ * fixed by hand into disagreeing with the source.
+ *
+ * `centre` matters because WMO reserves parameter numbers 192-254 for the
+ * originating centre: the same numbers mean different things in an NCEP file
+ * and an ECMWF one. The centre's own entry is preferred when there is one, and
+ * WMO's is used otherwise.
+ */
+static const char* grib2_lookup(uint8_t discipline, uint16_t category,
+                                uint16_t number, uint16_t centre,
+                                int want_units) {
+  if (category > 255 || number > 255) return NULL;
 
-  /* Category 2: Momentum */
-  if (category == 2) {
-    switch (number) {
-      case 2: return "U-component of wind";
-      case 3: return "V-component of wind";
-      case 8: return "Vertical velocity";
-      case 32: return "Wind speed";
-      case 33: return "Wind direction";
-      default: return "Wind (unknown)";
-    }
+  /* Binary search to the first row with this (discipline, category, number);
+   * rows sharing it differ only by centre and are contiguous. */
+  int lo = 0, hi = GRIB2_PARAM_TABLE_LEN - 1, first = -1;
+  while (lo <= hi) {
+    int mid = lo + (hi - lo) / 2;
+    const grib2_param_row_t* r = &GRIB2_PARAM_TABLE[mid];
+    int cmp = (r->discipline != discipline) ? (r->discipline < discipline ? -1 : 1)
+            : (r->category   != category)   ? (r->category   < category   ? -1 : 1)
+            : (r->number     != number)     ? (r->number     < number     ? -1 : 1)
+            : 0;
+    if (cmp == 0) { first = mid; hi = mid - 1; }      /* keep going left */
+    else if (cmp < 0) lo = mid + 1;
+    else hi = mid - 1;
   }
-  
-  /* Category 3: Mass */
-  if (category == 3) {
-    switch (number) {
-      case 0: return "Pressure";
-      case 1: return "Pressure reduced to MSL";
-      case 4: return "Pressure anomaly";
-      case 5: return "Geopotential height";
-      case 6: return "Geopotential height anomaly";
-      case 7: return "Geometric height";
-      case 8: return "Standard deviation of height";
-      case 9: return "Pressure tendency";
-      default: return "Pressure/Height (unknown)";
-    }
+  if (first < 0) return NULL;
+
+  const grib2_param_row_t* wmo = NULL;
+  for (int i = first; i < GRIB2_PARAM_TABLE_LEN; i++) {
+    const grib2_param_row_t* r = &GRIB2_PARAM_TABLE[i];
+    if (r->discipline != discipline || r->category != category ||
+        r->number != number) break;
+    if (r->centre == centre && centre != 0)
+      return want_units ? r->units : r->name;         /* the centre's own */
+    if (r->centre == 0) wmo = r;
   }
-  
-  /* Category 6: Cloud */
-  if (category == 6) {
-    switch (number) {
-      case 0: return "Cloud cover";
-      case 1: return "Cloud ice";
-      case 2: return "Cloud liquid water";
-      case 3: return "Cloud water";
-      case 4: return "Cloud rain";
-      case 5: return "Cloud snow";
-      case 6: return "Cloud ice mixing ratio";
-      case 7: return "Cloud water mixing ratio";
-      default: return "Cloud (unknown)";
-    }
-  }
-  
-  /* Category 7: Thermodynamic */
-  if (category == 7) {
-    switch (number) {
-      case 0: return "Relative humidity";
-      case 1: return "Specific humidity";
-      case 2: return "Humidity mixing ratio";
-      case 3: return "Precipitable water";
-      case 4: return "Vapor pressure";
-      case 5: return "Saturation deficit";
-      case 6: return "Evaporation";
-      case 7: return "Precipitation rate";
-      case 8: return "Total precipitation";
-      case 9: return "Large scale precipitation";
-      case 10: return "Convective precipitation";
-      case 11: return "Snowfall rate";
-      case 12: return "Snow depth";
-      default: return "Moisture (unknown)";
-    }
-  }
-  
-  /* Category 19: Geophysical */
-  if (category == 19) {
-    switch (number) {
-      case 0: return "Wave height";
-      case 1: return "Wave direction";
-      case 2: return "Wave period";
-      case 3: return "Wave spectrum width";
-      case 4: return "Significant wave height";
-      case 5: return "Significant wave period";
-      default: return "Wave (unknown)";
-    }
-  }
-  
-  /* Unknown category/number */
+  return wmo ? (want_units ? wmo->units : wmo->name) : NULL;
+}
+
+const char* grib2_get_variable_name(uint8_t discipline, uint16_t category,
+                                    uint16_t number, uint16_t centre) {
+  const char* name = grib2_lookup(discipline, category, number, centre, 0);
+  if (name) return name;
+
+  /* Not in Table 4.2 and not in the centre's table. Report the numbers that
+   * were actually read rather than naming a category we would only be
+   * assuming -- the old fallback said "Wind (unknown)" for anything in
+   * category 2, which reads as a partial identification when it is a miss. */
   static char unknown[64];
-  snprintf(unknown, sizeof(unknown), "Variable (cat=%u, num=%u)", category, number);
+  snprintf(unknown, sizeof(unknown), "Variable (discipline=%u, cat=%u, num=%u)",
+           (unsigned)discipline, (unsigned)category, (unsigned)number);
   return unknown;
+}
+
+/* Units for the same key, or "" when unknown. GRIB2 does not store units; they
+ * come from the same table as the name. */
+const char* grib2_get_variable_units(uint8_t discipline, uint16_t category,
+                                     uint16_t number, uint16_t centre) {
+  const char* u = grib2_lookup(discipline, category, number, centre, 1);
+  return u ? u : "";
 }
 

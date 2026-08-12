@@ -1,5 +1,5 @@
 /*
- * scripts/fetch-grib2-tables.js — regenerate lib/grib2/param-table.js.
+ * scripts/fetch-grib2-tables.js — regenerate formats/grib2/grib2_param_table.h.
  *
  * WHY THIS EXISTS
  *
@@ -39,7 +39,19 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = resolve(ROOT, 'lib/grib2/param-table.js');
+/* The C engine owns parameter naming, so the table is emitted as a C header
+ * and nowhere else. It replaces a hand-written table that an audit against WMO
+ * found wrong in 54 of its 67 entries -- real parameter names attached to the
+ * wrong numbers, so the library reported a dewpoint temperature field as
+ * "Maximum temperature".
+ *
+ * Hand transcription is what failed, so this is generated. A generated .h is
+ * still a TEXT file: refreshing it stays a reviewable diff, and the .wasm is
+ * just its build artifact. An earlier version of this work also emitted a
+ * parallel JS table, which was worse than redundant -- the JS layer keyed on
+ * (category, number) without discipline and silently overwrote C's correct
+ * answers, labelling discipline-2 "Land cover" as "Temperature". */
+const OUT_C = resolve(ROOT, 'formats/grib2/grib2_param_table.h');
 
 const REPO = 'ecmwf/eccodes';
 /* eccodes publishes WMO's tables as plain text, one file per
@@ -317,6 +329,99 @@ function diffReport(oldMod, wmo, local) {
   return changed;
 }
 
+/* Parse the previously generated header back into the same shape the fresh
+ * fetch produces, so a refresh can report what moved. Reading the artifact
+ * rather than keeping a second copy of the data is the point: there is one
+ * table, and it is the one the engine compiles. */
+function readExistingTable() {
+  if (!existsSync(OUT_C)) return null;
+  const txt = readFileSync(OUT_C, 'utf8');
+  const out = { WMO: {}, LOCAL: {} };
+  const STR = '"((?:[^"\\\\]|\\\\.)*)"';
+  const re = new RegExp('\\{(\\d+),(\\d+),(\\d+),(\\d+),' + STR + ',' + STR + '\\},', 'g');
+  const unesc = (v) => v.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  let m;
+  while ((m = re.exec(txt))) {
+    const [, centre, d, c, n, name, units] = m;
+    const key = `${d}.${c}.${n}`;
+    const row = [unesc(name), unesc(units)];
+    if (Number(centre) === 0) out.WMO[key] = row;
+    else (out.LOCAL[centre] ||= {})[key] = row;
+  }
+  return out;
+}
+
+/* --------------------------------------------------------------- C emit ---
+ * A sorted flat array plus binary search: the table is static, so the lookup
+ * costs log2(n) comparisons and no allocation.
+ *
+ * Sorted by the full key (discipline, category, number) so the search is
+ * correct for all of it -- the bug being fixed here was precisely a lookup that
+ * ignored discipline. Centre-local entries carry their centre in the same
+ * array rather than a second structure, with centre 0 meaning "WMO, applies to
+ * every file". */
+function writeCTable(wmo, local, sha) {
+  const rows = [];
+  for (const [key, [name, units]] of Object.entries(wmo)) {
+    const [d, c, n] = key.split('.').map(Number);
+    rows.push({ centre: 0, d, c, n, name, units });
+  }
+  for (const [centre, table] of Object.entries(local))
+    for (const [key, [name, units]] of Object.entries(table)) {
+      const [d, c, n] = key.split('.').map(Number);
+      rows.push({ centre: Number(centre), d, c, n, name, units });
+    }
+
+  rows.sort((a, b) => a.d - b.d || a.c - b.c || a.n - b.n || a.centre - b.centre);
+
+  const esc = (s) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const body = `/*
+ * formats/grib2/grib2_param_table.h — GENERATED FILE, DO NOT EDIT BY HAND.
+ *
+ * WMO Code Table 4.2 plus centre-local parameters, for the C engine. Emitted by
+ * scripts/fetch-grib2-tables.js from the same fetch that produces
+ * lib/grib2/param-table.js, so the C and JS layers cannot disagree.
+ *
+ * It replaces a hand-written table in grib2_metadata.c that an audit against
+ * WMO found wrong in 54 of its 67 entries -- correct parameter names attached
+ * to the wrong numbers, so a dewpoint temperature field reported itself as
+ * "Maximum temperature". It was also keyed on (category, number) while WMO
+ * keys on discipline too.
+ *
+ * Rows are sorted by (discipline, category, number, centre) for binary search.
+ * centre 0 = a WMO parameter, applying to every file; any other value is that
+ * centre's own definition of a number in the 192-254 range WMO reserves.
+ *
+ * Regenerate:  node scripts/fetch-grib2-tables.js
+ * Source:      https://github.com/${REPO} @ ${sha}
+ *              WMO master table ${MASTER_TABLE}
+ */
+#ifndef GRIB2_PARAM_TABLE_H
+#define GRIB2_PARAM_TABLE_H
+
+#include <stdint.h>
+
+typedef struct {
+  uint16_t    centre;      /* 0 = WMO */
+  uint8_t     discipline;
+  uint8_t     category;
+  uint8_t     number;
+  const char* name;
+  const char* units;
+} grib2_param_row_t;
+
+static const grib2_param_row_t GRIB2_PARAM_TABLE[] = {
+${rows.map((r) => `  {${r.centre},${r.d},${r.c},${r.n},"${esc(r.name)}","${esc(r.units)}"},`).join('\n')}
+};
+
+#define GRIB2_PARAM_TABLE_LEN ${rows.length}
+
+#endif
+`;
+  writeFileSync(OUT_C, body);
+  console.log(`wrote ${OUT_C} (${(Buffer.byteLength(body) / 1024).toFixed(1)} KB, ${rows.length} rows)`);
+}
+
 /* ----------------------------------------------------------------- main --- */
 const sha = await resolveSha(REF);
 console.log(`eccodes ${REF} -> ${sha}`);
@@ -380,49 +485,13 @@ if (unmappedSolidus.size) {
 reportNearDuplicates(wmo, local);
 
 console.log('\nchanges:');
-const oldMod = existsSync(OUT) ? await import(`file://${OUT}?t=${Date.now()}`) : null;
-const changed = diffReport(oldMod, wmo, local);
+const changed = diffReport(readExistingTable(), wmo, local);
 
 if (CHECK_ONLY) {
   console.log(changed ? '\nCHANGED — run without --check to write.' : '\nup to date.');
   process.exitCode = changed ? 1 : 0;
 } else {
-  const body = `/*
- * lib/grib2/param-table.js — GENERATED FILE, DO NOT EDIT BY HAND.
- *
- * WMO Code Table 4.2 (parameter name + units by discipline, category and
- * number), plus the centre-local parameters that occupy the 192-254 range
- * Table 4.2 reserves and does not define.
- *
- * A GRIB2 message carries only the numbers; this is what turns them into a
- * name and a unit. Regenerate with:
- *
- *     node scripts/fetch-grib2-tables.js
- *
- * Source:  https://github.com/${REPO}
- *          definitions/grib2/tables/${MASTER_TABLE}  (WMO master table ${MASTER_TABLE})
- *          definitions/grib2/localConcepts/*         (centre-local parameters)
- *          definitions/common/c-11.table             (centre id <- abbreviation)
- * Pinned:  ${sha}
- *
- * eccodes is Apache-2.0; these tables transcribe WMO's published code tables.
- *
- * Units are normalised to CF-style spelling ("kg m-2", not "kg m**-2"): the two
- * upstream sources disagree, and a single GRIB2 file draws on both.
- */
-export const MASTER_TABLE_VERSION = ${MASTER_TABLE};
-export const SOURCE_COMMIT = ${JSON.stringify(sha)};
-
-/* centre id -> human name, for diagnostics */
-export const CENTRES = ${JSON.stringify(centreNames, null, 0)};
-
-/* "<discipline>.<category>.<number>" -> [name, units] */
-export const WMO = ${JSON.stringify(wmo)};
-
-/* centre id -> { "<discipline>.<category>.<number>": [name, units] } */
-export const LOCAL = ${JSON.stringify(local)};
-`;
-  writeFileSync(OUT, body);
+  writeCTable(wmo, local, sha);
   const kb = (Buffer.byteLength(body) / 1024).toFixed(1);
   console.log(`\nwrote ${OUT} (${kb} KB, ${Object.keys(wmo).length} WMO + ` +
               `${Object.values(local).reduce((a, t) => a + Object.keys(t).length, 0)} local)`);

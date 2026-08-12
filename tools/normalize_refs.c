@@ -136,7 +136,7 @@ static void print_supported_vars(void) {
         printf("  %-26s  cat=%u  num=%u  (%s)%s\n",
                VAR_TABLE[i].name,
                VAR_TABLE[i].cat, VAR_TABLE[i].num,
-               grib2_get_variable_name(VAR_TABLE[i].cat, VAR_TABLE[i].num),
+               grib2_get_variable_name(0, VAR_TABLE[i].cat, VAR_TABLE[i].num, 0),
                dup ? "  [alias]" : "");
     }
 }
@@ -265,7 +265,7 @@ static void cmd_list(const uint8_t* data, uint64_t file_len,
         }
         printf("  %-5d %-30s cat=%-4u num=%-4u grid=%-4u data=%-4u %ux%u\n",
                i,
-               grib2_get_variable_name(m->param_cat, m->param_num),
+               grib2_get_variable_name(m->discipline, m->param_cat, m->param_num, m->centre),
                m->param_cat, m->param_num,
                be16(data + m->sec3_off + 12),
                be16(data + m->sec5_off + 9),
@@ -330,7 +330,7 @@ static int normalize_grib2(const uint8_t* data, uint64_t file_len,
     }
 
     printf("  Variable    : %s (cat=%u, num=%u)\n",
-           grib2_get_variable_name(target_cat, target_num),
+           grib2_get_variable_name(0, target_cat, target_num, 0),
            target_cat, target_num);
     printf("  Time steps  : %d messages", sel_cnt);
     if (skipped_grid > 0)
@@ -435,7 +435,7 @@ static int normalize_grib2(const uint8_t* data, uint64_t file_len,
 
     printf("  Writing %s\n", refs_path);
     int rc = write_refs_json(refs_path, bin_rel,
-                             grib2_get_variable_name(target_cat, target_num),
+                             grib2_get_variable_name(0, target_cat, target_num, 0),
                              nx, ny, nt, lats, lons, times_unix, chunk_bytes);
 
     free(sel); free(lats); free(lons); free(times_unix); free(chunk_buf);
@@ -553,7 +553,7 @@ int main(int argc, char** argv) {
 
             manifest_entry_t* me = &manifest[manifest_cnt++];
             snprintf(me->name, sizeof(me->name), "%s",
-                     grib2_get_variable_name(cat, num));
+                     grib2_get_variable_name(0, cat, num, 0));
             me->cat = cat; me->num = num;
             me->grid_tmpl = grid_tmpl; me->data_tmpl = data_tmpl;
             me->nx = nx;   me->ny = ny;
@@ -576,7 +576,7 @@ int main(int argc, char** argv) {
                 snprintf(safe_name, sizeof(safe_name), "%s", vname);
             } else {
                 /* Sanitize the metadata name for use as filename */
-                const char* meta_name = grib2_get_variable_name(cat, num);
+                const char* meta_name = grib2_get_variable_name(0, cat, num, 0);
                 size_t j = 0;
                 for (size_t k = 0; meta_name[k] && j < sizeof(safe_name) - 1; k++) {
                     char ch = meta_name[k];

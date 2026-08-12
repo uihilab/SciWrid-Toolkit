@@ -40,8 +40,16 @@ typedef struct {
   double valid_time;             /* Valid time as Unix timestamp (if computable) */
 } grib2_metadata_t;
 
-/* Get human-readable variable name from parameter category/number */
-const char* grib2_get_variable_name(uint16_t category, uint16_t number);
+/* Name and units for a parameter, from WMO Code Table 4.2 (generated into
+ * grib2_param_table.h). Keyed on discipline as WMO keys it, and on the
+ * originating centre, which owns parameter numbers 192-254.
+ *
+ * grib2_get_variable_name never returns NULL: an unknown parameter comes back
+ * as "Variable (discipline=D, cat=C, num=N)" rather than a guessed category. */
+const char* grib2_get_variable_name(uint8_t discipline, uint16_t category,
+                                    uint16_t number, uint16_t centre);
+const char* grib2_get_variable_units(uint8_t discipline, uint16_t category,
+                                     uint16_t number, uint16_t centre);
 
 #endif
 
