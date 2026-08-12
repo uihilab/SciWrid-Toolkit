@@ -171,11 +171,44 @@ Format-specific fields in the result:
 
 | Format      | Extra fields on `ScanResult`                                         |
 | ----------- | -------------------------------------------------------------------- |
-| GRIB2       | `grid_templates[]`, `data_templates[]`, `bbox`                       |
+| GRIB2       | `grid_templates[]`, `data_templates[]`, `units[]`, `bbox`            |
 | NetCDF4     | `shapes[]`, `units[]`, `bbox`                                        |
 | NetCDF3     | `shapes[]`, `units[]`, `bbox`                                        |
 | Zarr v2/v3  | `shapes[]`, `dtypes[]`, `compressors[]`, `bbox`                      |
 | Parquet     | `gridTypes[]`, `bbox`                                                |
+
+### GRIB2 parameter names and units
+
+A GRIB2 message does not carry a name or a unit. It carries three integers —
+discipline (Section 0), parameter category and parameter number (Section 4) —
+and the meaning lives in **WMO Code Table 4.2**. SciWrid ships that table
+(`lib/grib2/param-table.js`), so `scan()`, `extract()` and `extractGrid()` all
+report a real name and real units.
+
+Numbers 192–254 are reserved by WMO for the **originating centre** and are not in
+Table 4.2 at all, so the centre's own table is shipped for the centres that
+define them: NCEP (7), ECMWF (98), DWD (78), Rome (80) and Helsinki (86). On a
+GFS file the local range is the majority of the parameters.
+
+Units are normalised to CF-style spelling (`kg m-2`, not `kg m**-2` or `kg/m2`),
+because a single file draws on both tables and they disagree.
+
+A parameter in neither table keeps an honest label rather than a guess:
+
+```js
+{ name: 'Variable (discipline=0, cat=3, num=196)',
+  warnings: ["Not in WMO Code Table 4.2, nor in the local table for centre 7"] }
+```
+
+To refresh the tables (they change rarely, and only additively):
+
+```bash
+npm run tables:grib2:check   # report what would change, exit 1 if anything does
+npm run tables:grib2         # regenerate lib/grib2/param-table.js
+```
+
+The generator pins the exact upstream commit it read, and prints every added,
+removed, renamed or re-united parameter — so a refresh is a reviewable diff.
 
 ### `meta.bbox` — where the data actually is
 
@@ -218,7 +251,8 @@ Each variable in `variables[]` also carries format-specific fields:
 
 ```js
 // GRIB2 variable
-{ index: 0, name: '2t', supported: true, grid_template: 101, nx: 2949120, ny: 1, messages: 1 }
+{ index: 0, name: 'Total precipitation', units: 'kg m-2', supported: true,
+  cat: 1, num: 8, grid_template: 20, nx: 1121, ny: 881, messages: 120 }
 
 // NetCDF3 / NetCDF4 variable
 { index: 0, name: 'precipitation', supported: true, long_name: '...', units: 'mm', shape: '1x721x1440', ndims: 3 }
