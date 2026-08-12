@@ -79,6 +79,8 @@ static size_t json_escape(const char* src, size_t n, char* out, size_t out_cap) 
  * ======================================================================= */
 
 typedef struct {
+    uint8_t  discipline;   /* Section 0 -- part of the WMO Table 4.2 key */
+    uint16_t centre;       /* Section 1 -- owns parameter numbers 192-254 */
     uint8_t  cat;
     uint8_t  num;
     uint16_t grid_tmpl;
@@ -120,13 +122,18 @@ wp_scan_result_t* wp_scan(const uint8_t* data, uint32_t data_len) {
     int n_vars = 0;
 
     for (int i = 0; i < n_msgs; i++) {
-        uint8_t cat = msgs[i].param_cat;
-        uint8_t num = msgs[i].param_num;
+        uint8_t cat  = msgs[i].param_cat;
+        uint8_t num  = msgs[i].param_num;
+        uint8_t disc = msgs[i].discipline;
 
-        /* Check if already seen */
+        /* Already seen? Discipline is part of the identity: one file can carry
+         * the same (cat, num) under two disciplines meaning two different
+         * quantities -- GFS carries disciplines 0, 2 and 10 -- and merging them
+         * would collapse two variables into one. */
         int found = -1;
         for (int v = 0; v < n_vars; v++) {
-            if (vars[v].cat == cat && vars[v].num == num) {
+            if (vars[v].cat == cat && vars[v].num == num &&
+                vars[v].discipline == disc) {
                 found = v; break;
             }
         }
@@ -150,6 +157,8 @@ wp_scan_result_t* wp_scan(const uint8_t* data, uint32_t data_len) {
             }
             vars[n_vars].cat = cat;
             vars[n_vars].num = num;
+            vars[n_vars].discipline = disc;
+            vars[n_vars].centre = msgs[i].centre;
             vars[n_vars].grid_tmpl = gtmpl;
             vars[n_vars].data_tmpl = be16(grb_copy + msgs[i].sec5_off + 9);
             vars[n_vars].nx = nx;
@@ -195,12 +204,16 @@ char* wp_scan_get_vars_json(const wp_scan_result_t* s) {
     APPEND("[\n");
     for (int i = 0; i < s->n_vars; i++) {
         const wp_var_info_t* v = &s->vars[i];
-        const char* name = grib2_get_variable_name(v->cat, v->num);
-        APPEND("  {\"index\": %d, \"name\": \"%s\", \"cat\": %u, \"num\": %u, "
+        const char* name  = grib2_get_variable_name(v->discipline, v->cat, v->num, v->centre);
+        const char* units = grib2_get_variable_units(v->discipline, v->cat, v->num, v->centre);
+        APPEND("  {\"index\": %d, \"name\": \"%s\", \"units\": \"%s\", "
+               "\"discipline\": %u, \"centre\": %u, \"cat\": %u, \"num\": %u, "
                "\"grid_template\": %u, \"data_template\": %u, "
                "\"nx\": %u, \"ny\": %u, \"messages\": %u, "
                "\"supported\": %s}%s\n",
-               i, name, v->cat, v->num,
+               i, name, units,
+               (unsigned)v->discipline, (unsigned)v->centre,
+               (unsigned)v->cat, (unsigned)v->num,
                v->grid_tmpl, v->data_tmpl,
                v->nx, v->ny, v->count,
                (v->grid_tmpl == 0 || v->grid_tmpl == 40 || v->grid_tmpl == 30 || v->grid_tmpl == 101 || v->grid_tmpl == 20) ? "true" : "false",
@@ -265,7 +278,7 @@ char* wp_scan_messages_layout(const wp_scan_result_t* s) {
         int64_t fc_off   = parse_sec4_forecast_offset(s->grb_data + m->sec4_off,
                                                       (uint32_t)m->sec4_len);
 
-        const char* name = grib2_get_variable_name(m->param_cat, m->param_num);
+        const char* name = grib2_get_variable_name(m->discipline, m->param_cat, m->param_num, m->centre);
         char name_esc[128];
         json_escape(name ? name : "", name ? strlen(name) : 0,
                     name_esc, sizeof(name_esc));
@@ -440,7 +453,7 @@ refs_dataset_t* wp_grid_coords(wp_scan_result_t* s, int var_index) {
         times[t] = grib2_msg_valid_time(data, m);
     }
     free(sel);
-    const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
+    const char* var_name = grib2_get_variable_name(vi->discipline, vi->cat, vi->num, vi->centre);
     if (is_curv)
         return refs_open_from_arrays_2d(var_name, nx, ny, nt, lat2d, lon2d, times, NULL);
     return refs_open_from_arrays(var_name, nx, ny, nt, lats, lons, times, NULL);
@@ -511,7 +524,7 @@ refs_dataset_t* wp_normalize_range(wp_scan_result_t* s, int var_index,
         float* c_lat = (float*)malloc(sizeof(float)); float* c_lon = (float*)malloc(sizeof(float));
         if (!c_lat || !c_lon) { free(c_lat); free(c_lon); free(times); free(out); return NULL; }
         c_lat[0] = clat; c_lon[0] = clon;
-        const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
+        const char* var_name = grib2_get_variable_name(vi->discipline, vi->cat, vi->num, vi->centre);
         return refs_open_from_arrays(var_name, 1, 1, nt, c_lat, c_lon, times, out);
     }
 
@@ -529,7 +542,7 @@ refs_dataset_t* wp_normalize_range(wp_scan_result_t* s, int var_index,
         memcpy(all_data + (size_t)t * n_pts, chunk, n_pts * sizeof(float));
     }
     free(chunk); free(sel);
-    const char* var_name = grib2_get_variable_name(vi->cat, vi->num);
+    const char* var_name = grib2_get_variable_name(vi->discipline, vi->cat, vi->num, vi->centre);
     if (is_curv)
         return refs_open_from_arrays_2d(var_name, nx, ny, nt, lat2d, lon2d, times, all_data);
     return refs_open_from_arrays(var_name, nx, ny, nt, lats, lons, times, all_data);

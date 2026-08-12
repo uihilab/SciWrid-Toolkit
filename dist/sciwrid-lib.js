@@ -20,6 +20,7 @@
 import * as Zarr from './zarr-helper.js';
 import * as Parquet from './parquet-helper.js';
 import { decodeTimes } from './time-decoder.js';
+import { h5TempName } from './hdf5/vfs-name.js';
 import SciWridWasm from '../wasm/sciwrid.js';
 
 /* =========================================================================
@@ -135,9 +136,22 @@ export class SciWridToolkit {
       /* Collect unique dimension shapes across all variables */
       const shapes = [...new Set(this.vars.map(v => v.shape))];
       base.shapes = shapes;
-      /* Collect unique units */
-      const units = [...new Set(this.vars.map(v => v.units).filter(Boolean))];
-      base.units = units;
+    }
+
+    /* Unique units across the file's variables.
+     *
+     * GRIB2 is included now that it HAS units to report. They are not stored
+     * in the file -- the C engine resolves them from WMO Code Table 4.2, via
+     * the generated formats/grib2/grib2_param_table.h.
+     *
+     * That generator normalises unit spelling, which is what lets this list
+     * mean anything: a GRIB2 file draws parameters from both the WMO table and
+     * its originating centre's, and the two disagree ("kg m-2" vs "kg m**-2"),
+     * while WMO's own tables mix solidus and exponent forms ("m/s" vs
+     * "m s-1"). Two spellings of one unit would put it here twice. */
+    if (this._format === 'netcdf3' || this._format === 'netcdf4' ||
+        this._format === 'grib2') {
+      base.units = [...new Set(this.vars.map(v => v.units).filter(Boolean))];
     }
 
     if (this._format === 'zarr') {
@@ -329,7 +343,7 @@ export class SciWridToolkit {
           if (rp !== 0) {
             const json = wasm.UTF8ToString(rp);
             wasm.ccall('wp_free', null, ['number'], [rp]);
-            results.push(JSON.parse(json));
+            results.push(this._withUnits(JSON.parse(json), v));
           }
         } finally {
           wasm.ccall('wp_close', null, ['number'], [gds]);
@@ -380,7 +394,7 @@ export class SciWridToolkit {
           const json = wasm.UTF8ToString(resultPtr);
           wasm.ccall('wp_free', null, ['number'], [resultPtr]);
           try {
-            results.push(JSON.parse(json));
+            results.push(this._withUnits(JSON.parse(json), v));
           } catch (parseErr) {
             throw new Error(
               `[sciwrid] Failed to parse query result for variable "${v.name}": ${parseErr.message}`
@@ -650,7 +664,7 @@ export class SciWridToolkit {
     if (!ptr || ptr === 0) throw new Error(`Failed to resample curvilinear grid: ${v.name}`);
     const data = new Float32Array(wasm.HEAPF32.buffer, ptr, width * height).slice();
     wasm.ccall('wp_free', null, ['number'], [ptr]);
-    return { data, width, height, bbox, variable, units: '', time };
+    return { data, width, height, bbox, variable, units: v.units || '', time };
   }
 
   /* -----------------------------------------------------------------------
@@ -727,7 +741,7 @@ export class SciWridToolkit {
       const sliceOffset = dataPtr + tt * ny * nx * 4;
       const sliceData   = new Float32Array(wasm.HEAPF32.buffer, sliceOffset, ny * nx).slice();
 
-      return { lats, lons, sliceData, ny, nx, nt, units: '' };
+      return { lats, lons, sliceData, ny, nx, nt, units: v.units || '' };
     } finally {
       wasm.ccall('wp_close', null, ['number'], [ds]);
     }
@@ -1016,6 +1030,26 @@ export class SciWridToolkit {
     } catch (e) {
       /* Best-effort — leave v.times absent on failure. */
     }
+
+  }
+
+  /* Attach a variable's units to a point-extract result.
+   *
+   * extract() returned no units for ANY format -- a NetCDF4 file that reports
+   * "kg m-2" from scan() and from extractGrid() gave `units: undefined` from
+   * extract(). The value was there the whole time, on the variable record; the
+   * WASM query result simply never carried it.
+   *
+   * Only fills a gap, never overwrites: a path that already resolved units
+   * (the range extractors read them from the file itself) keeps its own. */
+  _withUnits(result, v) {
+    if (!result || typeof result !== 'object' || result.units != null || !v) return result;
+    /* Formats disagree on where units live on the variable record: GRIB2 and
+     * NetCDF put them at the top level, Zarr keeps the raw .zattrs under
+     * `attrs`. Both are the same fact about the same variable. */
+    const units = v.units || (v.attrs && v.attrs.units);
+    if (units) result.units = units;
+    return result;
   }
 
   _scanNetCDF3(data) {
@@ -1038,6 +1072,134 @@ export class SciWridToolkit {
     const varsJson = wasm.UTF8ToString(varsJsonPtr);
     wasm.ccall('wp_free', null, ['number'], [varsJsonPtr]);
     this.vars = JSON.parse(varsJson);
+
+    /* Geographic extent, while the bytes are still in hand. See _nc3GeoBbox. */
+    try { this._geoBbox = this._nc3GeoBbox(data); }
+    catch (_) { this._geoBbox = null; }
+  }
+
+  /* -----------------------------------------------------------------------
+   * _nc3GeoBbox — geographic envelope of a NetCDF3 Classic file.
+   *
+   * NetCDF3 was the one supported format that never reported an extent:
+   * _geoBbox was only ever assigned in _scanNetCDF4, so the netcdf3 arm of
+   * _geoBboxFor fell through to `default: return null`. That is the same gap
+   * GRIB2 had -- and it bites the same way, because extractGrid() REQUIRES a
+   * bbox it was never given, so a caller has to invent one. Inventing one is
+   * how a CONUS field ends up drawn over Canada.
+   *
+   * Read from the header layout, NOT by decoding the variable. wp_nc3_normalize
+   * would materialise every timestep of a data variable just to reach its axes;
+   * on a multi-gigabyte file that turns scan() from metadata work into a full
+   * decode. wp_nc3_full_layout already reports each variable's byte offset,
+   * type and attributes, so the coordinate arrays -- a few kilobytes -- can be
+   * read straight out of the file bytes. Cost is independent of file size.
+   *
+   * Coordinate identification mirrors _scanNetCDF4 exactly (name, axis,
+   * standard_name, units), so the two NetCDF paths cannot drift into
+   * disagreeing about which variable is the latitude.
+   *
+   * Returns null -- meaning "bbox legitimately absent", the documented
+   * contract -- when there is no CF-identifiable lat/lon pair, when a
+   * coordinate is a record variable (its values are interleaved across
+   * records, not contiguous at `begin`), or when nothing finite is found.
+   * --------------------------------------------------------------------- */
+  _nc3GeoBbox(data) {
+    const wasm = this.wasm;
+    if (!wasm || !this.scanPtr) return null;
+    if (typeof wasm._wp_nc3_full_layout !== 'function') return null;
+
+    let layout;
+    const ptr = wasm.ccall('wp_nc3_full_layout', 'number', ['number'], [this.scanPtr]);
+    if (!ptr) return null;
+    try { layout = JSON.parse(wasm.UTF8ToString(ptr)); }
+    finally { wasm.ccall('wp_free', null, ['number'], [ptr]); }
+    if (!layout || !Array.isArray(layout.vars)) return null;
+
+    /* NetCDF3 external types. Only numeric ones can carry a coordinate. */
+    const NC_BYTE = 1, NC_SHORT = 3, NC_INT = 4, NC_FLOAT = 5, NC_DOUBLE = 6;
+
+    /* Attribute values arrive base64-encoded; they are latin1 text for NC_CHAR. */
+    const attrText = (v, nm) => {
+      const a = (v.atts || []).find((x) => x.name === nm);
+      if (!a || typeof a.value_b64 !== 'string') return '';
+      try {
+        const bin = typeof atob === 'function'
+          ? atob(a.value_b64)
+          : Buffer.from(a.value_b64, 'base64').toString('latin1');
+        return bin.replace(/\0+$/, '');
+      } catch (_) { return ''; }
+    };
+
+    const classify = (v) => {
+      const lname = String(v.name || '').toLowerCase();
+      const axis  = attrText(v, 'axis').toUpperCase();
+      const sname = attrText(v, 'standard_name').toLowerCase();
+      const units = attrText(v, 'units').toLowerCase();
+      if (lname === 'lat' || lname === 'latitude' || lname === 'y' || lname === 'rlat' ||
+          axis === 'Y' || sname === 'latitude' || units.includes('degrees_north')) return 'lat';
+      if (lname === 'lon' || lname === 'longitude' || lname === 'x' || lname === 'rlon' ||
+          axis === 'X' || sname === 'longitude' || units.includes('degrees_east')) return 'lon';
+      return null;
+    };
+
+    /* Read a 1-D numeric coordinate variable straight out of the file bytes.
+     * NetCDF3 is big-endian and, for a non-record variable, contiguous at
+     * `begin`. Returns null rather than a partial axis on any inconsistency. */
+    const readAxis = (v) => {
+      if (!v || v.ndims !== 1 || v.is_record) return null;
+      const n = Array.isArray(v.shape) ? Number(v.shape[0]) : 0;
+      const begin = Number(v.begin);
+      if (!(n > 0) || !Number.isFinite(begin)) return null;
+
+      const size = { [NC_BYTE]: 1, [NC_SHORT]: 2, [NC_INT]: 4, [NC_FLOAT]: 4, [NC_DOUBLE]: 8 }[v.type];
+      if (!size) return null;                       // NC_CHAR or unknown
+      if (begin + n * size > data.length) return null;
+
+      const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      const out = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        const o = begin + i * size;
+        switch (v.type) {
+          case NC_BYTE:   out[i] = dv.getInt8(o);            break;
+          case NC_SHORT:  out[i] = dv.getInt16(o, false);    break;
+          case NC_INT:    out[i] = dv.getInt32(o, false);    break;
+          case NC_FLOAT:  out[i] = dv.getFloat32(o, false);  break;
+          case NC_DOUBLE: out[i] = dv.getFloat64(o, false);  break;
+          default: return null;
+        }
+      }
+      return out;
+    };
+
+    let latV = null, lonV = null;
+    for (const v of layout.vars) {
+      const kind = classify(v);
+      if (kind === 'lat' && !latV) latV = v;
+      else if (kind === 'lon' && !lonV) lonV = v;
+    }
+
+    const lats = readAxis(latV);
+    const lons = readAxis(lonV);
+    if (!lats || !lons) return null;
+
+    /* Min/max, not first/last: axes may descend, and a bbox that assumed
+     * ascending order would come back inverted. */
+    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    for (const a of lats) {
+      if (!Number.isFinite(a)) continue;
+      if (a < minLat) minLat = a;
+      if (a > maxLat) maxLat = a;
+    }
+    for (let o of lons) {
+      if (!Number.isFinite(o)) continue;
+      if (o > 180) o -= 360;                        // 0..360 files; we speak -180..180
+      if (o < minLon) minLon = o;
+      if (o > maxLon) maxLon = o;
+    }
+    if (!Number.isFinite(minLat) || !Number.isFinite(minLon)) return null;
+
+    return [minLon, minLat, maxLon, maxLat];
   }
 
   _freeScan() {
@@ -1225,8 +1387,9 @@ export class SciWridToolkit {
   async _scanNetCDF4(data) {
     const { h5, FS } = await this._getH5wasm();
 
-    // Write to h5wasm virtual FS
-    const fname = `_wp_${Date.now()}.nc`;
+    // Write to h5wasm virtual FS. The FS is process-global and shared by every
+    // instance, so the name has to be unique per open -- see hdf5/vfs-name.js.
+    const fname = h5TempName('_wp');
     FS.writeFile(fname, data);
 
     const f = new h5.File(fname, 'r');
