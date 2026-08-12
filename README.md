@@ -182,7 +182,7 @@ The `demo:web` server hosts several pages:
 ## Current state
 
 ### ✅ Working
-- **GRIB2** — grid templates 0, 20, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → `NaN`).
+- **GRIB2** — grid templates 0, 20, 30, 40, 101; simple + complex packing; Section-6 bitmaps (masked points → `NaN`); **parameter names + units from WMO Code Table 4.2**, including the centre-local ranges NCEP, ECMWF, DWD, Rome and Helsinki define.
 - **NetCDF3 Classic** — full CF coordinate support.
 - **NetCDF4 / HDF5** — via lazy-loaded `h5wasm`.
 - **Zarr v2 (zip)** — compressors `null`, `gzip`, `zlib`, `blosc`, `zstd`, `lz4`.
