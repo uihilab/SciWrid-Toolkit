@@ -435,10 +435,16 @@ function drawAnimFrame(index) {
   $('anim-count').textContent = `${index + 1} / ${animFrames.length}`;
 }
 
+// Reaching the last frame with loop off is not an invalidation: the frames stay
+// decoded so pressing play again replays from memory instead of re-reading the
+// whole time axis. Only the layers swap back to the still raster. (Contrast
+// releaseAnimation(), which frees the bitmaps when the bbox/variable/ramp change
+// makes them genuinely stale.)
 async function finishAnimation() {
   pauseAnimation();
   await refreshLayer({ force: true, preserveAnimation: true });
-  releaseAnimation();
+  removeAnimLayer();
+  if (map?.getLayer('data-layer')) map.setLayoutProperty('data-layer', 'visibility', 'visible');
 }
 
 function scheduleAnimTick() {
@@ -456,6 +462,9 @@ function scheduleAnimTick() {
 
 async function startAnimation() {
   if (!animFrames && !(await prepareAnimation())) return;
+  // Parked on the last frame after a non-looping run — start over rather than
+  // immediately re-triggering the end-of-run branch on the first tick.
+  if (animIndex >= animFrames.length - 1) animIndex = 0;
   ensureAnimLayer();
   drawAnimFrame(animIndex);
   if (map.getLayer('data-layer')) map.setLayoutProperty('data-layer', 'visibility', 'none');
