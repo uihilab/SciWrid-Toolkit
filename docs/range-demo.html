@@ -90,7 +90,7 @@ succeeds or fails, including how many bytes it actually moved.</p>
 <script type="module">
 // Import the SOURCE entry, not dist/index.js — the bundle hoists a top-level
 // `import ... from "node:fs"` that no browser can resolve.
-import { extract, detectFormat } from '../index.js';
+import { extract, detectFormat } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/index.js';
 
 // Captured before anything can wrap it, so the byte meter always measures real
 // network calls and always restores a clean fetch.

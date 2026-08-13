@@ -5,8 +5,8 @@
 // runs inline here (Phase 5); Phase 6 moves it into a Web Worker so pan/zoom
 // stays smooth.
 
-import { scan, extract } from '../index.js';
-import { resolveRamp, sampleRamp } from '../lib/render/index.js';
+import { scan, extract } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/index.js';
+import { resolveRamp, sampleRamp } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/lib/render/index.js';
 import { validateBbox, resolutionBucket } from './map-demo-bbox.js';
 import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, chartScale, nearestIndex, resolveUnit, convertSeries, sameUnit, nativeGridSize, bboxIntersect, pairGrids, pearson, meanBias, renderScatterSVG } from './map-demo-analysis.js';
 

@@ -9,8 +9,8 @@
 // extractGrid runs inline here (workers: 0) — this worker is already off the
 // main thread, and inline avoids relying on nested-worker support.
 
-import { extractGrid, gridToImageData } from '../index.js';
-import { autoRange } from '../lib/render/index.js';
+import { extractGrid, gridToImageData } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/index.js';
+import { autoRange } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/lib/render/index.js';
 import { mercatorWarpGrid } from './map-demo-bbox.js';
 
 self.onmessage = async (e) => {
