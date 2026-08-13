@@ -350,6 +350,16 @@ function renderFileList() {
       const tag = document.createElement('span');
       tag.className = 'fl-primary'; tag.textContent = 'PRIMARY';
       li.append(tag);
+      /* Only meaningful with something to hand over to. */
+      if (sources.length > 1) {
+        const next = sources[1].name;
+        const rot = document.createElement('button');
+        rot.type = 'button'; rot.className = 'fl-rotate'; rot.textContent = '↻';
+        rot.title = `Make ${next} primary (this file moves to the back)`;
+        rot.setAttribute('aria-label', `Make ${next} primary`);
+        rot.addEventListener('click', rotatePrimary);
+        li.append(rot);
+      }
     }
     const rm = document.createElement('button');
     rm.type = 'button'; rm.textContent = '×';
@@ -374,6 +384,28 @@ function removeSource(slot) { const i=sources.findIndex(s=>s.slot===slot);if(i==
 // Point the single-file globals at sources[0] so refreshLayer / doPointQuery /
 // updateQueryUI keep working unchanged.
 function applyPrimary() { const p=sources[0];if(!p)return;const prevVar=$('variable').value;lastSource=p.file;lastScan=p.scan;boundsAssumed=p.boundsAssumed;const names=p.scan.variable_names||[];populateVariablePicker(names);if(names.includes(prevVar))$('variable').value=prevVar;populateTimePicker(lastScan,$('variable').value);updateQueryUI();renderFileList(); }
+
+/* Rotate which file is PRIMARY, queue-style: the current primary goes to the
+ * back and the next file takes over.
+ *
+ * Primary is not a label. It draws the map layer, and in space mode every other
+ * file is resampled onto ITS bbox and resolution so the transects are directly
+ * comparable. So the primary decides the basis the whole comparison is measured
+ * on -- and until now that basis was whichever file happened to be dropped
+ * first, with no way to change it short of removing and re-adding files.
+ *
+ * `slot` travels with the source, so a file keeps its series colour across
+ * rotations; only the order changes, and the legend stays readable. */
+function rotatePrimary() {
+  if (sources.length < 2) return;
+  sources.push(sources.shift());
+  lastGrid = null;              // that grid belonged to the file that stepped down
+  lastBucket = null;            // and so did the colour bucketing of the layer
+  applyPrimary();
+  if (extractBbox) refreshLayer({ force: true });
+  if (!$('analysis-panel').hidden) { populateCompareControls(); refreshAnalysis(); }
+  setStatus(`${sources[0].name} is now primary.`, 'ok');
+}
 
 // Loading via the file input REPLACES the comparison set; addFile() appends.
 async function loadSource(file) {
@@ -767,9 +799,38 @@ let lastViewDomain = null; // {min,max} data-x currently shown; the hover reads 
 // 1-step file among 4-step files renders as a single dot — honest, not a bug.
 function varOf(src,idx){return src.chartVar||(idx===0?$('variable').value:(src.scan.variable_names?.[0]??''));}
 function scanVarOf(src,idx){return(src.scan.variables||[]).find(v=>v.name===varOf(src,idx))||{name:varOf(src,idx)};}
+
+/* A PICK is what one charted series comes from: a file, plus one variable of it.
+ *
+ * Series used to be one-per-file, which left a single file un-analysable: you
+ * saw one of its variables and had nothing to compare it against, even though
+ * every variable was already scanned and sitting in the same file. A pick
+ * separates "which file" from "which column", so:
+ *   several files -> one pick each  (compare a quantity across products)
+ *   a single file -> several picks  (compare its variables against each other)
+ *
+ * Capped at MAX_SERIES because `slot` indexes the --series-N colours; past them
+ * two series share a colour and the legend stops distinguishing anything. */
+const MAX_SERIES = 4;
+function picksOf() {
+  if (sources.length > 1)
+    return sources.map((src, i) => ({ src, idx: i, variable: varOf(src, i), slot: src.slot }));
+  const src = sources[0];
+  if (!src) return [];
+  const names = src.scan?.variable_names || [];
+  const chosen = (src.chartVars?.length ? src.chartVars : [varOf(src, 0)])
+    .filter((v) => names.includes(v)).slice(0, MAX_SERIES);
+  if (!chosen.length) chosen.push(varOf(src, 0));
+  return chosen.map((variable, k) => ({ src, idx: 0, variable, slot: k }));
+}
+function scanVarOfPick(p){return(p.src.scan.variables||[]).find(v=>v.name===p.variable)||{name:p.variable};}
+function stepsForPick(p){return variableTimes(p.src.scan,p.variable).length;}
+/* Charting several variables of ONE file puts the same file name on every row,
+ * so there the variable is what tells the series apart. */
+function labelOfPick(p){return sources.length>1?p.src.name:p.variable;}
 function resLabel(size){return size.native?`${size.w}\u00d7${size.h}`:`\u22481\u00b0 ${size.w}\u00d7${size.h}`;}
 function stepsFor(src,idx){return variableTimes(src.scan,varOf(src,idx)).length;}
-function hasTimeAxis(){return sources.some((src,i)=>stepsFor(src,i)>1);}
+function hasTimeAxis(){return picksOf().some((p)=>stepsForPick(p)>1);}
 
 function setPressed(id, on) { $(id).setAttribute('aria-pressed', String(on)); }
 
@@ -805,20 +866,67 @@ function populateCompareControls() {
   const setup=$('compare-setup');
   if(!sources.length){setup.hidden=true;setup.innerHTML='';return;}
   setup.hidden=false;setup.innerHTML='';
-  sources.forEach((src,i)=>{
-    const names=src?.scan?.variable_names||[];
-    if(!names.includes(src.chartVar))src.chartVar=names[0]??'';
+  const names=sources[0]?.scan?.variable_names||[];
+
+  /* Several files: one column picker each, as before -- the comparison is
+   * across products, so the file is the identity and the variable is a detail. */
+  if(sources.length>1){
+    sources.forEach((src,i)=>{
+      const vs=src?.scan?.variable_names||[];
+      if(!vs.includes(src.chartVar))src.chartVar=vs[0]??'';
+      const label=document.createElement('label');label.className='cmp-side';
+      const tag=document.createElement('span');
+      tag.className=`cmp-tag cmp-s${src.slot}`;
+      tag.textContent=String.fromCharCode(65+i);          // A, B, C
+      const sel=document.createElement('select');
+      sel.id=`compare-${i}`;sel.setAttribute('aria-label',`${src.name} column`);
+      for(const n of vs){const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);}
+      sel.value=src.chartVar;
+      sel.addEventListener('change',()=>onCompareChange(i,sel.id));
+      label.appendChild(tag);label.appendChild(sel);setup.appendChild(label);
+    });
+    return;
+  }
+
+  /* One file: pick as many of ITS variables as there are series colours. The
+   * file is already scanned, so every variable here costs nothing to offer --
+   * what was missing was somewhere to say "and also chart this one". */
+  const src=sources[0];
+  if(!src.chartVars?.length)src.chartVars=[varOf(src,0)].filter(Boolean);
+  src.chartVars=src.chartVars.filter((v)=>names.includes(v));
+  if(!src.chartVars.length&&names.length)src.chartVars=[names[0]];
+
+  src.chartVars.forEach((variable,k)=>{
     const label=document.createElement('label');label.className='cmp-side';
     const tag=document.createElement('span');
-    tag.className=`cmp-tag cmp-s${src.slot}`;
-    tag.textContent=String.fromCharCode(65+i);          // A, B, C
+    tag.className=`cmp-tag cmp-s${k}`;
+    tag.textContent=String(k+1);
     const sel=document.createElement('select');
-    sel.id=`compare-${i}`;sel.setAttribute('aria-label',`${src.name} column`);
+    sel.id=`compare-var-${k}`;sel.setAttribute('aria-label',`Series ${k+1} variable`);
     for(const n of names){const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);}
-    sel.value=src.chartVar;
-    sel.addEventListener('change',()=>onCompareChange(i,sel.id));
-    label.appendChild(tag);label.appendChild(sel);setup.appendChild(label);
+    sel.value=variable;
+    sel.addEventListener('change',()=>{src.chartVars[k]=sel.value;src.chartVar=src.chartVars[0];gridCache.clear();populateCompareControls();refreshAnalysis();});
+    label.appendChild(tag);label.appendChild(sel);
+    /* Only offer removal down to one series -- an empty chart is not a state
+     * worth being able to reach by clicking. */
+    if(src.chartVars.length>1){
+      const rm=document.createElement('button');
+      rm.type='button';rm.className='cmp-rm';rm.textContent='×';
+      rm.title=`Remove ${variable}`;rm.setAttribute('aria-label',`Remove ${variable}`);
+      rm.addEventListener('click',()=>{src.chartVars.splice(k,1);src.chartVar=src.chartVars[0];gridCache.clear();populateCompareControls();refreshAnalysis();});
+      label.appendChild(rm);
+    }
+    setup.appendChild(label);
   });
+
+  const unused=names.filter((n)=>!src.chartVars.includes(n));
+  if(unused.length&&src.chartVars.length<MAX_SERIES){
+    const add=document.createElement('button');
+    add.type='button';add.className='cmp-add';add.textContent='+ variable';
+    add.title=`Chart another variable of ${src.name}`;
+    add.addEventListener('click',()=>{src.chartVars.push(unused[0]);gridCache.clear();populateCompareControls();refreshAnalysis();});
+    setup.appendChild(add);
+  }
 }
 function onCompareChange(i,id){const src=sources[i];if(!src)return;src.chartVar=$(id).value;gridCache.clear();refreshAnalysis();}
 
@@ -860,15 +968,15 @@ async function refreshAnalysis() {
     renderStatsTable(rows,null);
     return;
   }
-  const time=parseInt($('time').value,10)||0,list=[],rows=[],legend=[],units=[];
-  const pushSeries=(src,idx,ser,size)=>{const resolved=resolveUnit(scanVarOf(src,idx)),conv=convertSeries(ser.ys,resolved);units[idx]=conv.unit??'';list.push({xs:ser.xs,ys:conv.ys,xLabel:ser.xLabel,slot:src.slot,unit:conv.unit??''});const meta=[varOf(src,idx),conv.unit||(conv.known?'':'units unknown'),size?resLabel(size):null].filter(Boolean).join(' \u00b7 ');legend.push({slot:src.slot,name:src.name,meta});rows.push({name:`${src.name} \u2014 ${varOf(src,idx)}${conv.known?``:` (units unknown)`}`,stats:computeStats(conv.ys),unit:conv.unit||''});};
-  if(analysisMode==='space'){if(!lastGrid||!extractBbox){$('analysis-chart').innerHTML='';return;}if(sources.length>1)setStatus('Sampling files\u2026','busy');for(const[idx,src]of sources.entries()){const variable=varOf(src,idx);let grid=null,size=null;try{({grid,size}=await gridForSource(src,idx,variable,extractBbox,time));}catch(err){console.error(err);}if(!grid){rows.push({name:`${src.name} (unavailable)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromGrid(grid,{lat,lon,axis:analysisAxis}),size);}if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');}
-  else{$('analysis-chart').innerHTML='<p class="muted">Reading time series\u2026</p>';for(const[idx,src]of sources.entries()){const variable=varOf(src,idx),t2=Math.max(0,stepsFor(src,idx)-1);let points=null;try{const r=await extract(src.file,{variable,lat,lon,t1:0,t2});points=r?.timeseries??[];}catch(err){console.error(err);}if(!points){rows.push({name:`${src.name} (failed)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromTimeseries(points),null);}}
-  const titleVar=sources.length>1?sources.map((s,i)=>varOf(s,i)).join(' vs '):varOf(sources[0],0);$('analysis-title').textContent=`${titleVar} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;renderLegend(legend);
+  const time=parseInt($('time').value,10)||0,list=[],rows=[],legend=[],units=[],series=picksOf();
+  const pushSeries=(p,n,ser,size)=>{const resolved=resolveUnit(scanVarOfPick(p)),conv=convertSeries(ser.ys,resolved);units[n]=conv.unit??'';list.push({xs:ser.xs,ys:conv.ys,xLabel:ser.xLabel,slot:p.slot,unit:conv.unit??''});const meta=[p.variable,conv.unit||(conv.known?'':'units unknown'),size?resLabel(size):null].filter(Boolean).join(' · ');legend.push({slot:p.slot,name:labelOfPick(p),meta});rows.push({name:`${labelOfPick(p)} — ${p.variable}${conv.known?``:` (units unknown)`}`,stats:computeStats(conv.ys),unit:conv.unit||''});};
+  if(analysisMode==='space'){if(!lastGrid||!extractBbox){$('analysis-chart').innerHTML='';return;}if(series.length>1)setStatus('Sampling…','busy');for(const[n,p]of series.entries()){let grid=null,size=null;try{({grid,size}=await gridForSource(p.src,p.idx,p.variable,extractBbox,time));}catch(err){console.error(err);}if(!grid){rows.push({name:`${labelOfPick(p)} (unavailable)`,stats:computeStats([]),unit:''});continue;}pushSeries(p,n,seriesFromGrid(grid,{lat,lon,axis:analysisAxis}),size);}if(series.length>1)setStatus(`Comparing ${series.length} series`,'ok');}
+  else{$('analysis-chart').innerHTML='<p class="muted">Reading time series…</p>';for(const[n,p]of series.entries()){const t2=Math.max(0,stepsForPick(p)-1);let points=null;try{const r=await extract(p.src.file,{variable:p.variable,lat,lon,t1:0,t2});points=r?.timeseries??[];}catch(err){console.error(err);}if(!points){rows.push({name:`${labelOfPick(p)} (failed)`,stats:computeStats([]),unit:''});continue;}pushSeries(p,n,seriesFromTimeseries(points),null);}}
+  const titleVar=series.map((p)=>p.variable).join(' vs ');$('analysis-title').textContent=`${titleVar} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;renderLegend(legend);
   /* Dual axis is only meaningful for a single pair. With three or more series a
    * second axis has no unambiguous owner, so require a shared unit and fall back
    * to one axis. All three Idalia products are in mm, so this never fires there. */
-  const sourceUnits=sources.map((src,i)=>resolveUnit(scanVarOf(src,i)));
+  const sourceUnits=series.map((p)=>resolveUnit(scanVarOfPick(p)));
   const dual=list.length===2&&!sameUnit(sourceUnits[0],sourceUnits[1]);lastSeriesList=list;lastDual=dual;lastUnits=units;drawChart();renderStatsTable(rows,analysisMode==='time'?'\u0394':null);
 }
 

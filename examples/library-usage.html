@@ -87,12 +87,11 @@
     }
     .brand { display: inline-flex; align-items: center; gap: .75rem; min-width: max-content; }
     .brand-mark {
-      width: 32px; height: 32px;
-      display: inline-grid; place-items: center;
-      background: var(--brand); color: var(--brand-foreground);
-      border-radius: calc(var(--radius) - 2px);
-      font-size: 12px; font-weight: 700;
-      box-shadow: 0 2px 8px oklch(from var(--brand) l c h / 0.35);
+      /* The artwork carries its own rounded-square mark, so this
+         draws no tile of its own -- a brand-coloured square behind
+         it would read as two logos stacked. */
+      width: 32px; height: 32px; 
+      display: block; object-fit: contain;
     }
     .brand strong { display: block; font-size: 14px; line-height: 1.1; }
     .brand span:last-child span { display: block; color: var(--muted-foreground); font-size: 11px; line-height: 1.2; }
@@ -227,7 +226,7 @@
   <header class="site-header">
     <div class="site-header-inner">
       <a class="brand" href="index.html">
-        <span class="brand-mark">SW</span>
+        <img class="brand-mark" src="/assets/logo-sciwrid.png" alt="SciWrid" width="32" height="32">
         <span>
           <strong>SciWrid Toolkit</strong>
           <span>Library usage</span>
