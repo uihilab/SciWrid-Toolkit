@@ -21,6 +21,18 @@ let renderToken = 0;   // bumped each refresh; stale worker responses are discar
 let extractBbox = null; // [minLon,minLat,maxLon,maxLat] - chosen extract region
 let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-extract
 let lastGrid = null;    // pre-warp grid from the last successful render
+let animFrames = null;  // ImageBitmaps decoded once and reused during playback
+let animRange = null;
+let animTimes = null;    // actual timestep indices (possibly subsampled)
+let animToken = 0;
+let animPlaying = false;
+let animSpeed = 1;
+let animLoop = true;
+let animIndex = 0;
+let animTimer = null;
+let animRequestId = null;
+let animSize = null;
+let animBbox = null;
 // Exactly two files compared, A vs B. A drives the raster; B is chart-only.
 const MAX_SOURCES = 3;
 let sources = [];        // [{ file, scan, name, slot, boundsAssumed, chartVar }]
@@ -34,9 +46,25 @@ const MERCATOR_MAX_LAT = 85.05112878;
 // token are ignored (cancellation).
 const worker = new Worker(new URL('./map-demo.worker.js', import.meta.url), { type: 'module' });
 const pending = new Map(); // token → { resolve, reject }
+const animPending = new Map();
 
 worker.onmessage = (e) => {
-  const { requestId, image, range, grid, error } = e.data;
+  const message = e.data;
+  const { requestId, image, range, grid, error, type } = message;
+  if (type?.startsWith('anim-')) {
+    const slot = animPending.get(requestId);
+    if (!slot) {
+      // A stale completed job still transfers ownership; close it immediately.
+      for (const bitmap of message.bitmaps || []) bitmap.close();
+      return;
+    }
+    if (type === 'anim-progress') { slot.progress(message.done, message.total); return; }
+    animPending.delete(requestId);
+    if (type === 'anim-done') slot.resolve(message);
+    else if (type === 'anim-cancelled') slot.reject(new Error('animation cancelled'));
+    else slot.reject(new Error(error || 'animation worker failed'));
+    return;
+  }
   const slot = pending.get(requestId);
   if (!slot) return;            // already superseded / unknown
   pending.delete(requestId);
@@ -48,6 +76,13 @@ function renderInWorker(token, payload) {
   return new Promise((resolve, reject) => {
     pending.set(token, { resolve, reject });
     worker.postMessage({ requestId: token, ...payload });
+  });
+}
+
+function renderAnimationInWorker(requestId, payload, progress) {
+  return new Promise((resolve, reject) => {
+    animPending.set(requestId, { resolve, reject, progress });
+    worker.postMessage({ requestId, type: 'anim', ...payload });
   });
 }
 
@@ -157,6 +192,15 @@ function populateTimePicker(meta, variable) {
     sel.disabled = nt < 2;
   }
   sel.value = '0';
+  updateAnimAvailability();
+}
+
+function updateAnimAvailability() {
+  const count = $('time').options.length;
+  const disabled = count < 2;
+  $('anim-play').disabled = disabled;
+  $('anim-play').title = disabled ? 'file has one timestep' : '';
+  $('anim-count').textContent = disabled ? `1 / ${Math.max(1, count)}` : `1 / ${count}`;
 }
 
 /* ── legend ─────────────────────────────────────────────────────────────── */
@@ -272,8 +316,158 @@ function bboxPixelSize(bbox) {
   return { w, h };
 }
 
+// A 1024² RGBA frame is 4 MB; retaining 365 of them would approach 1.5 GB.
+function animFrameBudget(w, h) {
+  return Math.max(2, Math.floor((256 * 1024 * 1024) / (w * h * 4)));
+}
+
+function chooseAnimTimes(total, budget) {
+  if (total <= 0) return [];
+  if (total <= budget) return Array.from({ length: total }, (_, i) => i);
+  const count = Math.max(2, budget);
+  const times = [];
+  for (let i = 0; i < count; i++) times.push(Math.round((i * (total - 1)) / (count - 1)));
+  return times;
+}
+
+// Exposed only as demo diagnostics for the browser-console verification steps.
+Object.assign(window, { animFrameBudget, chooseAnimTimes });
+
+function removeAnimLayer() {
+  if (!map) return;
+  if (map.getLayer('anim-layer')) map.removeLayer('anim-layer');
+  if (map.getSource('anim-source')) map.removeSource('anim-source');
+}
+
+function pauseAnimation() {
+  animPlaying = false;
+  clearTimeout(animTimer);
+  animTimer = null;
+  $('anim-play').textContent = '▶';
+  map?.getSource('anim-source')?.pause();
+}
+
+function releaseAnimation() {
+  ++animToken;
+  if (animRequestId) {
+    worker.postMessage({ type: 'anim-cancel', requestId: animRequestId });
+    const slot = animPending.get(animRequestId);
+    if (slot) { animPending.delete(animRequestId); slot.reject(new Error('animation invalidated')); }
+    animRequestId = null;
+  }
+  pauseAnimation();
+  for (const bitmap of animFrames || []) bitmap.close();
+  animFrames = null; animRange = null; animTimes = null;
+  animIndex = 0; animSize = null; animBbox = null;
+  removeAnimLayer();
+  if (map?.getLayer('data-layer')) map.setLayoutProperty('data-layer', 'visibility', 'visible');
+  $('anim-count').textContent = `1 / ${Math.max(1, $('time').options.length)}`;
+}
+
+async function prepareAnimation() {
+  const variable = $('variable').value;
+  const total = $('time').options.length;
+  if (!lastSource || !lastScan || !extractBbox || !variable || total < 2) return false;
+
+  releaseAnimation();
+  const { w, h } = bboxPixelSize(extractBbox); // fixed for this animation, even after zoom
+  const times = chooseAnimTimes(total, animFrameBudget(w, h));
+  const token = ++animToken;
+  const requestId = `anim:${token}`;
+  animRequestId = requestId;
+  const bbox = extractBbox.slice();
+  setStatus(`Decoding 0/${times.length}…`, 'busy');
+  try {
+    const result = await renderAnimationInWorker(requestId, {
+      source: lastSource, variable, bbox, width: w, height: h,
+      ramp: $('ramp').value, times,
+    }, (done, count) => {
+      if (token === animToken) setStatus(`Decoding ${done}/${count}…`, 'busy');
+    });
+    animRequestId = null;
+    if (token !== animToken) {
+      for (const bitmap of result.bitmaps) bitmap.close();
+      return false;
+    }
+    animFrames = result.bitmaps;
+    animRange = result.range;
+    animTimes = times;
+    animSize = { w: result.width, h: result.height };
+    animBbox = bbox;
+    animIndex = 0;
+    const canvas = $('anim-canvas');
+    canvas.width = result.width; canvas.height = result.height;
+    drawLegend($('ramp').value, animRange.vmin, animRange.vmax);
+    setStatus(times.length < total
+      ? `animating ${times.length} of ${total} steps`
+      : `animation ready — ${times.length} steps`, 'ok');
+    return true;
+  } catch (error) {
+    animRequestId = null;
+    if (token === animToken && !/invalidated|cancelled/.test(error.message)) {
+      setStatus(`Error: ${error.message}`, 'error');
+      console.error(error);
+    }
+    return false;
+  }
+}
+
+function ensureAnimLayer() {
+  if (map.getSource('anim-source')) return;
+  map.addSource('anim-source', {
+    type: 'canvas', canvas: 'anim-canvas', coordinates: bboxToCoords(animBbox), animate: false,
+  });
+  map.addLayer({
+    id: 'anim-layer', type: 'raster', source: 'anim-source',
+    paint: { 'raster-opacity': currentOpacity() },
+  });
+}
+
+function drawAnimFrame(index) {
+  if (!animFrames?.[index] || !animSize) return;
+  const canvas = $('anim-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, animSize.w, animSize.h);
+  ctx.drawImage(animFrames[index], 0, 0);
+  // Programmatic select assignment does not dispatch `change`, so playback
+  // never re-enters refreshLayer and never decodes an individual still frame.
+  $('time').value = String(animTimes[index]);
+  $('anim-count').textContent = `${index + 1} / ${animFrames.length}`;
+}
+
+async function finishAnimation() {
+  pauseAnimation();
+  await refreshLayer({ force: true, preserveAnimation: true });
+  releaseAnimation();
+}
+
+function scheduleAnimTick() {
+  clearTimeout(animTimer);
+  animTimer = setTimeout(() => {
+    if (!animPlaying || !animFrames) return;
+    if (animIndex >= animFrames.length - 1) {
+      if (!animLoop) { finishAnimation(); return; }
+      animIndex = 0;
+    } else animIndex += 1;
+    drawAnimFrame(animIndex);
+    scheduleAnimTick();
+  }, 500 / animSpeed);
+}
+
+async function startAnimation() {
+  if (!animFrames && !(await prepareAnimation())) return;
+  ensureAnimLayer();
+  drawAnimFrame(animIndex);
+  if (map.getLayer('data-layer')) map.setLayoutProperty('data-layer', 'visibility', 'none');
+  map.setLayoutProperty('anim-layer', 'visibility', 'visible');
+  map.getSource('anim-source').play();
+  animPlaying = true;
+  $('anim-play').textContent = '⏸';
+  scheduleAnimTick();
+}
+
 /* --- render the chosen bbox into a MapLibre ImageSource ----------------- */
-async function refreshLayer({ force = false } = {}) {
+async function refreshLayer({ force = false, preserveAnimation = false } = {}) {
   if (!lastSource || !lastScan || !extractBbox) return;
   const variable = $('variable').value;
   const ramp     = $('ramp').value;
@@ -285,6 +479,7 @@ async function refreshLayer({ force = false } = {}) {
   if (!force && bucket === lastBucket) return;
   lastBucket = bucket;
   gridCache.clear();  // bbox/size/time changed — cached non-primary grids are stale
+  if (!preserveAnimation) releaseAnimation();
   const token = ++renderToken;
   // Drop any earlier in-flight request — its response will be ignored.
   for (const [id, slot] of pending) {
@@ -377,9 +572,9 @@ function updateAddFileUI() { const row=$('add-file-row'),btn=$('add-file-btn'),f
 // Add a file to the comparison. Rejects only when it shares NO variable name with
 // what is already loaded — identical sets is the wrong rule, since GFS f000 is a
 // strict subset of f003 (accumulated fields do not exist at forecast hour 0).
-async function addFile(file) { if(!file)return false;if(sources.length>=MAX_SOURCES){setStatus(`Comparing up to ${MAX_SOURCES} files — "${file.name}" not added.`,'error');return false;}setStatus(`Scanning ${file.name}…`,'busy');let scanResult;try{scanResult=await scan(file);}catch(err){setStatus(`Error scanning ${file.name}: ${err.message}`,'error');console.error(err);return false;}const names=scanResult.variable_names||[],hasBbox=Array.isArray(scanResult.bbox)&&scanResult.bbox.length===4;if(!hasBbox)scanResult.bbox=[-180,-90,180,90];sources.push({file,scan:scanResult,name:file.name,slot:firstFreeSlot(),boundsAssumed:!hasBbox,chartVar:names[0]??''});applyPrimary();setStatus(sources.length>1?`${file.name} added — pick a column of each in Show analysis.`:`${file.name} loaded.`,'ok');return true;}
+async function addFile(file) { if(!file)return false;releaseAnimation();if(sources.length>=MAX_SOURCES){setStatus(`Comparing up to ${MAX_SOURCES} files — "${file.name}" not added.`,'error');return false;}setStatus(`Scanning ${file.name}…`,'busy');let scanResult;try{scanResult=await scan(file);}catch(err){setStatus(`Error scanning ${file.name}: ${err.message}`,'error');console.error(err);return false;}const names=scanResult.variable_names||[],hasBbox=Array.isArray(scanResult.bbox)&&scanResult.bbox.length===4;if(!hasBbox)scanResult.bbox=[-180,-90,180,90];sources.push({file,scan:scanResult,name:file.name,slot:firstFreeSlot(),boundsAssumed:!hasBbox,chartVar:names[0]??''});applyPrimary();setStatus(sources.length>1?`${file.name} added — pick a column of each in Show analysis.`:`${file.name} loaded.`,'ok');return true;}
 
-function removeSource(slot) { const i=sources.findIndex(s=>s.slot===slot);if(i===-1)return;sources.splice(i,1);gridCache.clear();if(!sources.length){lastSource=null;lastScan=null;lastGrid=null;closeAnalysis();$('analyze-btn').hidden=true;$('extract').hidden=true;$('query').hidden=true;if(map.getLayer('data-layer')){map.removeLayer('data-layer');map.removeSource('data-source');}renderFileList();setStatus('Drop a file to begin.','');return;}applyPrimary();lastBucket=null;if(extractBbox)refreshLayer({force:true});if(!$('analysis-panel').hidden){populateCompareControls();refreshAnalysis();} }
+function removeSource(slot) { const i=sources.findIndex(s=>s.slot===slot);if(i===-1)return;releaseAnimation();sources.splice(i,1);gridCache.clear();if(!sources.length){lastSource=null;lastScan=null;lastGrid=null;closeAnalysis();$('analyze-btn').hidden=true;$('extract').hidden=true;$('query').hidden=true;if(map.getLayer('data-layer')){map.removeLayer('data-layer');map.removeSource('data-source');}renderFileList();setStatus('Drop a file to begin.','');return;}applyPrimary();lastBucket=null;if(extractBbox)refreshLayer({force:true});if(!$('analysis-panel').hidden){populateCompareControls();refreshAnalysis();} }
 
 // Point the single-file globals at sources[0] so refreshLayer / doPointQuery /
 // updateQueryUI keep working unchanged.
@@ -398,6 +593,7 @@ function applyPrimary() { const p=sources[0];if(!p)return;const prevVar=$('varia
  * rotations; only the order changes, and the legend stays readable. */
 function rotatePrimary() {
   if (sources.length < 2) return;
+  releaseAnimation();
   sources.push(sources.shift());
   lastGrid = null;              // that grid belonged to the file that stepped down
   lastBucket = null;            // and so did the colour bucketing of the layer
@@ -410,6 +606,7 @@ function rotatePrimary() {
 // Loading via the file input REPLACES the comparison set; addFile() appends.
 async function loadSource(file) {
   if (!file) return null;
+  releaseAnimation();
   sources = [];
   gridCache.clear();
   lastGrid = null;
@@ -452,12 +649,28 @@ $('add-file').addEventListener('change', async (e) => {
 });
 
 $('variable').addEventListener('change', () => {
+  releaseAnimation();
   populateTimePicker(lastScan, $('variable').value);
   updateQueryUI();
   refreshLayer({ force: true });
 });
 $('time').addEventListener('change', () => refreshLayer({ force: true }));
-$('ramp').addEventListener('change', () => refreshLayer({ force: true }));
+$('ramp').addEventListener('change', () => { releaseAnimation(); refreshLayer({ force: true }); });
+$('anim-play').addEventListener('click', () => {
+  if (animPlaying) pauseAnimation(); else startAnimation();
+});
+$('anim-speed').querySelectorAll('button').forEach((button) => {
+  button.addEventListener('click', () => {
+    animSpeed = Number(button.dataset.speed);
+    $('anim-speed').querySelectorAll('button').forEach((item) =>
+      item.setAttribute('aria-pressed', String(item === button)));
+    if (animPlaying) scheduleAnimTick();
+  });
+});
+$('anim-loop').addEventListener('click', () => {
+  animLoop = !animLoop;
+  $('anim-loop').setAttribute('aria-pressed', String(animLoop));
+});
 
 for (const id of ['ext-min-lat', 'ext-max-lat', 'ext-min-lon', 'ext-max-lon']) {
   $(id).addEventListener('input', validateAndSketch);
@@ -476,6 +689,8 @@ $('opacity').addEventListener('input', () => {
   updateOpacityLabel();
   if (map && map.getLayer('data-layer'))
     map.setPaintProperty('data-layer', 'raster-opacity', currentOpacity());
+  if (map && map.getLayer('anim-layer'))
+    map.setPaintProperty('anim-layer', 'raster-opacity', currentOpacity());
 });
 
 /* ── point query (lat/lon inputs bounded by the variable's extent) ──────── */
@@ -1194,7 +1409,10 @@ function init() {
   map.addControl(new maplibregl.NavigationControl(), 'top-right');
   map.on('load', () => {
     attachClickQuery();
-    map.on('moveend', () => { if (extractBbox) refreshLayer(); });
+    // Prepared CanvasSource frames retain their original resolution on zoom;
+    // geographic coordinates keep them aligned, intentionally trading sharpness
+    // for zero re-decode during playback.
+    map.on('moveend', () => { if (extractBbox && !animFrames) refreshLayer(); });
   });
 }
 

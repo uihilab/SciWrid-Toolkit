@@ -147,6 +147,25 @@
       accent-color: var(--brand); cursor: pointer;
     }
     #opacity-val { font-weight: 600; color: var(--brand); }
+    .anim-controls { display: flex; align-items: center; gap: .35rem; margin-top: .55rem; min-width: 0; }
+    #sidebar #anim-play, #sidebar #anim-loop,
+    #sidebar #anim-speed button {
+      padding: 5px 7px; min-width: 0; background: transparent;
+      color: var(--muted-foreground); border: 1px solid var(--border);
+      border-radius: calc(var(--radius) - 3px); line-height: 1;
+    }
+    #sidebar #anim-play { width: 31px; color: var(--foreground); }
+    #sidebar #anim-loop[aria-pressed="true"],
+    #sidebar #anim-speed button[aria-pressed="true"] {
+      background: var(--brand); color: var(--brand-foreground); border-color: var(--brand);
+    }
+    #sidebar #anim-speed { flex: 0 1 auto; display: inline-flex; }
+    #sidebar #anim-speed button { border-radius: 0; border-right-width: 0; }
+    #sidebar #anim-speed button:first-child { border-radius: calc(var(--radius) - 3px) 0 0 calc(var(--radius) - 3px); }
+    #sidebar #anim-speed button:last-child { border-radius: 0 calc(var(--radius) - 3px) calc(var(--radius) - 3px) 0; border-right-width: 1px; }
+    #sidebar #anim-play:disabled { opacity: .4; cursor: not-allowed; }
+    #anim-count { margin-left: auto; font-size: 10px; color: var(--muted-foreground); white-space: nowrap; }
+    #anim-canvas { position: absolute; left: -9999px; top: 0; }
     #sidebar input[type=file]::file-selector-button {
       margin-right: 8px; padding: 5px 10px;
       background: var(--secondary); color: var(--secondary-foreground);
@@ -402,6 +421,16 @@
         <label for="time">Time</label>
         <select id="time" disabled></select>
         <div id="time-range" class="muted"></div>
+        <div class="anim-controls" aria-label="Time animation controls">
+          <button id="anim-play" type="button" disabled title="file has one timestep" aria-label="Play animation">▶</button>
+          <div id="anim-speed" class="ap-toggle" role="group" aria-label="Animation speed">
+            <button type="button" data-speed="1" aria-pressed="true">1×</button>
+            <button type="button" data-speed="2" aria-pressed="false">2×</button>
+            <button type="button" data-speed="5" aria-pressed="false">5×</button>
+          </div>
+          <button id="anim-loop" type="button" aria-pressed="true" aria-label="Loop animation">↻</button>
+          <span id="anim-count">1 / 1</span>
+        </div>
 
         <label for="ramp">Color ramp</label>
         <select id="ramp">
@@ -482,6 +511,7 @@
     </aside>
 
     <div id="map"></div>
+    <canvas id="anim-canvas" width="1" height="1" aria-hidden="true"></canvas>
 
     <!-- Analysis window. Deliberately NOT modal and NOT docked: it floats above the
          map, drags by its title bar, and resizes, so the map stays clickable while
