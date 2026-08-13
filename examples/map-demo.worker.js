@@ -1,20 +1,86 @@
 // examples/map-demo.worker.js — offload extractGrid + gridToImageData.
 //
-// A module worker (`new Worker(url, { type: 'module' })`). The main thread
-// posts { requestId, source, variable, bbox, width, height, ramp }; this worker
-// extracts the grid, colors it, and posts back { requestId, image } where
-// image = { width, height, data: Uint8ClampedArray }. The RGBA buffer is
-// transferred (zero-copy) back to the main thread.
-//
-// extractGrid runs inline here (workers: 0) — this worker is already off the
-// main thread, and inline avoids relying on nested-worker support.
+// Missing message `type` preserves the original one-frame protocol. Animation
+// requests decode every selected timestep once, lock one global colour range,
+// and transfer ImageBitmaps rather than raw grids to keep playback off the main
+// thread.
 
 import { extractGrid, gridToImageData } from '../index.js';
 import { autoRange } from '../lib/render/index.js';
 import { mercatorWarpGrid } from './map-demo-bbox.js';
 
+let animCancelled = null;
+
+function cancelled(requestId) {
+  return animCancelled === requestId;
+}
+
+async function renderAnimation({ requestId, source, variable, bbox, width, height, ramp, times }) {
+  animCancelled = null;
+  const frames = new Array(times.length);
+  const ranges = new Array(times.length);
+  const bitmaps = [];
+
+  for (let i = 0; i < times.length; i++) {
+    if (cancelled(requestId)) {
+      self.postMessage({ requestId, type: 'anim-cancelled' });
+      return;
+    }
+    const grid = await extractGrid(source, {
+      variable, bbox, width, height, workers: 0, time: times[i],
+    });
+    const warped = mercatorWarpGrid(grid);
+    frames[i] = warped;
+    ranges[i] = autoRange(warped.data);
+    self.postMessage({ requestId, type: 'anim-progress', done: i + 1, total: times.length });
+  }
+
+  let vmin = Infinity, vmax = -Infinity;
+  for (const range of ranges) {
+    if (!range) continue;
+    if (range.vmin < vmin) vmin = range.vmin;
+    if (range.vmax > vmax) vmax = range.vmax;
+  }
+  if (!Number.isFinite(vmin) || !Number.isFinite(vmax))
+    throw new Error('All animation frames contain only non-finite values');
+
+  for (let i = 0; i < frames.length; i++) {
+    if (cancelled(requestId)) {
+      for (const bitmap of bitmaps) bitmap.close();
+      self.postMessage({ requestId, type: 'anim-cancelled' });
+      return;
+    }
+    const image = gridToImageData(frames[i], { ramp, vmin, vmax });
+    frames[i] = null; // release each Float32Array before creating the next RGBA frame
+    bitmaps.push(await createImageBitmap(new ImageData(image.data, image.width, image.height)));
+  }
+
+  self.postMessage({
+    requestId, type: 'anim-done', bitmaps, range: { vmin, vmax }, width, height,
+  }, bitmaps);
+}
+
 self.onmessage = async (e) => {
-  const { requestId, source, variable, bbox, width, height, ramp, time } = e.data;
+  const message = e.data;
+  if (message.type === 'anim-cancel') {
+    animCancelled = message.requestId;
+    return;
+  }
+
+  if (message.type === 'anim') {
+    try {
+      await renderAnimation(message);
+    } catch (err) {
+      self.postMessage({
+        requestId: message.requestId,
+        type: 'anim-error',
+        error: err && err.message ? err.message : String(err),
+      });
+    }
+    return;
+  }
+
+  const { requestId, source, variable, bbox, width, height, ramp, time } = message;
   try {
     const grid = await extractGrid(source, { variable, bbox, width, height, workers: 0, time });
     // Reproject equirectangular rows → Web-Mercator so the raster lines up with
