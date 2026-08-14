@@ -836,7 +836,7 @@ const HELP_STEPS = [
   },
   {
     title: 'Try it on real data',
-    body: 'Load the bundled GFS forecast \u2014 four timesteps, three hours apart \u2014 or load Hurricane Idalia (2023) as three real products in three formats: NCEP Stage IV radar QPE (GRIB2), NOAA AORC (Zarr) and NLDAS-2 (NetCDF). Then click the map and choose "Show analysis" to chart how the products compare at that point.',
+    body: 'Load the bundled GFS forecast \u2014 four timesteps, three hours apart \u2014 or load Hurricane Idalia (2023) as three real products in three formats: NCEP Stage IV radar QPE (GRIB2), NOAA AORC (Zarr) and NLDAS-2 (NetCDF). The NLDAS file also carries 10 m wind: make it primary (\u21bb), pick \u201cWind speed\u201d, and press play to watch the storm\u2019s wind field animate. Click the map and choose "Show analysis" to chart how the products compare at that point.',
   },
 ];
 
