@@ -172,7 +172,14 @@
       border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
       cursor: pointer; font-family: inherit; font-size: 12px;
     }
-    #status { margin-top: .75rem; font-size: 12px; min-height: 1.2em; color: var(--muted-foreground); }
+    /* Point-query readout */
+    .qr { margin-top: .45rem; }
+    .qr-empty { font-size: 12px; color: var(--muted-foreground); }
+    .qr-error { font-size: 12px; color: var(--destructive, #d33); word-break: break-word; }
+    .qr-val { font-size: 20px; font-weight: 700; color: var(--foreground); line-height: 1.15; }
+    .qr-unit { font-size: 13px; font-weight: 600; color: var(--muted-foreground); margin-left: 3px; }
+    .qr-name { font-size: 12px; color: var(--muted-foreground); margin-top: 3px; }
+    .qr-sub { font-size: 11px; color: var(--muted-foreground); margin-top: 2px; }
     #status.error { color: var(--destructive); }
     #status.busy  { color: var(--warn); }
     #status.ok    { color: var(--success); }
@@ -434,11 +441,30 @@
 
         <label for="ramp">Color ramp</label>
         <select id="ramp">
-          <option value="viridis">viridis</option>
-          <option value="plasma">plasma</option>
-          <option value="grayscale">grayscale</option>
-          <option value="RdBu">RdBu (diverging)</option>
+          <optgroup label="Sequential · colorblind-safe">
+            <option value="viridis">viridis</option>
+            <option value="magma">magma</option>
+            <option value="inferno">inferno</option>
+            <option value="plasma">plasma</option>
+            <option value="cividis">cividis</option>
+          </optgroup>
+          <optgroup label="Sequential · single / warm">
+            <option value="Blues">Blues</option>
+            <option value="YlOrRd">YlOrRd</option>
+            <option value="grayscale">grayscale</option>
+          </optgroup>
+          <optgroup label="High-contrast">
+            <option value="turbo">turbo</option>
+          </optgroup>
+          <optgroup label="Diverging">
+            <option value="RdBu">RdBu</option>
+            <option value="RdYlBu">RdYlBu</option>
+          </optgroup>
         </select>
+        <label style="display:flex; align-items:center; gap:.4rem; margin-top:.35rem; font-weight:normal;">
+          <input type="checkbox" id="ramp-reverse" style="width:auto; margin:0;">
+          <span>Reverse ramp</span>
+        </label>
 
         <label for="opacity">Layer opacity <span id="opacity-val" class="muted">75%</span></label>
         <input type="range" id="opacity" min="0" max="100" step="1" value="75">
@@ -484,14 +510,10 @@
             </label>
           </div>
           <button id="q-btn">Query value</button>
-          <div id="q-result" class="muted" style="margin-top:.4rem;">–</div>
-          <div id="q-bbox-debug" class="muted"
-               style="margin-top:.5rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.5; white-space:pre;">–</div>
+          <div id="q-result" class="qr qr-empty">–</div>
         </div>
 
         <button id="analyze-btn" type="button" hidden>Show analysis</button>
-
-        <div id="status" class="muted">Pick a file to begin.</div>
       </div>
 
       <div id="sb-foot">

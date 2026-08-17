@@ -8,6 +8,7 @@
 import { scan, extract } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/index.js';
 import { resolveRamp, sampleRamp } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/lib/render/index.js';
 import { validateBbox, resolutionBucket } from './map-demo-bbox.js';
+import { notifyStatus } from './notify.js';
 import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, chartScale, nearestIndex, resolveUnit, convertSeries, sameUnit, nativeGridSize, bboxIntersect, pairGrids, pearson, meanBias, renderScatterSVG } from './map-demo-analysis.js';
 
 const $ = (id) => document.getElementById(id);
@@ -88,9 +89,7 @@ function renderAnimationInWorker(requestId, payload, progress) {
 
 /* ── status helpers ─────────────────────────────────────────────────────── */
 function setStatus(msg, cls = '') {
-  const el = $('status');
-  el.textContent = msg;
-  el.className = cls;
+  notifyStatus(msg, cls);   // status lives only in the bottom-right toast now
 }
 
 /* ── layer opacity ──────────────────────────────────────────────────────── */
@@ -204,6 +203,59 @@ function updateAnimAvailability() {
 }
 
 /* ── legend ─────────────────────────────────────────────────────────────── */
+/* ── color ramps ──────────────────────────────────────────────────────────
+ * Demo-local ramps beyond the four the render library ships. resolveRamp()
+ * accepts a raw [t,[r,g,b]] stop array, so these need no library change: the
+ * built-ins pass through by name, these by value. Stops are the canonical
+ * Matplotlib / ColorBrewer 9-point samples. The "colorblind-safe" sequential
+ * set (viridis/magma/inferno/plasma/cividis) is perceptually uniform. */
+const DEMO_RAMPS = {
+  magma: [
+    [0.0, [0, 0, 4]], [0.125, [28, 16, 68]], [0.25, [79, 18, 123]],
+    [0.375, [129, 37, 129]], [0.5, [181, 54, 122]], [0.625, [229, 80, 100]],
+    [0.75, [251, 135, 97]], [0.875, [254, 194, 135]], [1.0, [252, 253, 191]],
+  ],
+  inferno: [
+    [0.0, [0, 0, 4]], [0.125, [31, 12, 72]], [0.25, [85, 15, 109]],
+    [0.375, [136, 34, 106]], [0.5, [186, 54, 85]], [0.625, [227, 89, 51]],
+    [0.75, [249, 140, 10]], [0.875, [249, 201, 50]], [1.0, [252, 255, 164]],
+  ],
+  cividis: [
+    [0.0, [0, 34, 78]], [0.125, [0, 51, 104]], [0.25, [64, 71, 107]],
+    [0.375, [104, 90, 108]], [0.5, [140, 110, 105]], [0.625, [176, 132, 97]],
+    [0.75, [214, 156, 82]], [0.875, [253, 183, 58]], [1.0, [255, 234, 70]],
+  ],
+  Blues: [
+    [0.0, [247, 251, 255]], [0.125, [222, 235, 247]], [0.25, [198, 219, 239]],
+    [0.375, [158, 202, 225]], [0.5, [107, 174, 214]], [0.625, [66, 146, 198]],
+    [0.75, [33, 113, 181]], [0.875, [8, 81, 156]], [1.0, [8, 48, 107]],
+  ],
+  YlOrRd: [
+    [0.0, [255, 255, 204]], [0.125, [255, 237, 160]], [0.25, [254, 217, 118]],
+    [0.375, [254, 178, 76]], [0.5, [253, 141, 60]], [0.625, [252, 78, 42]],
+    [0.75, [227, 26, 28]], [0.875, [189, 0, 38]], [1.0, [128, 0, 38]],
+  ],
+  turbo: [
+    [0.0, [48, 18, 59]], [0.125, [64, 124, 226]], [0.25, [30, 185, 220]],
+    [0.375, [43, 225, 150]], [0.5, [128, 253, 78]], [0.625, [201, 229, 50]],
+    [0.75, [249, 168, 49]], [0.875, [231, 92, 20]], [1.0, [122, 4, 3]],
+  ],
+  RdYlBu: [
+    [0.0, [165, 0, 38]], [0.125, [215, 48, 39]], [0.25, [244, 109, 67]],
+    [0.375, [253, 174, 97]], [0.5, [255, 255, 191]], [0.625, [171, 217, 233]],
+    [0.75, [116, 173, 209]], [0.875, [69, 117, 180]], [1.0, [49, 54, 149]],
+  ],
+};
+
+// The selected ramp as the render path wants it: a built-in name (string) or a
+// stop array. The Reverse toggle flips the stops (resolving a name first).
+function rampValue() {
+  const name = $('ramp').value;
+  const ramp = DEMO_RAMPS[name] ?? name;
+  if (!$('ramp-reverse')?.checked) return ramp;
+  return resolveRamp(ramp).map(([t, c]) => [1 - t, c]).reverse();
+}
+
 function drawLegend(rampName, vmin, vmax) {
   const wrap = $('legend');
   if (vmin == null || vmax == null) { wrap.hidden = true; return; }
@@ -380,7 +432,7 @@ async function prepareAnimation() {
   try {
     const result = await renderAnimationInWorker(requestId, {
       source: lastSource, variable, bbox, width: w, height: h,
-      ramp: $('ramp').value, times,
+      ramp: rampValue(), times,
     }, (done, count) => {
       if (token === animToken) setStatus(`Decoding ${done}/${count}…`, 'busy');
     });
@@ -397,7 +449,7 @@ async function prepareAnimation() {
     animIndex = 0;
     const canvas = $('anim-canvas');
     canvas.width = result.width; canvas.height = result.height;
-    drawLegend($('ramp').value, animRange.vmin, animRange.vmax);
+    drawLegend(rampValue(), animRange.vmin, animRange.vmax);
     setStatus(times.length < total
       ? `animating ${times.length} of ${total} steps`
       : `animation ready — ${times.length} steps`, 'ok');
@@ -479,7 +531,7 @@ async function startAnimation() {
 async function refreshLayer({ force = false, preserveAnimation = false } = {}) {
   if (!lastSource || !lastScan || !extractBbox) return;
   const variable = $('variable').value;
-  const ramp     = $('ramp').value;
+  const ramp     = rampValue();
   if (!variable) return;
 
   const bbox = extractBbox;
@@ -665,6 +717,7 @@ $('variable').addEventListener('change', () => {
 });
 $('time').addEventListener('change', () => refreshLayer({ force: true }));
 $('ramp').addEventListener('change', () => { releaseAnimation(); refreshLayer({ force: true }); });
+$('ramp-reverse').addEventListener('change', () => { releaseAnimation(); refreshLayer({ force: true }); });
 $('anim-play').addEventListener('click', () => {
   if (animPlaying) pauseAnimation(); else startAnimation();
 });
@@ -729,23 +782,44 @@ function updateQueryUI() {
   if (lonIn.value === '' || +lonIn.value < minLon || +lonIn.value > maxLon)
     lonIn.value = ((minLon + maxLon) / 2).toFixed(3);
   $('q-result').textContent = '–';
-  $('q-result').className = 'muted';
-  drawBboxDebug();
+  $('q-result').className = 'qr qr-empty';
 }
 
-// Debug readout: print the raw bbox min/max so the data extent can be
-// eyeballed against the map. Shows whether bounds are real or assumed.
-function drawBboxDebug() {
-  const el = $('q-bbox-debug');
-  if (!el) return;
-  const b = lastScan?.bbox;
-  if (!Array.isArray(b) || b.length !== 4) { el.textContent = '–'; return; }
-  const [minLon, minLat, maxLon, maxLat] = b;
-  el.textContent =
-    `bbox ${boundsAssumed ? '(ASSUMED global)' : '(from file)'}\n` +
-    `  lon min ${minLon.toFixed(4)}   max ${maxLon.toFixed(4)}\n` +
-    `  lat min ${minLat.toFixed(4)}   max ${maxLat.toFixed(4)}\n` +
-    `  span  ${(maxLon - minLon).toFixed(4)}° × ${(maxLat - minLat).toFixed(4)}°`;
+/* ── point-query readout formatting ─────────────────────────────────────── */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// Value + unit, using the same unit resolution as the analysis chart so the two
+// always agree. Falls back to the raw value if the unit can't be resolved.
+function formatPointValue(variable, value) {
+  try {
+    const sv = (lastScan?.variables || []).find((v) => v.name === variable);
+    const conv = convertSeries([value], resolveUnit(sv));
+    const out = conv?.ys?.[0];
+    return { text: fmtNum(out == null ? value : out),
+             unit: conv?.known ? (conv.unit || '') : '' };
+  } catch {
+    return { text: fmtNum(value), unit: '' };
+  }
+}
+
+function fmtLatLon(lat, lon) {
+  const la = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}`;
+  const lo = `${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
+  return `${la}, ${lo}`;
+}
+
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const p = (n) => String(n).padStart(2, '0');
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`
+       + ` · ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`;
 }
 
 // Run a point query and show the value in the sidebar (+ optional map popup).
@@ -757,25 +831,35 @@ async function doPointQuery(lat, lon, { popup = false } = {}) {
   lon = clamp(lon, b.minLon, b.maxLon);
   $('q-lat').value = lat; $('q-lon').value = lon;
   const res = $('q-result');
-  res.textContent = 'Querying…'; res.className = 'muted';
+  res.textContent = 'Querying…'; res.className = 'qr qr-empty';
   try {
     const time = parseInt($('time').value, 10) || 0;
     const r = await extract(lastSource, { variable, lat, lon, t1: time, t2: time });
     const { value, when } = pickValue(r);
     if (value == null) {
-      res.textContent = 'no data at this location'; res.className = 'muted';
+      res.textContent = 'No data at this location'; res.className = 'qr qr-empty';
     } else {
-      res.textContent = `${variable} = ${fmtNum(value)}` + (when ? `  @ ${when}` : '');
-      res.className = 'ok';
+      const { text: valTxt, unit } = formatPointValue(variable, value);
+      res.className = 'qr';
+      res.innerHTML =
+        `<div class="qr-val">${valTxt}`
+          + (unit ? `<span class="qr-unit">${escapeHtml(unit)}</span>` : '') + '</div>'
+        + `<div class="qr-name">${escapeHtml(variable)}</div>`
+        + `<div class="qr-sub">${fmtLatLon(lat, lon)}`
+          + (when ? ` · ${fmtWhen(when)}` : '') + '</div>';
     }
     if (popup) {
-      const body = value == null ? 'no data here'
-        : `${fmtNum(value)}${when ? `<br><span style="opacity:.7;font-size:11px">@ ${when}</span>` : ''}`;
+      const fmt = value == null ? null : formatPointValue(variable, value);
+      const body = value == null
+        ? '<span style="opacity:.7">no data here</span>'
+        : `<span style="font-size:15px;font-weight:700">${fmt.text}`
+          + (fmt.unit ? ` ${escapeHtml(fmt.unit)}` : '') + '</span>'
+          + (when ? `<br><span style="opacity:.7;font-size:11px">${fmtWhen(when)}</span>` : '');
       new maplibregl.Popup().setLngLat([lon, lat])
-        .setHTML(`<strong>${variable}</strong><br>${body}`).addTo(map);
+        .setHTML(`<strong>${escapeHtml(variable)}</strong><br>${body}`).addTo(map);
     }
   } catch (err) {
-    res.textContent = 'Error: ' + err.message; res.className = 'error';
+    res.textContent = 'Error: ' + err.message; res.className = 'qr qr-error';
     console.error(err);
   }
   if (!$('analysis-panel').hidden) refreshAnalysis();

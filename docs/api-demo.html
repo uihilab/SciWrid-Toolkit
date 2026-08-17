@@ -670,6 +670,7 @@
       gridToJSON, gridToGeoTIFF, trim,
       SciWridError, TrimError,
     } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/lib/sciwrid-api.js';
+    import { notifyStatus } from './notify.js';
 
     /* Small browser download helper — Blob + anchor click. */
     function saveBlob(content, mime, filename) {
@@ -691,9 +692,16 @@
     function log(label, value) {
       console.log(`[api-demo] ${label}:`, value);
     }
+    const SHOW_LABELS = { 'detect-out': 'Detect', 'scan-out': 'Scan',
+      'ex-out': 'Extract', 'g-out': 'Grid', 'trim-out': 'Trim' };
     function show(el, value, cls = '') {
       el.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
       el.className = cls;
+      // Mirror terminal results into the bottom-right toast: errors stay pinned,
+      // a successful run flashes a green check.
+      const label = SHOW_LABELS[el.id] || (el.id ? el.id.replace(/-out$/, '').replace(/-/g, ' ') : 'Done');
+      if (cls === 'error') notifyStatus(String(value).replace(/^Error:\s*/, ''), 'error');
+      else if (cls === '' || cls === 'ok') notifyStatus(`${label} complete`, 'ok');
     }
     function requireFile() {
       const f = fileInput.files[0];
