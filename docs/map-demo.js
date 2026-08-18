@@ -596,6 +596,18 @@ function renderFileList() {
   ul.innerHTML = '';
   sources.forEach((s, i) => {
     const li = document.createElement('li');
+    li.tabIndex = 0;
+    li.dataset.idx = String(i);
+    li.setAttribute('aria-label',
+      `${s.name}, file ${i + 1} of ${sources.length}${i === 0 ? ', primary' : ''}. ` +
+      `Alt plus Arrow Up or Arrow Down to move it. The top file is primary.`);
+    li.addEventListener('keydown', onFileRowKey);
+    li.draggable = true;
+    li.addEventListener('dragstart', onFileRowDragStart);
+    li.addEventListener('dragover',  onFileRowDragOver);
+    li.addEventListener('dragleave', onFileRowDragLeave);
+    li.addEventListener('drop',      onFileRowDrop);
+    li.addEventListener('dragend',   onFileRowDragEnd);
     const sw = document.createElement('span');
     sw.className = 'fl-swatch';
     sw.style.background = `var(--series-${s.slot + 1})`;
@@ -606,19 +618,10 @@ function renderFileList() {
       const tag = document.createElement('span');
       tag.className = 'fl-primary'; tag.textContent = 'PRIMARY';
       li.append(tag);
-      /* Only meaningful with something to hand over to. */
-      if (sources.length > 1) {
-        const next = sources[1].name;
-        const rot = document.createElement('button');
-        rot.type = 'button'; rot.className = 'fl-rotate'; rot.textContent = '↻';
-        rot.title = `Make ${next} primary (this file moves to the back)`;
-        rot.setAttribute('aria-label', `Make ${next} primary`);
-        rot.addEventListener('click', rotatePrimary);
-        li.append(rot);
-      }
     }
     const rm = document.createElement('button');
     rm.type = 'button'; rm.textContent = '×';
+    rm.draggable = false;   // else a mousedown here drags the whole row
     rm.setAttribute('aria-label', `Remove ${s.name}`);
     rm.addEventListener('click', () => removeSource(s.slot));
     li.append(rm);
@@ -641,27 +644,110 @@ function removeSource(slot) { const i=sources.findIndex(s=>s.slot===slot);if(i==
 // updateQueryUI keep working unchanged.
 function applyPrimary() { const p=sources[0];if(!p)return;const prevVar=$('variable').value;lastSource=p.file;lastScan=p.scan;boundsAssumed=p.boundsAssumed;const names=p.scan.variable_names||[];populateVariablePicker(names);if(names.includes(prevVar))$('variable').value=prevVar;populateTimePicker(lastScan,$('variable').value);updateQueryUI();renderFileList(); }
 
-/* Rotate which file is PRIMARY, queue-style: the current primary goes to the
- * back and the next file takes over.
+/* Reorder the comparison set. `from` and `to` are indices into `sources` as it
+ * stands right now, before the move.
  *
- * Primary is not a label. It draws the map layer, and in space mode every other
- * file is resampled onto ITS bbox and resolution so the transects are directly
- * comparable. So the primary decides the basis the whole comparison is measured
- * on -- and until now that basis was whichever file happened to be dropped
- * first, with no way to change it short of removing and re-adding files.
+ * Primary is not a label. sources[0] draws the map layer, and in space mode
+ * every other file is resampled onto ITS bbox and resolution so the transects
+ * are directly comparable -- so the top row decides the basis the whole
+ * comparison is measured on. Order below the top matters too: picksOf() maps
+ * list order onto the analysis series, and scatter mode pairs sources[0]
+ * against sources[1]. Dragging is therefore how you choose which two files the
+ * scatter compares, which the old rotate button could only reach by cycling.
  *
- * `slot` travels with the source, so a file keeps its series colour across
- * rotations; only the order changes, and the legend stays readable. */
-function rotatePrimary() {
-  if (sources.length < 2) return;
-  releaseAnimation();
-  sources.push(sources.shift());
-  lastGrid = null;              // that grid belonged to the file that stepped down
-  lastBucket = null;            // and so did the colour bucketing of the layer
-  applyPrimary();
-  if (extractBbox) refreshLayer({ force: true });
+ * `slot` travels with the source, so a file keeps its series colour AND its
+ * gridCache entries across a move; only the order changes. */
+function moveSource(from, to) {
+  if (from < 0 || from >= sources.length) return;
+  const dest = Math.max(0, Math.min(to, sources.length - 1));
+  if (from === dest) return;
+
+  const wasPrimary = sources[0];
+  const [moved] = sources.splice(from, 1);
+  sources.splice(dest, 0, moved);
+
+  if (sources[0] !== wasPrimary) {
+    releaseAnimation();
+    lastGrid = null;              // that grid belonged to the file that stepped down
+    lastBucket = null;            // and so did the colour bucketing of the layer
+    applyPrimary();               // repaints the list for us
+    if (extractBbox) refreshLayer({ force: true });
+    setStatus(`${sources[0].name} is now primary.`, 'ok');
+  } else {
+    // Nothing about the map layer changed -- only the order of the panel series.
+    renderFileList();
+    setStatus(`${moved.name} moved to #${dest + 1}.`, 'ok');
+  }
+
   if (!$('analysis-panel').hidden) { populateCompareControls(); refreshAnalysis(); }
-  setStatus(`${sources[0].name} is now primary.`, 'ok');
+  focusFileRow(dest);
+}
+
+/* renderFileList() rebuilds every row, so a move destroys the node that had
+ * focus. Put focus on the row that moved, or each Alt+Arrow press would need a
+ * fresh Tab back into the list before the next one could land. */
+function focusFileRow(i) { $('file-list').children[i]?.focus(); }
+
+/* Alt is required: bare arrows belong to the page, and on Windows and Linux a
+ * bare Arrow inside a focused list is how you scroll it. */
+function onFileRowKey(e) {
+  if (!e.altKey) return;
+  const dir = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+  if (!dir) return;
+  e.preventDefault();   // Alt+Arrow is history back/forward on some platforms
+  const from = Number(e.currentTarget.dataset.idx);
+  moveSource(from, from + dir);
+}
+
+/* Drag state is module-scope because dragover fires on the row being CROSSED,
+ * not the row being dragged, so the two handlers need a shared reference.
+ * dataTransfer cannot be read during dragover (spec: protected mode), so it
+ * carries the payload only to satisfy Firefox, which refuses to start a drag
+ * when nothing is written. */
+let dragFrom = null;
+
+function onFileRowDragStart(e) {
+  dragFrom = Number(e.currentTarget.dataset.idx);
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(dragFrom));
+  e.currentTarget.classList.add('fl-dragging');
+}
+
+function onFileRowDragOver(e) {
+  if (dragFrom === null) return;
+  e.preventDefault();                 // without this the row is not a drop target at all
+  e.dataTransfer.dropEffect = 'move';
+  const li = e.currentTarget, r = li.getBoundingClientRect();
+  const below = e.clientY > r.top + r.height / 2;
+  li.classList.toggle('fl-over-bottom', below);
+  li.classList.toggle('fl-over-top', !below);
+}
+
+function onFileRowDragLeave(e) {
+  e.currentTarget.classList.remove('fl-over-top', 'fl-over-bottom');
+}
+
+function onFileRowDrop(e) {
+  if (dragFrom === null) return;
+  e.preventDefault();
+  const li = e.currentTarget, r = li.getBoundingClientRect();
+  const over = Number(li.dataset.idx);
+  const below = e.clientY > r.top + r.height / 2;
+  li.classList.remove('fl-over-top', 'fl-over-bottom');
+  /* `to` is the gap the row was dropped into, numbered in the array as it
+   * stands BEFORE the dragged row is lifted out. Lifting it shifts every later
+   * index down by one, so a downward move has to compensate. */
+  let to = below ? over + 1 : over;
+  if (dragFrom < to) to -= 1;
+  const from = dragFrom;
+  dragFrom = null;                    // clear before moveSource: it repaints the list
+  moveSource(from, to);
+}
+
+function onFileRowDragEnd(e) {
+  dragFrom = null;
+  e.currentTarget.classList.remove('fl-dragging');
+  for (const li of $('file-list').children) li.classList.remove('fl-over-top', 'fl-over-bottom');
 }
 
 // Loading via the file input REPLACES the comparison set; addFile() appends.

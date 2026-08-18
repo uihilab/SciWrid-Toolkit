@@ -249,15 +249,22 @@
 
     /* Sidebar file list */
     #file-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
-    #file-list li { display: flex; align-items: center; gap: .4rem; font-size: 11px; color: var(--muted-foreground); }
+    /* The whole row is the drag handle; the × button opts out via draggable=false.
+       Both borders sit transparent at rest so a row does not shift 2px when its
+       insertion line lights up. */
+    #file-list li { display: flex; align-items: center; gap: .4rem; font-size: 11px; color: var(--muted-foreground); cursor: grab; border-top: 2px solid transparent; border-bottom: 2px solid transparent; }
     #file-list .fl-swatch { flex: 0 0 14px; height: 3px; border-radius: 2px; }
     #file-list .fl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); }
     #file-list .fl-primary { font-size: 9px; font-weight: 700; letter-spacing: .04em; color: var(--brand); }
-    #sidebar #file-list button { padding: 1px 5px; background: transparent; color: var(--muted-foreground); border: 1px solid var(--border); font-size: 10px; }
+    #sidebar #file-list button { padding: 1px 5px; background: transparent; color: var(--muted-foreground); border: 1px solid var(--border); font-size: 10px; cursor: pointer; }
     #sidebar #file-list button:hover { color: var(--destructive); border-color: var(--destructive); }
-    /* Rotating the primary is not a destructive act, so it must not borrow
-       the remove button's red hover. */
-    #sidebar #file-list button.fl-rotate:hover { color: var(--brand); border-color: var(--brand); }
+    /* Rows are keyboard targets now (Alt+Arrow reorders), so they need a ring. */
+    #file-list li:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+    #file-list li:active { cursor: grabbing; }
+    #file-list li.fl-dragging { opacity: .4; }
+    /* The insertion line marks the edge the drop will land against. */
+    #file-list li.fl-over-top { border-top-color: var(--brand); }
+    #file-list li.fl-over-bottom { border-bottom-color: var(--brand); }
     #var-hint { font-size: 10px; color: var(--muted-foreground); margin-top: .2rem; }
     #add-file-row { display: flex; align-items: center; gap: .5rem; margin-top: .45rem; }
     #add-file-row[hidden] { display: none; }
