@@ -343,8 +343,30 @@
       cursor: pointer; font: inherit; font-size: 20px; line-height: 1;
     }
     #help-close:hover { background: var(--accent); color: var(--foreground); }
+    /* The tablist is the topmost element in the card now, so it -- not the step
+       counter -- needs the right margin that clears the close button. */
+    #help-tabs {
+      display: flex; gap: .25rem;
+      margin: .15rem 2.5rem 1.25rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    #help-tabs button {
+      padding: 6px 10px; border: none; border-bottom: 2px solid transparent;
+      background: transparent; color: var(--muted-foreground);
+      cursor: pointer; font: inherit; font-size: 12px; font-weight: 650;
+    }
+    #help-tabs button:hover { color: var(--foreground); }
+    #help-tabs button[aria-selected="true"] { color: var(--foreground); border-bottom-color: var(--brand); }
+    #help-tabs button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+    /* Both panels are flex columns so #help-actions' `margin-top: auto` still
+       pins Back/Next to the bottom of the card. The [hidden] rule is REQUIRED:
+       `display: flex` otherwise overrides the hidden attribute and both panels
+       render at once. */
+    #help-panel-instructions, #help-panel-examples { display: flex; flex-direction: column; flex: 1; }
+    #help-panel-instructions[hidden], #help-panel-examples[hidden] { display: none; }
+    #help-examples-intro { margin: 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.65; }
     #help-step-counter {
-      margin: .15rem 2.5rem 1rem 0; color: var(--brand);
+      margin: 0 0 1rem; color: var(--brand);
       font-size: 11px; font-weight: 700; text-transform: uppercase;
     }
     #help-title { margin: 0 0 .75rem; font-size: 1.35rem; line-height: 1.25; }
@@ -581,16 +603,37 @@
   <div id="help-overlay" hidden>
     <section id="help-card" role="dialog" aria-modal="true" aria-labelledby="help-title">
       <button id="help-close" type="button" aria-label="Close instructions">&times;</button>
-      <div id="help-step-counter">Step 1 / 6</div>
-      <h2 id="help-title">Upload a file</h2>
-      <p id="help-body">Choose a supported scientific data file from the File picker in the sidebar.</p>
-      <div id="help-example" hidden>
-        <button id="help-view-example" type="button">View example (GFS data)</button>
-        <button id="help-view-real-event" type="button">View real event (Hurricane Idalia)</button>
+      <div id="help-tabs" role="tablist" aria-label="Help sections">
+        <button id="tab-instructions" type="button" role="tab"
+                aria-selected="true" aria-controls="help-panel-instructions">Instructions</button>
+        <button id="tab-examples" type="button" role="tab"
+                aria-selected="false" aria-controls="help-panel-examples">View examples</button>
       </div>
-      <div id="help-actions">
-        <button id="help-back" type="button">Back</button>
-        <button id="help-next" type="button">Next</button>
+      <div id="help-panel-instructions" role="tabpanel" aria-labelledby="tab-instructions">
+        <div id="help-step-counter">Step 1 / 7</div>
+        <h2 id="help-title">Upload a file</h2>
+        <p id="help-body">Choose a supported scientific data file from the File picker in the sidebar.</p>
+        <div id="help-actions">
+          <button id="help-back" type="button">Back</button>
+          <button id="help-next" type="button">Next</button>
+        </div>
+      </div>
+      <div id="help-panel-examples" role="tabpanel" aria-labelledby="tab-examples" hidden>
+        <p id="help-examples-intro">
+          Load a real dataset to try the toolkit end to end.
+          <strong>GFS forecast</strong> is four timesteps, three hours apart.
+          <strong>Hurricane Idalia (2023)</strong> is three real products in three
+          formats &mdash; NCEP Stage IV radar QPE (GRIB2), NOAA AORC (Zarr) and
+          NLDAS-2 (NetCDF). The NLDAS file also carries 10&nbsp;m wind: drag it to
+          the top of the file list to make it primary, pick &ldquo;Wind
+          speed&rdquo;, and press play to watch the storm&rsquo;s wind field
+          animate. Click the map and choose &ldquo;Show analysis&rdquo; to chart
+          how the products compare at that point.
+        </p>
+        <div id="help-example">
+          <button id="help-view-example" type="button">View example (GFS data)</button>
+          <button id="help-view-real-event" type="button">View real event (Hurricane Idalia)</button>
+        </div>
       </div>
     </section>
   </div>

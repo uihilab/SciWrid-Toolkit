@@ -982,7 +982,7 @@ const HELP_STEPS = [
   },
   {
     title: 'Add a second file to compare',
-    body: 'Use "+ Add a file to compare" to load a second file. Files are never matched automatically, so any file is accepted \u2014 choose which column of each to compare in the analysis window. The first file is PRIMARY and draws the map layer.',
+    body: 'Use "+ Add a file to compare" to load a second file. Files are never matched automatically, so any file is accepted \u2014 choose which column of each to compare in the analysis window. The file at the top of the list is PRIMARY and draws the map layer; drag rows to reorder them, or focus a row and press Alt with the arrow keys.',
   },
   {
     title: 'Scan the data',
@@ -1004,10 +1004,6 @@ const HELP_STEPS = [
     title: 'Open the analysis window',
     body: 'With a point picked, choose "Show analysis" and pick a column of File A and File B at the top of the window. Values convert to metric units and each file is sampled at its own resolution. The window floats \u2014 drag its title bar and resize it from the corner.',
   },
-  {
-    title: 'Try it on real data',
-    body: 'Load the bundled GFS forecast \u2014 four timesteps, three hours apart \u2014 or load Hurricane Idalia (2023) as three real products in three formats: NCEP Stage IV radar QPE (GRIB2), NOAA AORC (Zarr) and NLDAS-2 (NetCDF). The NLDAS file also carries 10 m wind: make it primary (\u21bb), pick \u201cWind speed\u201d, and press play to watch the storm\u2019s wind field animate. Click the map and choose "Show analysis" to chart how the products compare at that point.',
-  },
 ];
 
 let helpIndex = 0;
@@ -1020,12 +1016,23 @@ function renderHelpStep() {
   $('help-body').textContent = step.body;
   $('help-back').disabled = helpIndex === 0;
   $('help-next').hidden = helpIndex === HELP_STEPS.length - 1;
-  $('help-example').hidden = helpIndex !== HELP_STEPS.length - 1;
+}
+
+/* The overlay holds two panels: the step-by-step instructions and the canned
+ * datasets. Tab state is deliberately independent of helpIndex, so switching
+ * away to look at the examples and back does not lose the reader's place. */
+function showHelpTab(name) {
+  const onInstructions = name === 'instructions';
+  $('help-panel-instructions').hidden = !onInstructions;
+  $('help-panel-examples').hidden = onInstructions;
+  $('tab-instructions').setAttribute('aria-selected', String(onInstructions));
+  $('tab-examples').setAttribute('aria-selected', String(!onInstructions));
 }
 
 function openHelp() {
   helpIndex = 0;
   helpReturnFocus = document.activeElement;
+  showHelpTab('instructions');
   renderHelpStep();
   $('help-overlay').hidden = false;
   $('help-close').focus();
@@ -1042,10 +1049,23 @@ function helpNext() { if (helpIndex < HELP_STEPS.length - 1) { helpIndex += 1; r
 function helpBack() { if (helpIndex > 0) { helpIndex -= 1; renderHelpStep(); } }
 $('help-back').addEventListener('click', helpBack);
 $('help-next').addEventListener('click', helpNext);
+$('tab-instructions').addEventListener('click', () => showHelpTab('instructions'));
+$('tab-examples').addEventListener('click', () => showHelpTab('examples'));
 $('help-overlay').addEventListener('click', (event) => { if (event.target === $('help-overlay')) closeHelp(); });
 document.addEventListener('keydown', (event) => {
   if (!$('help-overlay').hidden) {
-    if (event.key === 'Escape') closeHelp(); else if (event.key === 'ArrowRight') helpNext(); else if (event.key === 'ArrowLeft') helpBack();
+    if (event.key === 'Escape') { closeHelp(); return; }
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    /* Arrows mean "switch tab" inside the tablist -- the WAI-ARIA convention --
+     * and "step the instructions" anywhere else, which is what they have always
+     * done here. Routing by focus lets both keep working. */
+    if (event.target === $('tab-instructions') || event.target === $('tab-examples')) {
+      const next = event.key === 'ArrowRight' ? 'examples' : 'instructions';
+      showHelpTab(next);
+      $(next === 'examples' ? 'tab-examples' : 'tab-instructions').focus();
+    } else if (!$('help-panel-instructions').hidden) {
+      if (event.key === 'ArrowRight') helpNext(); else helpBack();
+    }
     return;
   }
   if (event.key === 'Escape' && !$('analysis-panel').hidden) closeAnalysis();
