@@ -293,9 +293,21 @@
     .field-row {
       display: grid;
       grid-template-columns: repeat(6, minmax(0, 1fr));
-      gap: .55rem 1rem;
+      gap: .7rem 1.15rem;
       align-items: end;
     }
+    /* Stacked field-rows are SEPARATE grids, so the grid's own row gap never
+       applies between them and they sit flush -- two rows of boxes reading as one
+       crowded block. The help text that follows a row needs the same clearance. */
+    .field-row + .field-row,
+    .field-row + .row { margin-top: .9rem; }
+    /* Trim's buttons share the row with its four bbox inputs. At an even 1fr each
+       track is ~161px and "Download trimmed file" needs ~170px, so it wrapped by a
+       hair. Lat/lon numbers do not need that width, so they give some back: the
+       two buttons stay equal to each other (both 1.4fr) and both fit on one line. */
+    .trim-row { grid-template-columns: repeat(4, minmax(0, .8fr)) repeat(2, minmax(0, 1.4fr)); }
+    .trim-row button { margin: 0; }          /* the grid gap is the only spacing */
+    .trim-row #trim-status { grid-column: 1 / -1; }
     .field-row > label { display: grid; gap: .25rem; min-width: 0; }
     .field-row > label > span { font-size: 12px; color: var(--muted-foreground); }
     .field-row input[type=number],
@@ -558,7 +570,9 @@
     <summary><span class="label">2. Scan — list variables [0..20]</span></summary>
     <code>await scan(file)</code><br><br>
     <button id="btn-scan">scan()</button>
-    <pre id="scan-out">(no scan yet)</pre>
+    <!-- Stays out of the layout until a scan runs, rather than sitting there as an
+         empty box saying nothing. Revealed by the click handler. -->
+    <pre id="scan-out" hidden></pre>
   </details>
 
   <!-- 3. Extract -->
@@ -634,7 +648,7 @@
       <label><span>t2:</span> <input type="number" id="trim-t2" step="1" min="0" placeholder="(omit)"></label>
       <label class="check"><input type="checkbox" id="trim-use-bbox"> bbox</label>
     </div>
-    <div class="field-row">
+    <div class="field-row trim-row">
       <label><span>minLon:</span> <input type="number" id="trim-minlon" value="-100" step="any"></label>
       <label><span>minLat:</span> <input type="number" id="trim-minlat" value="30" step="any"></label>
       <label><span>maxLon:</span> <input type="number" id="trim-maxlon" value="-80" step="any"></label>
@@ -713,7 +727,8 @@
       // Unused: trimScan = null;
       trimResult = null;
       $('detect-out').textContent = '';
-      $('scan-out').textContent = '(no scan yet)';
+      $('scan-out').hidden = true;
+      $('scan-out').textContent = '';
       $('ex-out').textContent = '(no extract yet)';
       $('g-out').textContent = '(no grid yet)';
       $('trim-out').textContent = '(no trim yet)';
@@ -742,6 +757,7 @@
     let lastScan = null;
     $('btn-scan').addEventListener('click', async () => {
       const out = $('scan-out');
+      out.hidden = false;          // appears on click so a slow scan still shows progress
       out.textContent = 'Scanning…';
       try {
         const f = requireFile();

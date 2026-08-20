@@ -1576,6 +1576,91 @@ $('analysis-chart').addEventListener('mouseleave', () => {
   clearHoverMarks();
 });
 
+/* ── sidebar collapse ───────────────────────────────────────────────────── */
+/* The class lives on <html>, not #app, so the pre-paint script in <head> can set
+ * it before #app exists -- the same trick the theme bootstrap uses. */
+const SB_KEY = 'mapdemo-sidebar';
+
+/* Set by a rail icon, consumed by the transitionend handler below. The scroll
+ * cannot happen at click time: #sb-body is display:none while collapsed, so the
+ * frame after the class drops it is still laid out at ~60px, where every section
+ * is far taller than it will be at 300px. An offset measured then is stranded by
+ * the reflow when the width transition lands. */
+let pendingRailScroll = null;
+
+function syncSidebarToggle() {
+  const collapsed = document.documentElement.classList.contains('sb-collapsed');
+  const btn = $('sb-toggle');
+  const label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  btn.setAttribute('aria-expanded', String(!collapsed));
+  btn.textContent = collapsed ? '›' : '‹';
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+}
+
+function setSidebarCollapsed(collapsed) {
+  if (collapsed) pendingRailScroll = null;   // collapsing cancels a queued jump
+  document.documentElement.classList.toggle('sb-collapsed', collapsed);
+  localStorage.setItem(SB_KEY, collapsed ? 'collapsed' : 'expanded');
+  syncSidebarToggle();
+}
+
+$('sb-toggle').addEventListener('click', () => {
+  setSidebarCollapsed(!document.documentElement.classList.contains('sb-collapsed'));
+});
+
+// The pre-paint script may have collapsed us already; match the button to reality.
+syncSidebarToggle();
+
+/* MapLibre does not observe its container's size, so resizing is mandatory -- and
+ * it has to wait for the width transition to finish, or the map measures a
+ * mid-animation width and leaves a grey gutter. transitionend fires once per
+ * animated property and bubbles from children, hence both guards.
+ *
+ * preserveAnimation matters: this refresh happens only because the map got wider.
+ * The frames were decoded at a fixed pixel size that the canvas source scales for
+ * us, so they are still valid. Without the flag, refreshLayer -> releaseAnimation
+ * would close every decoded ImageBitmap and force a full re-decode. */
+$('sidebar').addEventListener('transitionend', (event) => {
+  if (event.target !== $('sidebar') || event.propertyName !== 'flex-basis') return;
+  map?.resize();
+  if (extractBbox) refreshLayer({ force: true, preserveAnimation: true });
+  if (pendingRailScroll) {
+    pendingRailScroll.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    pendingRailScroll = null;
+  }
+});
+
+/* Rail icons navigate rather than merely expand: they open the sidebar and bring
+ * their control group into view. Already expanded, scroll now; collapsed, queue
+ * it for transitionend so the offset is measured at the final width. */
+for (const btn of document.querySelectorAll('#sb-rail .rail-btn')) {
+  btn.addEventListener('click', () => {
+    const target = $(btn.dataset.sec);
+    if (!target) return;
+    if (document.documentElement.classList.contains('sb-collapsed')) {
+      setSidebarCollapsed(false);      // clears pendingRailScroll, so set it after
+      pendingRailScroll = target;
+    } else {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+/* The Area and Point-query icons mirror panels that stay hidden until a file is
+ * loaded and an area rendered. Their hidden attribute is written from three
+ * places (removeSource plus the two reveal sites), so observe the attribute
+ * instead of trying to remember a syncRail() call at each -- and at whatever
+ * fourth site gets added later. */
+function syncRail() {
+  $('rail-btn-extract').hidden = $('extract').hidden;
+  $('rail-btn-query').hidden = $('query').hidden;
+}
+const railObserver = new MutationObserver(syncRail);
+for (const id of ['extract', 'query'])
+  railObserver.observe($(id), { attributes: true, attributeFilter: ['hidden'] });
+syncRail();
+
 /* ── boot ───────────────────────────────────────────────────────────────── */
 function init() {
   map = new maplibregl.Map({
