@@ -552,6 +552,31 @@ Per-format strategy:
 | **NetCDF4**  | Open with h5wasm; copy selected datasets to new file | Partial (HDF5 re-frames B-trees) |
 | **TIFF**     | Copy or re-encode kept bands/blocks; update IFD tags | Partial |
 
+NetCDF4 trim returns the **input unchanged** when the selection drops nothing —
+every dataset in the file is kept and there is no `t1`/`t2` or `bbox`. A rewrite
+in that case could only lose fidelity: this path builds a fresh HDF5 file, so it
+cannot reapply `shuffle`, drops the object-reference dimension-scale attributes,
+and does not copy datasets inside groups. `warnings` says when the short-circuit
+was taken. Note the test is against the datasets actually in the file, not
+against `scan()`'s variable list — `scan()` omits variables it cannot decode, so
+selecting every name it reports may still be a strict subset of the file.
+
+When the file *is* rewritten, any group it contains is not copied (this version
+walks top-level datasets only) and `warnings` now names the groups affected.
+
+NetCDF4 trim preserves each dataset's compression: a variable the source stored
+with deflate is written back with deflate at the same level, and one stored
+uncompressed stays uncompressed. This matters for `stats.outputSize` — an
+uncompressed rewrite of a compressed file can be *larger* than the input even
+after dropping variables, because it is comparing raw bytes against packed ones.
+h5wasm can write only the gzip filter, so HDF5's `shuffle` pre-filter is not
+reapplied. Whether that costs or saves bytes depends on the data — shuffle helps
+high-entropy float fields but hurts fields with many exactly-repeated values —
+so **a trim that keeps every variable will still not reproduce the input size**.
+On the `idalia` NLDAS-2 fixture plain deflate beats shuffle+deflate on 3 of 4
+variables, and keeping all of them yields 86% of the source. `warnings` names the
+affected datasets so the difference is explainable.
+
 Zarr trim accepts both stored and DEFLATE-compressed `.zip` entries; the
 trimmed output is itself a valid Zarr zip that `scan`/`extract` can read back.
 Data chunks are passed through verbatim (no re-encode).
