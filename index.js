@@ -65,6 +65,12 @@ export {
   trim,
 } from './lib/sciwrid-api.js';
 
+// ── Render helpers not surfaced by the functional API ───────────────────────
+// autoRange lives only in lib/render/index.js, so a bundle built from this file
+// alone dropped it -- which made dist/index.js an incomplete stand-in for the
+// demos' imports (map-demo.worker.js needs it).
+export { autoRange } from './lib/render/index.js';
+
 // ── Typed error classes ───────────────────────────────────────────────────────
 export {
   SciWridError,

@@ -5,11 +5,11 @@
 // runs inline here (Phase 5); Phase 6 moves it into a Web Worker so pan/zoom
 // stays smooth.
 
-import { scan, extract } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/index.js';
-import { resolveRamp, sampleRamp } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/lib/render/index.js';
+import { scan, extract } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/dist/index.js';
+import { resolveRamp, sampleRamp } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/dist/index.js';
 import { validateBbox, resolutionBucket } from './map-demo-bbox.js';
 import { notifyStatus } from './notify.js';
-import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, chartScale, nearestIndex, resolveUnit, convertSeries, sameUnit, nativeGridSize, bboxIntersect, pairGrids, pearson, meanBias, renderScatterSVG } from './map-demo-analysis.js';
+import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, chartScale, nearestIndex, resolveUnit, convertSeries, sameUnit, nativeGridSize, bboxIntersect, pairGrids, pearson, meanBias, renderScatterSVG, scatterScale, nearestScatterIndex } from './map-demo-analysis.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1202,6 +1202,9 @@ $('help-view-real-event').addEventListener('click', () => {
 // With several files loaded, every file becomes one series on the same frame.
 let analysisMode = 'time', analysisAxis = 'lon';
 let lastSeriesList = [];  // the series currently charted; the hover crosshair reads these
+// Whole-file mode charts a scatter instead of series, so it needs its own hover
+// state: { pairs, opts }, kept so the hit-test rebuilds the exact same scale.
+let lastScatter = null;
 let lastDual = false;
 let lastUnits = [];        // [unitLeft, unitRight] of the current chart, for redraws
 // x-axis zoom/scroll: a view window inside the full domain. zoom>1 narrows it,
@@ -1348,7 +1351,7 @@ async function refreshAnalysis() {
   const lat=parseFloat($('q-lat').value),lon=parseFloat($('q-lon').value);if(!sources.length)return;if(analysisMode!=='whole'&&(!Number.isFinite(lat)||!Number.isFinite(lon)))return;
   $('analysis-axis').hidden=analysisMode!=='space';setPressed('analysis-mode-time',analysisMode==='time');setPressed('analysis-mode-space',analysisMode==='space');setPressed('analysis-mode-whole',analysisMode==='whole');setPressed('analysis-axis-lon',analysisAxis==='lon');setPressed('analysis-axis-lat',analysisAxis==='lat');
   if(analysisMode==='whole'){
-    const time=parseInt($('time').value,10)||0;lastSeriesList=[];updateNavUI(false);
+    const time=parseInt($('time').value,10)||0;lastSeriesList=[];lastScatter=null;updateNavUI(false);
     const rows=[];if(sources.length>1)setStatus('Sampling files\u2026','busy');
     for(const[idx,src]of sources.entries()){
       const variable=varOf(src,idx);let grid=null;
@@ -1371,9 +1374,13 @@ async function refreshAnalysis() {
         const convA=gA?convertSeries(gA.data,unitA):{ys:[],unit:unitA};
         const convB=gB?convertSeries(gB.data,unitB):{ys:[],unit:unitB};
         const pairs=pairGrids(convA.ys,convB.ys,{cap:4000});
+        // Held in a variable, not inlined: the hover layer re-derives the scale
+        // from these exact opts, so the two must never drift apart.
+        const scatterOpts={xLabel:varOf(sources[0],0),yLabel:varOf(sources[1],1),unitX:convA.unit||'',unitY:convB.unit||'',oneToOne:sameUnit(unitA,unitB),stats:{r:pearson(pairs),bias:meanBias(pairs)}};
         $('analysis-chart').innerHTML=pairs.length
-          ?renderScatterSVG(pairs,{xLabel:varOf(sources[0],0),yLabel:varOf(sources[1],1),unitX:convA.unit||'',unitY:convB.unit||'',oneToOne:sameUnit(unitA,unitB),stats:{r:pearson(pairs),bias:meanBias(pairs)}})
+          ?renderScatterSVG(pairs,scatterOpts)
           :`<p class='muted'>Files do not overlap spatially.</p>`;
+        lastScatter=pairs.length?{pairs,opts:scatterOpts}:null;
       }
     }
     if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');
@@ -1382,6 +1389,7 @@ async function refreshAnalysis() {
     renderStatsTable(rows,null);
     return;
   }
+  lastScatter=null;
   const time=parseInt($('time').value,10)||0,list=[],rows=[],legend=[],units=[],series=picksOf();
   const pushSeries=(p,n,ser,size)=>{const resolved=resolveUnit(scanVarOfPick(p)),conv=convertSeries(ser.ys,resolved);units[n]=conv.unit??'';list.push({xs:ser.xs,ys:conv.ys,xLabel:ser.xLabel,slot:p.slot,unit:conv.unit??''});const meta=[p.variable,conv.unit||(conv.known?'':'units unknown'),size?resLabel(size):null].filter(Boolean).join(' · ');legend.push({slot:p.slot,name:labelOfPick(p),meta});rows.push({name:`${labelOfPick(p)} — ${p.variable}${conv.known?``:` (units unknown)`}`,stats:computeStats(conv.ys),unit:conv.unit||''});};
   if(analysisMode==='space'){if(!lastGrid||!extractBbox){$('analysis-chart').innerHTML='';return;}if(series.length>1)setStatus('Sampling…','busy');for(const[n,p]of series.entries()){let grid=null,size=null;try{({grid,size}=await gridForSource(p.src,p.idx,p.variable,extractBbox,time));}catch(err){console.error(err);}if(!grid){rows.push({name:`${labelOfPick(p)} (unavailable)`,stats:computeStats([]),unit:''});continue;}pushSeries(p,n,seriesFromGrid(grid,{lat,lon,axis:analysisAxis}),size);}if(series.length>1)setStatus(`Comparing ${series.length} series`,'ok');}
@@ -1456,6 +1464,7 @@ function closeAnalysis() {
   const panel = $('analysis-panel');
   if (panel) panel.hidden = true;
   lastSeriesList = [];
+  lastScatter = null;
   const ro = $('analysis-readout');
   if (ro) ro.innerHTML = '';
 }
@@ -1515,11 +1524,45 @@ function clearHoverMarks() {
   if (g) g.replaceChildren();
 }
 
+/* Client point -> viewBox point. Goes through getScreenCTM rather than scaling
+ * by the bounding rect: .ac-svg is 100% x 100% with a viewBox, so whenever the
+ * box's aspect ratio differs from the viewBox's, preserveAspectRatio letterboxes
+ * the content and a rect-ratio guess is off by the letterbox. A line chart only
+ * needed x and tolerated that; a 2D hit-test does not. */
+function clientToViewBox(svg, event) {
+  const m = svg.getScreenCTM();
+  if (!m) return null;
+  const pt = new DOMPoint(event.clientX, event.clientY).matrixTransform(m.inverse());
+  return { x: pt.x, y: pt.y };
+}
+
+/* Whole-file mode: point at a dot and read the pair it stands for. Each dot is
+ * one overlapping cell -- file A's value on x, file B's on y. */
+function hoverScatter(event, svg, g) {
+  const sc = scatterScale(lastScatter.pairs, lastScatter.opts);
+  const loc = sc.ok ? clientToViewBox(svg, event) : null;
+  const i = loc ? nearestScatterIndex(sc, loc.x, loc.y) : -1;
+  if (i < 0) { g.replaceChildren(); $('analysis-readout').innerHTML = ''; return; }
+
+  const [a, b] = sc.pts[i], cx = sc.px(a), cy = sc.py(b);
+  // Drop lines to each axis, so the dot's position is readable as two values.
+  g.replaceChildren(
+    svgEl('line', { x1: sc.plot.left, y1: cy.toFixed(2), x2: cx.toFixed(2), y2: cy.toFixed(2), class: 'ac-cross' }),
+    svgEl('line', { x1: cx.toFixed(2), y1: cy.toFixed(2), x2: cx.toFixed(2), y2: sc.plot.top + sc.plot.h, class: 'ac-cross' }),
+    svgEl('circle', { cx: cx.toFixed(2), cy: cy.toFixed(2), r: 4, class: 'ac-hot ac-scatter-hot' }),
+  );
+  const o = lastScatter.opts;
+  const cell = (label, v, unit) =>
+    `<span class="lg">${escHtml(label)} <b>${escHtml(fmtNum(v))}</b>${unit ? ' ' + escHtml(unit) : ''}</span>`;
+  $('analysis-readout').innerHTML = cell(o.xLabel, a, o.unitX) + cell(o.yLabel, b, o.unitY);
+}
+
 $('analysis-chart').addEventListener('mousemove', (event) => {
-  if (!lastSeriesList.length) return;
   const svg = $('analysis-chart').querySelector('svg');
   const g = svg?.querySelector('.ac-hover');
   if (!svg || !g) return;
+  if (lastScatter) { hoverScatter(event, svg, g); return; }
+  if (!lastSeriesList.length) return;
   const r = svg.getBoundingClientRect();
   if (!r.width) return;
 

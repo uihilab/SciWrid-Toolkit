@@ -99,35 +99,38 @@
       padding: .6rem 1.1rem; border-top: 1px solid var(--border);
     }
     html.sb-collapsed #sb-body, html.sb-collapsed #sb-foot { display: none; }
-    /* Sits fully inside the panel rather than straddling its border. At mid-height
-       that puts it over the right edge of whichever control is there, so it keeps
-       an opaque fill and a shadow to read as floating above them, not as part of
-       them. #sidebar is already position: relative, so this anchors to it. */
+    /* HyMES's sidebar toggle, rule-for-rule (app/dashboard.module.css:63).
+       ONE rule, no collapsed variant -- that is the whole point. `right: -12px` is
+       measured against #sidebar, the element being animated, so the button rides
+       its moving edge instead of re-anchoring when the class flips. It cannot jump
+       out from under the pointer, and straddling the border keeps it clear of
+       #sb-body's scroll gutter, so the scrollbar cannot steal its clicks.
+       Colours come from our theme tokens rather than HyMES's hardcoded white /
+       #e2e8f0 / #64748b / #0284c7, which have no dark mode. */
     #sb-toggle {
-      position: absolute; top: 50%; right: 5px; transform: translateY(-50%);
-      width: 18px; height: 18px; padding: 0; z-index: 30;
+      position: absolute; top: 50%; right: -12px; transform: translateY(-50%);
+      /* HyMES uses 50. Ours only has to beat #map (positioned, z-index auto, and
+         later in the DOM), and must stay under the analysis window (5) and the
+         instructions modal (20) so both still cover it. */
+      z-index: 1;
+      width: 24px; height: 24px; padding: 0;
       display: flex; align-items: center; justify-content: center;
       background: var(--card); color: var(--muted-foreground);
       border: 1px solid var(--border); border-radius: 50%;
-      cursor: pointer; font: inherit; font-size: 10px; line-height: 1;
-      box-shadow: 0 1px 3px oklch(0.08 0.02 250 / 0.18);
-      transition: color .15s ease, border-color .15s ease;
-    }
-    /* Collapsed, the rail's own 34px icons own the centre line, so the toggle
-       moves to the top of the rail rather than floating on top of them. */
-    html.sb-collapsed #sb-toggle {
-      top: 7px; right: auto; left: 50%; transform: translateX(-50%);
+      cursor: pointer; font: inherit; font-size: 12px; line-height: 1;
+      box-shadow: 0 2px 4px oklch(0.08 0.02 250 / 0.12);
+      transition: color .2s ease, border-color .2s ease;
     }
     #sb-toggle:hover { color: var(--brand); border-color: var(--brand); }
     #sb-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
     #sb-rail { display: none; }
     html.sb-collapsed #sb-rail {
       display: flex; flex-direction: column; align-items: center;
-      gap: .3rem; padding: 2rem 0 .7rem;   /* top clears the toggle parked above */
+      gap: .3rem; padding: .55rem 0 .7rem;
       flex: 1 1 auto; min-height: 0; overflow-y: auto;
     }
     .rail-brand { display: block; margin-bottom: .4rem; }
-    .rail-brand img { display: block; width: 26px; height: 26px; }
+    .rail-brand img { display: block; width: 26px; height: 26px; border-radius: 6px; }
     #sb-rail .rail-btn {
       width: 34px; height: 34px; padding: 0; flex: 0 0 auto;
       display: flex; align-items: center; justify-content: center;
@@ -168,9 +171,10 @@
     .brand-link:active { transform: translateY(0); }
     .brand-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
     .brand-mark {
-      /* The artwork carries its own rounded-square mark, so this
-         draws no tile of its own -- a brand-coloured square behind
-         it would read as two logos stacked. */
+      /* The mark carries its own cream tile, so nothing is drawn behind it --
+         a second square would read as two logos stacked. The tile is square in
+         the source file; the radius here is what makes it sit as an app icon. */
+      border-radius: 7px;
       width: 30px; height: 30px; flex: 0 0 30px; 
       display: block; object-fit: contain;
     }
@@ -234,14 +238,30 @@
     #status.error { color: var(--destructive); }
     #status.busy  { color: var(--warn); }
     #status.ok    { color: var(--success); }
-    #sidebar button {
+    /* Every one of these is `#sidebar button` = (1,0,1), which outranks the
+       dedicated `#sb-toggle` = (1,0,0) block above for every property they share
+       -- background, radius, padding, border and transition all landed on the
+       collapse toggle instead of its own rules. Worse, `:active` set `transform`,
+       and the toggle's transform is load-bearing: it is what centres the button
+       (`top: 50%` + `translateY(-50%)`). Pressing it replaced -50% with +1px and
+       dropped the 24px button 13px, out from under the pointer -- so mouseup
+       landed off the button and the click never fired. Hence "it moves but it
+       doesn't collapse", and only sometimes: pressing the lower half still
+       finished inside the button. The toggle is a distinct control with a
+       complete rule set of its own, so it is excluded here rather than fighting
+       the cascade with extra specificity.
+       The exclusion is wrapped in :where() because that contributes ZERO
+       specificity: a bare :not(#sb-toggle) would count the id and lift these to
+       (2,0,1), which then outranks `#sb-rail .rail-btn` (1,1,0) and repaints the
+       collapsed rail icons brand-blue. :where() keeps them at (1,0,1) exactly. */
+    #sidebar button:where(:not(#sb-toggle)) {
       padding: 8px 12px; background: var(--brand); color: var(--brand-foreground);
       border: 1px solid transparent; border-radius: calc(var(--radius) - 2px);
       cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
       transition: filter .15s ease, transform .1s ease;
     }
-    #sidebar button:hover { filter: brightness(1.08); }
-    #sidebar button:active { transform: translateY(1px); }
+    #sidebar button:where(:not(#sb-toggle)):hover { filter: brightness(1.08); }
+    #sidebar button:where(:not(#sb-toggle)):active { transform: translateY(1px); }
     #sidebar #theme-toggle { background: transparent; color: var(--muted-foreground); }
     #sidebar #analyze-btn { width: 100%; margin-top: .85rem; }
     #query { margin-top: 1rem; }
@@ -291,6 +311,9 @@
     /* Two IDs of specificity would be overkill, but the ring MUST outrank
        `circle.ac-s0 { stroke: none }` (0,0,1,1) below, so scope it: (0,0,2,1). */
     .ac-hover circle.ac-hot { stroke: var(--card); stroke-width: 1.5; }
+    /* The scatter dot stands for a pair, not a series, so it takes the brand
+       fill rather than an .ac-s0/.ac-s1 series colour. */
+    .ac-hover circle.ac-scatter-hot { fill: var(--brand); }
     #analysis-chart { cursor: crosshair; }
 
     circle.ac-s0 { fill: var(--series-1); stroke: none; }
@@ -483,7 +506,7 @@
       <nav id="sb-rail" aria-label="Sidebar sections">
         <a class="rail-brand" href="index.html" title="Back to SciWrid Toolkit examples"
            aria-label="Back to SciWrid Toolkit examples">
-          <img src="https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/assets/logo-sciwrid.png"
+          <img src="logo-sciwrid.svg"
                alt="SciWrid" width="26" height="26">
         </a>
         <button type="button" class="rail-btn" data-sec="sb-sec-file" title="File" aria-label="File">
@@ -514,9 +537,9 @@
         <div class="sb-head">
           <a class="brand-link" href="index.html" aria-label="Back to SciWrid Toolkit examples"
              title="Back to SciWrid Toolkit examples">
-            <img class="brand-mark" src="https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/assets/logo-sciwrid.png" alt="SciWrid" width="30" height="30">
+            <img class="brand-mark" src="logo-sciwrid.svg" alt="SciWrid" width="30" height="30">
           </a>
-          <h1>SciWrid Toolkit map demo</h1>
+          <strong>SciWrid Toolkit </strong>
           <button id="help-btn" type="button" aria-label="Open instructions" title="Instructions">?</button>
           <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
         </div>

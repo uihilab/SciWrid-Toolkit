@@ -292,19 +292,17 @@ export function meanBias(pairs) {
 }
 
 // Scatter of co-located A-vs-B values. x = file A, y = file B.
-export function renderScatterSVG(pairs, opts = {}) {
+// The scatter's coordinate system, computed once and shared by the renderer and
+// the hover layer -- the same contract as chartScale above. The hit-test must
+// run on EXACTLY the projection that placed the dots, or the highlight lands on
+// a neighbour of the point under the cursor.
+export function scatterScale(pairs, opts = {}) {
   const width = opts.width ?? 480, height = opts.height ?? 220;
   const plotW = width - PAD.left - PAD.right, plotH = height - PAD.top - PAD.bottom;
-  const open = `<svg viewBox='0 0 ${width} ${height}' class='ac-svg' role='img'>`;
-  const note = (t) => `<text x='${width / 2}' y='${height / 2}' class='ac-note' text-anchor='middle'>${esc(t)}</text>`;
-  const frame =
-    `<line x1='${PAD.left}' y1='${PAD.top}' x2='${PAD.left}' y2='${PAD.top + plotH}' class='ac-axis'/>` +
-    `<line x1='${PAD.left}' y1='${PAD.top + plotH}' x2='${PAD.left + plotW}' y2='${PAD.top + plotH}' class='ac-axis'/>`;
-
+  const plot = { left: PAD.left, top: PAD.top, w: plotW, h: plotH };
   const pts = (pairs ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
-  if (!pts.length) return open + frame + note(opts.emptyNote ?? 'no overlapping data') + '</svg>';
+  if (!pts.length) return { ok: false, pts, width, height, plot };
 
-  const formatX = opts.formatX ?? defaultFmt, formatY = opts.formatY ?? defaultFmt;
   let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
   for (const [a, b] of pts) { if (a < xmin) xmin = a; if (a > xmax) xmax = a; if (b < ymin) ymin = b; if (b > ymax) ymax = b; }
   const padAxis = (lo, hi) => { if (lo === hi) { lo -= 1; hi += 1; } const p = (hi - lo) * 0.05; return [lo - p, hi + p]; };
@@ -312,7 +310,38 @@ export function renderScatterSVG(pairs, opts = {}) {
   const xspan = xmax - xmin, yspan = ymax - ymin;
   const px = (a) => PAD.left + ((a - xmin) / xspan) * plotW;
   const py = (b) => PAD.top + plotH - ((b - ymin) / yspan) * plotH;
+  return { ok: true, pts, width, height, plot, xmin, xmax, ymin, ymax, px, py };
+}
+
+/* Nearest plotted point to a position in VIEWBOX units, or -1 beyond maxDist.
+ * 2D, unlike the line chart's x-only snap: a scatter has no single anchor axis,
+ * so proximity is the only honest way to say which dot was pointed at. */
+export function nearestScatterIndex(sc, vx, vy, maxDist = 14) {
+  if (!sc?.ok) return -1;
+  let best = -1, bestD = maxDist;
+  sc.pts.forEach(([a, b], i) => {
+    const d = Math.hypot(sc.px(a) - vx, sc.py(b) - vy);
+    if (d <= bestD) { bestD = d; best = i; }
+  });
+  return best;
+}
+
+export function renderScatterSVG(pairs, opts = {}) {
+  const sc = scatterScale(pairs, opts);
+  const { width, height } = sc, plotW = sc.plot.w, plotH = sc.plot.h;
+  const open = `<svg viewBox='0 0 ${width} ${height}' class='ac-svg' role='img'>`;
+  const note = (t) => `<text x='${width / 2}' y='${height / 2}' class='ac-note' text-anchor='middle'>${esc(t)}</text>`;
+  const frame =
+    `<line x1='${PAD.left}' y1='${PAD.top}' x2='${PAD.left}' y2='${PAD.top + plotH}' class='ac-axis'/>` +
+    `<line x1='${PAD.left}' y1='${PAD.top + plotH}' x2='${PAD.left + plotW}' y2='${PAD.top + plotH}' class='ac-axis'/>`;
+
+  if (!sc.ok) return open + frame + note(opts.emptyNote ?? 'no overlapping data') + '</svg>';
+  const pts = sc.pts, { xmin, xmax, ymin, ymax, px, py } = sc;
+
+  const formatX = opts.formatX ?? defaultFmt, formatY = opts.formatY ?? defaultFmt;
   const dots = pts.map(([a, b]) => `<circle cx='${px(a).toFixed(2)}' cy='${py(b).toFixed(2)}' r='1.6' class='ac-dot ac-scatter'/>`).join('');
+  // Empty group the hover layer fills in, exactly as renderChartSVG provides.
+  const hover = '<g class="ac-hover"></g>';
 
   let ref = '';
   if (opts.oneToOne) {
@@ -333,5 +362,5 @@ export function renderScatterSVG(pairs, opts = {}) {
   const st = opts.stats || {};
   const capParts = [Number.isFinite(st.r) ? `r=${st.r.toFixed(2)}` : '', Number.isFinite(st.bias) ? `bias=${defaultFmt(st.bias)}` : ''].filter(Boolean);
   const cap = capParts.length ? `<text x='${PAD.left + plotW}' y='${PAD.top + 8}' class='ac-tick' text-anchor='end'>${esc(capParts.join('  '))}</text>` : '';
-  return open + frame + ref + `<g>${dots}</g>` + yTicks + xTicks + xTitle + yTitle + cap + '</svg>';
+  return open + frame + ref + `<g>${dots}</g>` + yTicks + xTicks + xTitle + yTitle + cap + hover + '</svg>';
 }

@@ -24,6 +24,7 @@
       --border: oklch(0.91 0.012 245);
       --input: oklch(0.86 0.014 245);
       --ring: oklch(0.55 0.16 245);
+      --success: oklch(0.6 0.13 165);
       --shadow-tint: oklch(0.45 0.05 250 / 0.10);
       --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       --font-mono: ui-monospace, "Cascadia Code", "Consolas", "Courier New", monospace;
@@ -46,6 +47,7 @@
       --border: oklch(0.30 0.03 252);
       --input: oklch(0.30 0.03 252);
       --ring: oklch(0.70 0.13 240);
+      --success: oklch(0.72 0.15 165);
       --shadow-tint: oklch(0 0 0 / 0.35);
     }
 
@@ -56,8 +58,8 @@
       margin: 0;
       background-color: var(--background);
       background-image:
-        radial-gradient(1100px 480px at 8% -10%, oklch(from var(--brand) l c h / 0.10), transparent 55%),
-        radial-gradient(900px 420px at 100% 0%, oklch(from var(--brand) l c h / 0.06), transparent 60%);
+        radial-gradient(1200px 620px at 6% 34%, oklch(from var(--brand) l c h / 0.08), transparent 60%),
+        radial-gradient(950px 520px at 100% 12%, oklch(from var(--brand) l c h / 0.05), transparent 62%);
       background-attachment: fixed;
       background-repeat: no-repeat;
       color: var(--foreground);
@@ -92,9 +94,10 @@
     }
     .brand { display: inline-flex; align-items: center; gap: .75rem; min-width: max-content; }
     .brand-mark {
-      /* The artwork carries its own rounded-square mark, so this
-         draws no tile of its own -- a brand-coloured square behind
-         it would read as two logos stacked. */
+      /* The mark carries its own cream tile, so nothing is drawn behind it --
+         a second square would read as two logos stacked. The tile is square in
+         the source file; the radius here is what makes it sit as an app icon. */
+      border-radius: 7px;
       width: 32px; height: 32px; 
       display: block; object-fit: contain;
     }
@@ -118,46 +121,39 @@
     }
     #theme-toggle:hover { opacity: 1; background: var(--accent); }
 
-    /* Lab attribution. Parked past the nav controls in the far-right corner so it
-       reads as provenance, not as a second brand competing with the SW mark. */
-    .hilab {
-      display: inline-flex; align-items: center; flex: 0 0 auto;
-      margin-left: .4rem; padding-left: .8rem;
-      border-left: 1px solid var(--border);
+    /* ── Contour field ──────────────────────────────────────── */
+    /* Animated bathymetric/flow contour motif. One fixed field behind the whole
+       document rather than a per-band copy, so the contours stay continuous as
+       the page scrolls over them. z-index -1 keeps it above the body wash but
+       under every in-flow element, so no content needs its own stacking rule. */
+    .page-bg {
+      position: fixed; inset: 0; z-index: -1;
+      pointer-events: none; overflow: hidden;
+      opacity: .25;
     }
-    .hilab img { display: block; height: 24px; width: auto; }
-
-    .page { width: min(1100px, calc(100% - 2rem)); margin: 0 auto; padding: 1.5rem 0 3rem; }
+    .dark .page-bg { opacity: .32; }
+    .page-bg svg { width: 100%; height: 100%; display: block; }
+    .page-bg path { fill: none; stroke: var(--brand); stroke-width: 1.1; vector-effect: non-scaling-stroke; }
+    /* the wave repeats every 360 user units, so drifting by exactly that loops
+       with no visible snap back to the start */
+    .page-bg .flow { animation: drift 40s linear infinite; }
+    @keyframes drift { from { transform: translateX(0); } to { transform: translateX(-360px); } }
+    @media (prefers-reduced-motion: reduce) { .page-bg .flow { animation: none; } }
 
     /* ── Hero ───────────────────────────────────────────────── */
+    /* Full-bleed band, edge to edge with no side gutters. The content is
+       still held to the 1100px column by .hero-grid, so the copy stays
+       aligned with the header and the bands below. */
     .hero {
       position: relative;
-      overflow: hidden;
-      margin: 1.25rem 0 0;
-      padding: clamp(1.75rem, 1rem + 4vw, 3.75rem) clamp(1.25rem, 0.5rem + 3vw, 3rem);
-      border: 1px solid var(--border);
-      border-radius: calc(var(--radius) + 6px);
-      background:
-        linear-gradient(180deg, oklch(from var(--brand) l c h / 0.07), transparent 42%),
-        var(--card);
-      box-shadow: 0 1px 2px var(--shadow-tint), 0 30px 70px -45px var(--shadow-tint);
+      margin: 0;
+      padding: clamp(2.25rem, 1.25rem + 4.5vw, 4.5rem) 0
+              clamp(2.5rem, 1.5rem + 4.5vw, 4.75rem);
+      background: linear-gradient(180deg, oklch(from var(--brand) l c h / 0.10), transparent 62%);
     }
-    /* animated bathymetric/flow contour motif */
-    .hero-bg {
-      position: absolute; inset: 0; z-index: 0;
-      pointer-events: none; overflow: hidden;
-      opacity: .55;
-      -webkit-mask-image: linear-gradient(105deg, transparent 0%, #000 35%, #000 100%);
-              mask-image: linear-gradient(105deg, transparent 0%, #000 35%, #000 100%);
-    }
-    .hero-bg svg { position: absolute; top: 50%; left: 0; width: 135%; height: 150%; transform: translateY(-50%); }
-    .hero-bg path { fill: none; stroke: var(--brand); stroke-width: 1.1; }
-    .hero-bg .flow { animation: drift 26s linear infinite; }
-    @keyframes drift { from { transform: translateX(0); } to { transform: translateX(-90px); } }
-    @media (prefers-reduced-motion: reduce) { .hero-bg .flow { animation: none; } }
-
     .hero-grid {
       position: relative; z-index: 1;
+      width: min(1100px, calc(100% - 2rem)); margin-inline: auto;
       display: grid; grid-template-columns: 1.12fr 0.88fr;
       gap: clamp(1.5rem, 1rem + 3vw, 3rem); align-items: center;
     }
@@ -210,7 +206,6 @@
       .hero-grid { grid-template-columns: 1fr; }
       .readout { order: 2; }
     }
-    .hero p { max-width: 760px; margin: .5rem 0 0; color: var(--muted-foreground); font-size: 1.02rem; }
     .kicker {
       color: var(--brand); font-size: 12px; font-weight: 700;
       letter-spacing: .08em; text-transform: uppercase; margin: 0 0 .5rem;
@@ -228,13 +223,17 @@
       border: 1px solid var(--border);
     }
 
-    /* ── Card shell ─────────────────────────────────────────── */
+    /* ── Band shell ─────────────────────────────────────────── */
+    /* Same full-bleed treatment as the hero. The three-column grid keeps the
+       content in a centred 1100px track while the band itself runs edge to
+       edge, so no wrapper element is needed around each section's children. */
     .section {
-      margin: 1.5rem 0; padding: 1.25rem 1.5rem 1.5rem;
-      background: var(--card); color: var(--card-foreground);
-      border: 1px solid var(--border); border-radius: var(--radius);
-      box-shadow: 0 1px 2px var(--shadow-tint), 0 12px 30px -18px var(--shadow-tint);
+      display: grid;
+      grid-template-columns: 1fr min(1100px, calc(100% - 2rem)) 1fr;
+      margin: 0;
+      padding: clamp(2.25rem, 1.5rem + 2.5vw, 3.5rem) 0;
     }
+    .section > * { grid-column: 2; }
 
     /* ── Pathways ───────────────────────────────────────────── */
     .pathways { display: grid; gap: .5rem; margin-top: 1rem; }
@@ -286,8 +285,8 @@
     /* Closing band. Mirrors the lab site's footer, but drawn on this page's
        tokens rather than its fixed navy so it follows the theme toggle. */
     .site-foot {
-      margin-top: 2.5rem;
-      background: var(--card);
+      margin-top: 0;
+      background: oklch(from var(--card) l c h / 0.6);
       border-top: 1px solid var(--border);
     }
     .site-foot-inner {
@@ -334,37 +333,43 @@
   <header class="site-header">
     <div class="site-header-inner">
       <span class="brand">
-        <img class="brand-mark" src="https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/assets/logo-sciwrid.png" alt="SciWrid" width="32" height="32">
-        <span><strong>SciWrid Toolkit</strong><span>examples</span></span>
+        <img class="brand-mark" src="logo-sciwrid.svg" alt="SciWrid" width="32" height="32">
+        <span><strong>SciWrid Toolkit</strong></span>
       </span>
       <nav class="site-nav" aria-label="Primary">
         <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/docs/API.md" target="_blank" rel="noopener">Docs</a>
-        <a href="https://github.com/uihilab/SciWrid-Toolkit/README.md" target="_blank" rel="noopener">README</a>
+        <a href="https://github.com/uihilab/SciWrid-Toolkit/blob/main/README.md" target="_blank" rel="noopener">README</a>
         <a href="https://github.com/uihilab/SciWrid-Toolkit" target="_blank" rel="noopener">GitHub</a>
         <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
-        <span class="hilab">
-          <img src="https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/assets/logo-hilab-mini.png" alt="HiLab" width="662" height="283">
-        </span>
       </nav>
     </div>
   </header>
 
-  <main class="page">
-    <section class="hero">
-      <div class="hero-bg" aria-hidden="true">
-        <svg viewBox="0 0 960 280" preserveAspectRatio="none">
-          <g class="flow">
-            <path d="M-60 26 C70 6,170 46,300 26 C430 6,530 46,660 26 C790 6,890 46,1020 26" stroke-opacity="0.85"/>
-            <path d="M-60 60 C70 40,170 80,300 60 C430 40,530 80,660 60 C790 40,890 80,1020 60" stroke-opacity="0.6"/>
-            <path d="M-60 94 C70 74,170 114,300 94 C430 74,530 114,660 94 C790 74,890 114,1020 94" stroke-opacity="0.8"/>
-            <path d="M-60 128 C70 108,170 148,300 128 C430 108,530 148,660 128 C790 108,890 148,1020 128" stroke-opacity="0.5"/>
-            <path d="M-60 162 C70 142,170 182,300 162 C430 142,530 182,660 162 C790 142,890 182,1020 162" stroke-opacity="0.75"/>
-            <path d="M-60 196 C70 176,170 216,300 196 C430 176,530 216,660 196 C790 176,890 216,1020 196" stroke-opacity="0.45"/>
-            <path d="M-60 230 C70 210,170 250,300 230 C430 210,530 250,660 230 C790 210,890 250,1020 230" stroke-opacity="0.7"/>
-          </g>
-        </svg>
-      </div>
+  <div class="page-bg" aria-hidden="true">
+    <svg viewBox="0 0 960 1000" preserveAspectRatio="none">
+      <g class="flow">
+        <path d="M-60 40 C70 18,170 62,300 40 C430 18,530 62,660 40 C790 18,890 62,1020 40 C1150 18,1250 62,1380 40" stroke-opacity="0.85"/>
+        <path d="M-60 100 C70 83,170 117,300 100 C430 83,530 117,660 100 C790 83,890 117,1020 100 C1150 83,1250 117,1380 100" stroke-opacity="0.6"/>
+        <path d="M-60 160 C70 138,170 182,300 160 C430 138,530 182,660 160 C790 138,890 182,1020 160 C1150 138,1250 182,1380 160" stroke-opacity="0.8"/>
+        <path d="M-60 220 C70 203,170 237,300 220 C430 203,530 237,660 220 C790 203,890 237,1020 220 C1150 203,1250 237,1380 220" stroke-opacity="0.5"/>
+        <path d="M-60 280 C70 258,170 302,300 280 C430 258,530 302,660 280 C790 258,890 302,1020 280 C1150 258,1250 302,1380 280" stroke-opacity="0.75"/>
+        <path d="M-60 340 C70 323,170 357,300 340 C430 323,530 357,660 340 C790 323,890 357,1020 340 C1150 323,1250 357,1380 340" stroke-opacity="0.45"/>
+        <path d="M-60 400 C70 378,170 422,300 400 C430 378,530 422,660 400 C790 378,890 422,1020 400 C1150 378,1250 422,1380 400" stroke-opacity="0.7"/>
+        <path d="M-60 460 C70 443,170 477,300 460 C430 443,530 477,660 460 C790 443,890 477,1020 460 C1150 443,1250 477,1380 460" stroke-opacity="0.55"/>
+        <path d="M-60 520 C70 498,170 542,300 520 C430 498,530 542,660 520 C790 498,890 542,1020 520 C1150 498,1250 542,1380 520" stroke-opacity="0.85"/>
+        <path d="M-60 580 C70 563,170 597,300 580 C430 563,530 597,660 580 C790 563,890 597,1020 580 C1150 563,1250 597,1380 580" stroke-opacity="0.6"/>
+        <path d="M-60 640 C70 618,170 662,300 640 C430 618,530 662,660 640 C790 618,890 662,1020 640 C1150 618,1250 662,1380 640" stroke-opacity="0.8"/>
+        <path d="M-60 700 C70 683,170 717,300 700 C430 683,530 717,660 700 C790 683,890 717,1020 700 C1150 683,1250 717,1380 700" stroke-opacity="0.5"/>
+        <path d="M-60 760 C70 738,170 782,300 760 C430 738,530 782,660 760 C790 738,890 782,1020 760 C1150 738,1250 782,1380 760" stroke-opacity="0.75"/>
+        <path d="M-60 820 C70 803,170 837,300 820 C430 803,530 837,660 820 C790 803,890 837,1020 820 C1150 803,1250 837,1380 820" stroke-opacity="0.45"/>
+        <path d="M-60 880 C70 858,170 902,300 880 C430 858,530 902,660 880 C790 858,890 902,1020 880 C1150 858,1250 902,1380 880" stroke-opacity="0.7"/>
+        <path d="M-60 940 C70 923,170 957,300 940 C430 923,530 957,660 940 C790 923,890 957,1020 940 C1150 923,1250 957,1380 940" stroke-opacity="0.55"/>
+      </g>
+    </svg>
+  </div>
 
+  <main>
+    <section class="hero">
       <div class="hero-grid">
         <div class="hero-copy">
           <p class="kicker">WebAssembly geospatial toolkit</p>
@@ -502,7 +507,6 @@
         </article>
       </div>
     </section>
-
   </main>
 
   <footer class="site-foot">

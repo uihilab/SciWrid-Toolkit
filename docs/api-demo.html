@@ -105,9 +105,10 @@
     }
 
     .brand-mark {
-      /* The artwork carries its own rounded-square mark, so this
-         draws no tile of its own -- a brand-coloured square behind
-         it would read as two logos stacked. */
+      /* The mark carries its own cream tile, so nothing is drawn behind it --
+         a second square would read as two logos stacked. The tile is square in
+         the source file; the radius here is what makes it sit as an app icon. */
+      border-radius: 7px;
       width: 32px; height: 32px; 
       display: block; object-fit: contain;
     }
@@ -300,7 +301,8 @@
        applies between them and they sit flush -- two rows of boxes reading as one
        crowded block. The help text that follows a row needs the same clearance. */
     .field-row + .field-row,
-    .field-row + .row { margin-top: .9rem; }
+    .field-row + .row,
+    .field-row + pre { margin-top: .9rem; }
     /* Trim's buttons share the row with its four bbox inputs. At an even 1fr each
        track is ~161px and "Download trimmed file" needs ~170px, so it wrapped by a
        hair. Lat/lon numbers do not need that width, so they give some back: the
@@ -308,6 +310,26 @@
     .trim-row { grid-template-columns: repeat(4, minmax(0, .8fr)) repeat(2, minmax(0, 1.4fr)); }
     .trim-row button { margin: 0; }          /* the grid gap is the only spacing */
     .trim-row #trim-status { grid-column: 1 / -1; }
+
+    /* A section's action buttons, on their own grid so every button in the row
+       is the same width. Left to themselves they size to their label, so
+       `extract()` came out half the width of `extractOutput("json")` and the
+       five read as different classes of control rather than one set. Tracks are
+       1fr, so the row lines up with the .field-row grids above it; auto-fit
+       drops to fewer -- still equal -- columns when the viewport is narrow.
+       As with .trim-row, the grid gap is the only spacing. */
+    .btn-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: .7rem 1.15rem;
+      margin: .9rem 0;              /* pre sets margin:0, so this is the only gap */
+    }
+    .btn-row button { margin: 0; }
+    /* status text gets its own full-width line rather than a button-sized cell,
+       but only once it has something to say -- empty, it would still claim a
+       row and its gap, padding the space under the buttons for no reason. */
+    .btn-row > .muted { grid-column: 1 / -1; }
+    .btn-row > .muted:empty { display: none; }
     .field-row > label { display: grid; gap: .25rem; min-width: 0; }
     .field-row > label > span { font-size: 12px; color: var(--muted-foreground); }
     .field-row input[type=number],
@@ -426,6 +448,16 @@
     .warn    { color: var(--warn); }
     .row     { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
 
+    /* An inline `display` would beat the UA sheet's [hidden]{display:none} and
+       leave the attribute inert, so #g-result's layout lives here instead --
+       and this guard keeps that trap from reappearing anywhere on the page. */
+    [hidden] { display: none !important; }
+    #g-result {
+      margin-top: .75rem;
+      display: flex; gap: 1rem;
+      align-items: flex-start; flex-wrap: wrap;
+    }
+
     #g-canvas {
       background: var(--muted);
       border: 1px solid var(--border);
@@ -511,10 +543,9 @@
   <header class="site-header">
     <div class="site-header-inner">
       <a class="brand" href="index.html">
-        <img class="brand-mark" src="https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/assets/logo-sciwrid.png" alt="SciWrid" width="32" height="32">
+        <img class="brand-mark" src="logo-sciwrid.svg" alt="SciWrid" width="32" height="32">
         <span>
-          <strong>sciwrid-toolkit/api</strong>
-          <span>Functional demo</span>
+          <strong>SciWrid Toolkit</strong>
         </span>
       </a>
       <nav class="site-nav" aria-label="Demo sections">
@@ -591,12 +622,16 @@
     <div class="row"><span class="muted">
       ISO-8601 or <code>YYYY-MM-DD</code> (date-only covers the whole day). Both → range; one → nearest. Blank → all timesteps. Overrides time index.
     </span></div>
-    <button id="btn-extract">extract()</button>
-    <button id="btn-csv">extractOutput("csv")</button>
-    <button id="btn-json">extractOutput("json")</button>
-    <button id="btn-dl-csv">⬇ Download CSV</button>
-    <button id="btn-dl-json">⬇ Download JSON</button>
-    <pre id="ex-out">(no extract yet)</pre>
+    <div class="btn-row">
+      <button id="btn-extract">extract()</button>
+      <button id="btn-csv">extractOutput("csv")</button>
+      <button id="btn-json">extractOutput("json")</button>
+      <button id="btn-dl-csv">⬇ Download CSV</button>
+      <button id="btn-dl-json">⬇ Download JSON</button>
+    </div>
+    <!-- Like #scan-out: stays out of the layout until a run, rather than sitting
+         there as an empty box saying nothing. Revealed by the click handlers. -->
+    <pre id="ex-out" hidden></pre>
   </details>
 
   <!-- 4. Extract grid (bbox) -->
@@ -618,14 +653,18 @@
       <label><span>W:</span> <input type="number" id="g-width" step="1" min="1" value="128"></label>
       <label><span>H:</span> <input type="number" id="g-height" step="1" min="1" value="128"></label>
     </div>
-    <button id="btn-grid">extractGrid()</button>
-    <button id="btn-grid-abort" disabled>Abort</button>
-    <button id="btn-grid-json" disabled>Save JSON</button>
-    <button id="btn-grid-tiff" disabled>Save GeoTIFF</button>
-    <span id="g-progress" class="muted"></span>
-    <div style="margin-top:.75rem; display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
+    <div class="btn-row">
+      <button id="btn-grid">extractGrid()</button>
+      <button id="btn-grid-abort" disabled>Abort</button>
+      <button id="btn-grid-json" disabled>Save JSON</button>
+      <button id="btn-grid-tiff" disabled>Save GeoTIFF</button>
+      <span id="g-progress" class="muted"></span>
+    </div>
+    <!-- Heatmap + result, hidden together until a run: the blank canvas is as
+         empty a box as the pre beside it. Revealed by the click handlers. -->
+    <div id="g-result" hidden>
       <canvas id="g-canvas" width="256" height="256"></canvas>
-      <pre id="g-out" style="flex:1; min-width:280px; max-height:280px;">(no grid yet)</pre>
+      <pre id="g-out" style="flex:1; min-width:280px; max-height:280px;"></pre>
     </div>
   </details>
 
@@ -657,7 +696,8 @@
       <button id="btn-trim-download" disabled>Download trimmed file</button>
       <span id="trim-status" class="muted"></span>
     </div>
-    <pre id="trim-out">(no trim yet)</pre>
+    <!-- Same as the sections above: out of the layout until a trim runs. -->
+    <pre id="trim-out" hidden></pre>
   </details>
 
   </main>
@@ -683,7 +723,7 @@
       detectFormat, scan, extract, extractOutput, extractGrid,
       gridToJSON, gridToGeoTIFF, trim,
       SciWridError, TrimError,
-    } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/lib/sciwrid-api.js';
+    } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/dist/index.js';
     import { notifyStatus } from './notify.js';
 
     /* Small browser download helper — Blob + anchor click. */
@@ -729,9 +769,12 @@
       $('detect-out').textContent = '';
       $('scan-out').hidden = true;
       $('scan-out').textContent = '';
-      $('ex-out').textContent = '(no extract yet)';
-      $('g-out').textContent = '(no grid yet)';
-      $('trim-out').textContent = '(no trim yet)';
+      $('ex-out').hidden = true;
+      $('ex-out').textContent = '';
+      $('g-result').hidden = true;
+      $('g-out').textContent = '';
+      $('trim-out').hidden = true;
+      $('trim-out').textContent = '';
       $('trim-scan-out').textContent = '';
       $('trim-vars').innerHTML = '';
       $('btn-trim-download').disabled = true;
@@ -813,6 +856,7 @@
 
     $('btn-extract').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -828,6 +872,7 @@
 
     $('btn-csv').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -843,6 +888,7 @@
 
     $('btn-json').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -866,6 +912,7 @@
 
     $('btn-dl-csv').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -883,6 +930,7 @@
 
     $('btn-dl-json').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -967,6 +1015,7 @@
 
     $('btn-grid').addEventListener('click', async () => {
       const out      = $('g-out');
+      $('g-result').hidden = false;   // appears on click so a slow run still shows progress
       const progress = $('g-progress');
       const canvas   = $('g-canvas');
       const btn      = $('btn-grid');
@@ -1035,6 +1084,7 @@
         saveBlob(json, 'application/json', `${stem}.json`);
         log('Saved JSON', `${stem}.json (${json.length} bytes)`);
       } catch (e) {
+        $('g-result').hidden = false;
         show($('g-out'), 'JSON save error: ' + e.message, 'error');
         console.error(e);
       }
@@ -1048,6 +1098,7 @@
         saveBlob(buf, 'image/tiff', `${stem}.tif`);
         log('Saved GeoTIFF', `${stem}.tif (${buf.byteLength} bytes)`);
       } catch (e) {
+        $('g-result').hidden = false;
         show($('g-out'), 'GeoTIFF save error: ' + e.message, 'error');
         console.error(e);
       }
@@ -1061,6 +1112,7 @@
       const out  = $('trim-scan-out');
       const list = $('trim-vars');
       list.innerHTML = '';
+      $('trim-out').hidden = false;
       $('trim-out').textContent = '(scan done — pick variables, then click Trim)';
       $('btn-trim-download').disabled = true;
       try {
@@ -1108,6 +1160,7 @@
     $('btn-trim').addEventListener('click', async () => {
       const status = $('trim-status');
       const out    = $('trim-out');
+      out.hidden = false;          // appears on click so a slow trim still shows progress
       $('btn-trim-download').disabled = true;
       try {
         const f = requireFile();

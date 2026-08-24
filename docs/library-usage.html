@@ -87,9 +87,10 @@
     }
     .brand { display: inline-flex; align-items: center; gap: .75rem; min-width: max-content; }
     .brand-mark {
-      /* The artwork carries its own rounded-square mark, so this
-         draws no tile of its own -- a brand-coloured square behind
-         it would read as two logos stacked. */
+      /* The mark carries its own cream tile, so nothing is drawn behind it --
+         a second square would read as two logos stacked. The tile is square in
+         the source file; the radius here is what makes it sit as an app icon. */
+      border-radius: 7px;
       width: 32px; height: 32px; 
       display: block; object-fit: contain;
     }
@@ -226,7 +227,7 @@
   <header class="site-header">
     <div class="site-header-inner">
       <a class="brand" href="index.html">
-        <img class="brand-mark" src="https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/assets/logo-sciwrid.png" alt="SciWrid" width="32" height="32">
+        <img class="brand-mark" src="logo-sciwrid.svg" alt="SciWrid" width="32" height="32">
         <span>
           <strong>SciWrid Toolkit</strong>
           <span>Library usage</span>
@@ -339,7 +340,7 @@
 
   <!-- Use the library as an ES module -->
   <script type="module">
-    import { SciWridToolkit } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/lib/sciwrid-lib.js';
+    import { SciWridToolkit } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/dist/index.js';
 
     // === This is the public library API ===
     // Pass SciWridToolkit factory explicitly — avoids global lookup issues
