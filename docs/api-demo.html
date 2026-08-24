@@ -278,7 +278,7 @@
        90px, 80px and 88px in three places. Four tokens replace all of them, so
        boxes holding the same sort of value are the same size. */
     :root {
-      --field-xs: 76px;    /* small integers: W, H, time index, worker count */
+      --field-xs: 76px;    /* small integers: W, H, time index */
       --field-sm: 104px;   /* coordinates: lat, lon, bbox corners */
       --field-md: 208px;   /* dates */
       --field-lg: 264px;   /* variable names */
@@ -286,7 +286,7 @@
     /* Input rows are a six-column grid, so boxes line up between rows instead of
        starting wherever the preceding label text happened to end.
        Six divides both shapes these forms take:
-         Variable(2) + Time idx(1) + Date(2) + Workers(1) = 6
+         Variable(2) + Time idx(1) + Date(3)              = 6
          minLon + minLat + maxLon + maxLat + W + H        = 6
        so every field in the first row begins on a column edge of the second.
        The label sits ABOVE its box -- with it alongside, a longer word pushes
@@ -335,6 +335,7 @@
     .field-row input[type=number],
     .field-row input[type=text] { width: 100%; }
     .field-row .span-2 { grid-column: span 2; }
+    .field-row .span-3 { grid-column: span 3; }
     /* An inline "?" that explains a term on hover or focus.
        Built as a reusable pattern rather than a one-off: this page is full of
        terms a first-time reader will not know. Shown on FOCUS as well as
@@ -638,12 +639,16 @@
   <details class="section" id="section-grid" open>
     <summary><span class="label">4. Extract grid (bbox) — parallel worker pool</span></summary>
     <code>await extractGrid(file, { variable, bbox, width, height, workers, signal, onProgress })</code><br>
-    <span class="muted">Spawns up to N workers (default 5); each handles a row band. Result is rendered as a heatmap.</span><br><br>
+    <span class="muted">Spawns up to N workers (default 5); each handles a row band. Result is rendered as a heatmap.<span class="hint-wrap"><button type="button" class="hint" aria-describedby="hint-workers">?</button><span class="hint-box" role="tooltip" id="hint-workers">Splits the output grid into horizontal bands and decodes them in parallel Web Workers. This demo runs a fixed <code>5</code>; the library takes any count, and <code>0</code> decodes inline on the main thread &mdash; slower, but it keeps everything in one stack for debugging. More workers than the machine has cores will not help.</span></span></span><br><br>
+    <!-- Fixed at the library default. The demo does not offer this as a knob: the
+         only interesting answers are 5 and "fewer than your cores", and a reader
+         who types 200 learns nothing from the result. The "?" beside the blurb
+         above explains what the pool does; extractGrid() still takes any count. -->
+    <input type="hidden" id="g-workers" value="5">
     <div class="field-row">
       <label class="span-2"><span>Variable:</span> <input type="text" id="g-var" placeholder="(auto: first supported)"></label>
       <label><span>Time idx:</span> <input type="number" id="g-time" step="1" min="0" value="0"></label>
-      <label class="span-2"><span>or Date:</span> <input type="text" id="g-date" placeholder="(ISO, overrides idx)"></label>
-      <label><span>Workers:<span class="hint-wrap"><button type="button" class="hint" aria-describedby="hint-workers">?</button><span class="hint-box" role="tooltip" id="hint-workers">Splits the output grid into horizontal bands and decodes them in parallel Web Workers. Default <code>5</code>. Set <code>0</code> to run inline on the main thread &mdash; slower, but it keeps everything in one stack for debugging. More workers than the machine has cores will not help.</span></span></span> <input type="number" id="g-workers" step="1" min="0" value="5"></label>
+      <label class="span-3"><span>or Date:</span> <input type="text" id="g-date" placeholder="(ISO, overrides idx)"></label>
     </div>
     <div class="field-row">
       <label><span>minLon:</span> <input type="number" id="g-minlon" step="0.1" value="-100"></label>
