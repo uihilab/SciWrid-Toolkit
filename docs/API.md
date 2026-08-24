@@ -173,6 +173,58 @@ Format-specific fields in the result:
 | ----------- | -------------------------------------------------------------------- |
 | GRIB2       | `grid_templates[]`, `data_templates[]`, `units[]`, `bbox`            |
 | NetCDF4     | `shapes[]`, `units[]`, `bbox`                                        |
+
+### Projected grids (CF `grid_mapping`)
+
+A NetCDF file on a projected grid carries `x`/`y` axes in metres plus a CRS
+container variable, not latitude and longitude. Read as degrees those axes are
+meaningless — an `x` of `-1902530` is 1902 km west of the projection origin, not
+a longitude — so the library detects the case and converts.
+
+Detection uses three signals, strongest first: `standard_name` of
+`projection_x_coordinate` / `projection_y_coordinate`; linear axis `units`
+(`m`, `metre`, `km`, …); and, as a backstop for files that declare neither, axis
+values outside geographic range (|lat| > 90 or |lon| > 360). The CRS comes from
+the variable named by a data variable's `grid_mapping` attribute, or from any
+variable carrying a `grid_mapping_name`.
+
+Converted `grid_mapping_name` values: `latitude_longitude`,
+`polar_stereographic`, `lambert_conformal_conic`, `albers_conical_equal_area`,
+`sinusoidal`, `transverse_mercator`. Spherical (`earth_radius`) and ellipsoidal
+(`semi_major_axis` + `semi_minor_axis` / `inverse_flattening`) earth figures are
+both honoured — the difference is several grid cells, not a rounding.
+
+`transverse_mercator` shares one implementation with UTM, which is the same
+projection with `lon0`, `k0`, and the false origin fixed by zone. A file that
+omits `scale_factor_at_central_meridian` gets **1**, not UTM's 0.9996 — the
+latter is a property of the UTM system, and assuming it would shrink every
+distance by 400 ppm.
+
+Everything else CF defines is **detected but not converted**: `scan()` reports
+`crs: "unconverted"` and a warning naming the projection, rather than passing
+native axis values off as degrees. `rotated_latitude_longitude` matters most
+here — its `rlat`/`rlon` axes are degrees in ordinary geographic range, so no
+range check can flag them, and read as plain lat/lon they yield coordinates that
+look reasonable and point at the wrong continent. It is identified by CF's
+mandated `standard_name` of `grid_latitude` / `grid_longitude`.
+
+The grid stays in its native units internally, because it is regular there and
+only there: on a polar-stereographic grid longitude varies along every row, so
+no 1-D `lon[]` can describe it. Conversion happens at the API edge —
+
+- `scan().bbox` reports WGS84, computed by walking the whole projected boundary
+  (a projected domain's extremes are not always at its corners).
+- `extract({lat, lon})` forward-projects the request, then reports
+  `location: { lat, lon, x, y, crs }` — degrees for the cell found, plus the
+  native pair it was read from.
+- `extractGrid({bbox})` projects each output pixel individually. Pixels outside
+  the domain are `NaN`, never the nearest edge cell.
+
+If a grid is detected as projected but cannot be converted — no CRS variable, or
+a `grid_mapping_name` this build cannot invert — axis values are passed through
+in native units and the reason is reported rather than silently mislabelled.
+
+
 | NetCDF3     | `shapes[]`, `units[]`, `bbox`                                        |
 | Zarr v2/v3  | `shapes[]`, `dtypes[]`, `compressors[]`, `bbox`                      |
 | Parquet     | `gridTypes[]`, `bbox`                                                |

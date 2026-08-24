@@ -21,6 +21,8 @@ import * as Zarr from './zarr-helper.js';
 import * as Parquet from './parquet-helper.js';
 import { decodeTimes } from './time-decoder.js';
 import { h5TempName } from './hdf5/vfs-name.js';
+import { geoFromGridMapping, detectProjection, linearScale } from './netcdf/cf-grid-mapping.js';
+import { latLonToNative, nativeToLatLon } from './tiff/projections.js';
 import SciWridWasm from '../wasm/sciwrid.js';
 
 /* =========================================================================
@@ -168,6 +170,16 @@ export class SciWridToolkit {
      * contract: absent when the file's coordinates cannot be derived. */
     const bbox = this._geoBboxFor();
     if (bbox) base.bbox = bbox;
+
+    /* A grid we could identify as projected but not convert. Surfacing this is
+     * the whole point of detecting it: the alternative is handing back axis
+     * values in metres under the names `lat` and `lon`, which reads as data
+     * rather than as a gap. */
+    if (this._geo) base.crs = this._geo.kind;
+    if (this._geoWarning) {
+      base.warnings = [...(base.warnings || []), this._geoWarning];
+      base.crs = 'unconverted';
+    }
 
     return base;
   }
@@ -343,7 +355,7 @@ export class SciWridToolkit {
           if (rp !== 0) {
             const json = wasm.UTF8ToString(rp);
             wasm.ccall('wp_free', null, ['number'], [rp]);
-            results.push(this._withUnits(JSON.parse(json), v));
+            results.push(this._withUnits(this._unprojectResult(JSON.parse(json)), v));
           }
         } finally {
           wasm.ccall('wp_close', null, ['number'], [gds]);
@@ -366,23 +378,28 @@ export class SciWridToolkit {
         const actualT2 = Math.min(queryT2 ?? nt - 1, nt - 1);
 
         let latIdx = -1, lonIdx = -1;
+        /* On a projected grid the stored axes are metres, so the requested
+         * degrees have to cross into that space before any nearest-cell search
+         * -- comparing a longitude against a easting picks whichever column is
+         * numerically closest, which is not a location at all. */
+        const q = this._toNative(lat, lon);
         if (wasm.ccall('wp_is_curvilinear', 'number', ['number'], [ds])
             && lat !== undefined && lon !== undefined) {
           // Curvilinear (projected) grid: a point maps to a single (row,col)
           // cell — find it jointly, then index it as data[t][latIdx][lonIdx].
           const nx   = wasm.ccall('wp_nx', 'number', ['number'], [ds]);
           const flat = wasm.ccall('wp_find_nearest_cell', 'number',
-            ['number', 'number', 'number'], [ds, lat, lon]);
+            ['number', 'number', 'number'], [ds, q.lat, q.lon]);
           latIdx = Math.floor(flat / nx);   // row
           lonIdx = flat % nx;               // col
         } else {
           if (lat !== undefined) {
             latIdx = wasm.ccall('wp_find_nearest_lat', 'number',
-              ['number', 'number'], [ds, lat]);
+              ['number', 'number'], [ds, q.lat]);
           }
           if (lon !== undefined) {
             lonIdx = wasm.ccall('wp_find_nearest_lon', 'number',
-              ['number', 'number'], [ds, lon]);
+              ['number', 'number'], [ds, q.lon]);
           }
         }
 
@@ -394,7 +411,7 @@ export class SciWridToolkit {
           const json = wasm.UTF8ToString(resultPtr);
           wasm.ccall('wp_free', null, ['number'], [resultPtr]);
           try {
-            results.push(this._withUnits(JSON.parse(json), v));
+            results.push(this._withUnits(this._unprojectResult(JSON.parse(json)), v));
           } catch (parseErr) {
             throw new Error(
               `[sciwrid] Failed to parse query result for variable "${v.name}": ${parseErr.message}`
@@ -479,6 +496,16 @@ export class SciWridToolkit {
     const arrays = await this._extractArrays(v, time);
     checkAbort();
     const { lats, lons, sliceData, ny, nx, units } = arrays;
+
+    /* ---- Projected grid: the axes are metres, the bbox is degrees ----
+     * The shared resampler compares the two directly, so before this every
+     * output pixel fell outside the axis range and the whole raster came back
+     * NaN. Each pixel is projected into the grid's own space instead. */
+    if (this._geo) {
+      const data = this._resampleProjected(
+        { lats, lons, data: sliceData, nx, ny }, bbox, width, height, onProgress);
+      return { data, width, height, bbox, variable, units, time, crs: this._geo.kind };
+    }
 
     /* ---- Detect monotonicity ---- */
     const latsAscending = lats[0] < lats[ny - 1];
@@ -784,7 +811,9 @@ export class SciWridToolkit {
     if (timC) {
       const timDS    = f.get(timC.name);
       const timUnits = String(this._nc4Attr(timDS.attrs, 'units') ?? 'days since 1970-01-01');
-      const timRaw   = this._nc4ReadDatasetSlice(timDS, [[readT1, readT2 + 1]]);
+      const timRaw   = timC.isScalar
+        ? [timDS.value]
+        : this._nc4ReadDatasetSlice(timDS, [[readT1, readT2 + 1]]);
       for (let i = 0; i < outNt; i++)
         timesF64[i] = this._nc4TimeToS(Number(timRaw[i]), timUnits);
     } else {
@@ -1415,6 +1444,176 @@ export class SciWridToolkit {
     return [lon[0], lat[0], lon[1], lat[1]];
   }
 
+  /* Axis metadata + value range -> "is this projected?" (see cf-grid-mapping.js) */
+  _nc4DetectProjection(f, coordByType, nativeBbox) {
+    const latC = coordByType.lat, lonC = coordByType.lon;
+    if (!latC || !lonC) return { projected: false, why: '' };
+    return detectProjection({
+      latStd: latC.standardName, lonStd: lonC.standardName,
+      latUnits: latC.units,      lonUnits: lonC.units,
+      latMin: nativeBbox ? nativeBbox[1] : NaN, latMax: nativeBbox ? nativeBbox[3] : NaN,
+      lonMin: nativeBbox ? nativeBbox[0] : NaN, lonMax: nativeBbox ? nativeBbox[2] : NaN,
+    });
+  }
+
+  /* Locate the CF grid-mapping container variable and parse it.
+   * Preference order: a variable named by some data variable's `grid_mapping`
+   * attribute (the conformant route), then any variable carrying a
+   * `grid_mapping_name` attribute (files that omit the back-reference). */
+  _nc4FindGridMapping(f, keys) {
+    const get = (attrs, n) => (attrs && n in attrs) ? attrs[n] : null;
+    const candidates = [];
+    for (const name of keys) {
+      const item = f.get(name);
+      if (!item || item.constructor.name !== 'Dataset') continue;
+      const ref = this._nc4Attr(item.attrs, 'grid_mapping');
+      if (ref) { const r = String(ref).trim().split(/\s+/)[0]; if (r) candidates.push(r); }
+    }
+    for (const name of keys) {
+      const item = f.get(name);
+      if (!item || item.constructor.name !== 'Dataset') continue;
+      if (this._nc4Attr(item.attrs, 'grid_mapping_name')) candidates.push(name);
+    }
+
+    for (const name of candidates) {
+      let item;
+      try { item = f.get(name); } catch (_) { continue; }
+      if (!item || item.constructor.name !== 'Dataset') continue;
+      const parsed = geoFromGridMapping(item.attrs, get);
+      if (parsed.geo) {
+        /* A km axis has to be scaled into the CRS's metres before the inverse
+         * sees it; CF permits either and the projection math assumes metres. */
+        const units = String(this._nc4Attr(f.get(name).attrs, 'units') ?? '');
+        return { ...parsed, scale: linearScale(units) };
+      }
+      if (parsed.name) return { ...parsed, scale: 1 };   // recognised but unsupported
+    }
+    return null;
+  }
+
+  /* Native (projected) bbox -> WGS84. The extremes of a projected domain are
+   * not always at its corners -- a polar-stereographic grid bulges along its
+   * top edge -- so the whole boundary is walked, not just the four corners. */
+  _nc4Wgs84Bbox([minX, minY, maxX, maxY], geo, scale = 1) {
+    const N = 64;
+    let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
+    const add = (x, y) => {
+      let p;
+      try { p = nativeToLatLon({ x: x * scale, y: y * scale }, geo); } catch (_) { return; }
+      if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return;
+      if (p.lat < south) south = p.lat;
+      if (p.lat > north) north = p.lat;
+      if (p.lon < west)  west  = p.lon;
+      if (p.lon > east)  east  = p.lon;
+    };
+    for (let i = 0; i <= N; i++) {
+      const fx = minX + (maxX - minX) * (i / N);
+      const fy = minY + (maxY - minY) * (i / N);
+      add(fx, minY); add(fx, maxY); add(minX, fy); add(maxX, fy);
+    }
+    return Number.isFinite(west) ? [west, south, east, north] : null;
+  }
+
+  /* Nearest-neighbour resample of a PROJECTED grid onto a WGS84 lat/lon raster.
+   *
+   * The grid is regular in x/y, so the mapping is per-pixel and exact: take the
+   * output pixel's centre in degrees, forward-project it into the grid's space,
+   * and read the cell it lands in. Pixel geometry (row 0 = north, centres at
+   * +0.5) matches worker/loader.js inlineExtract so a projected file and a
+   * geographic one produce the same framing.
+   *
+   * Runs inline rather than through the worker pool: the pool's protocol ships
+   * 1-D lat/lon arrays and a bbox, which cannot describe a projected grid. The
+   * cost is one forward projection per output pixel -- tens of thousands, not
+   * millions, since it scales with the OUTPUT size, not the source grid.
+   */
+  _resampleProjected({ lats, lons, data, nx, ny }, bbox, width, height, onProgress) {
+    const [minLon, minLat, maxLon, maxLat] = bbox;
+    const dx = (maxLon - minLon) / width;
+    const dy = (maxLat - minLat) / height;
+    const scale = this._geoScale || 1;
+    const geo = this._geo;
+
+    /* Axis direction and bounds, read off the arrays rather than assumed:
+     * y typically descends (north first) while x ascends, but neither is
+     * guaranteed by CF. */
+    const xAsc = nx < 2 || lons[nx - 1] > lons[0];
+    const yAsc = ny < 2 || lats[ny - 1] > lats[0];
+    const xLo = Math.min(lons[0], lons[nx - 1]), xHi = Math.max(lons[0], lons[nx - 1]);
+    const yLo = Math.min(lats[0], lats[ny - 1]), yHi = Math.max(lats[0], lats[ny - 1]);
+
+    const idx = (coords, target, asc, n) => {
+      let lo = 0, hi = n - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if ((asc && coords[mid] < target) || (!asc && coords[mid] > target)) lo = mid; else hi = mid;
+      }
+      return Math.abs(coords[lo] - target) <= Math.abs(coords[hi] - target) ? lo : hi;
+    };
+
+    const out = new Float32Array(width * height);
+    const total = width * height;
+    for (let py = 0; py < height; py++) {
+      const lat = maxLat - (py + 0.5) * dy;
+      const outBase = py * width;
+      for (let px = 0; px < width; px++) {
+        const lon = minLon + (px + 0.5) * dx;
+        let nx_, ny_;
+        try {
+          const n = latLonToNative({ lat, lon }, geo);
+          nx_ = n.x / scale; ny_ = n.y / scale;
+        } catch (_) { out[outBase + px] = NaN; continue; }
+        /* Outside the grid is NaN, never the nearest edge cell. Clamping would
+         * smear the border row across every pixel beyond the domain, which
+         * reads as real data covering ground the file does not describe. */
+        if (!Number.isFinite(nx_) || !Number.isFinite(ny_) ||
+            nx_ < xLo || nx_ > xHi || ny_ < yLo || ny_ > yHi) {
+          out[outBase + px] = NaN;
+          continue;
+        }
+        out[outBase + px] = data[idx(lats, ny_, yAsc, ny) * nx + idx(lons, nx_, xAsc, nx)];
+      }
+      if (onProgress) onProgress({ done: (py + 1) * width, total });
+    }
+    return out;
+  }
+
+  /* ---- Projected-grid boundary conversions --------------------------------
+   * The grid is kept in its native projected units everywhere inside this
+   * class: it is REGULAR in x/y (and only in x/y), so every existing lookup,
+   * slice and resample keeps working untouched. Only the two API edges move --
+   * a requested lat/lon is forward-projected on the way in, and the cell the
+   * lookup lands on is inverse-projected on the way out.
+   *
+   * Converting the axes to 1-D lat/lon arrays instead would be wrong, not just
+   * slower: on a polar-stereographic grid longitude varies along every row, so
+   * a single lon[] cannot describe the grid at all.
+   * ------------------------------------------------------------------------ */
+
+  /** Requested WGS84 degrees -> the native units the grid is indexed in. */
+  _toNative(lat, lon) {
+    if (!this._geo || lat === undefined || lon === undefined) return { lat, lon };
+    const s = this._geoScale || 1;
+    try {
+      const n = latLonToNative({ lat, lon }, this._geo);
+      /* The class's "lat" axis is y and its "lon" axis is x. */
+      return { lat: n.y / s, lon: n.x / s };
+    } catch (_) { return { lat, lon }; }
+  }
+
+  /** A result's native `location` -> WGS84 degrees, in place. */
+  _unprojectResult(result) {
+    if (!this._geo || !result || !result.location) return result;
+    const s = this._geoScale || 1;
+    const { lat: y, lon: x } = result.location;
+    if (!Number.isFinite(y) || !Number.isFinite(x)) return result;
+    try {
+      const p = nativeToLatLon({ x: x * s, y: y * s }, this._geo);
+      result.location = { lat: p.lat, lon: p.lon, x, y, crs: this._geo.kind };
+    } catch (_) { /* leave the native pair rather than invent one */ }
+    return result;
+  }
+
   /* Read an h5wasm attribute value defensively (handles both {value} and raw forms) */
   _nc4Attr(attrs, name) {
     const a = attrs[name];
@@ -1483,7 +1682,14 @@ export class SciWridToolkit {
     for (const name of keys) {
       const item = f.get(name);
       if (!item || item.constructor.name !== 'Dataset') continue;
-      if (item.shape.length !== 1) continue;
+      /* Rank 0 is allowed alongside rank 1 because a single-time product
+       * stores its timestamp as a SCALAR, not a length-1 array -- NWS
+       * precipitation grids do exactly this. Skipping rank 0 left the file
+       * with no time coordinate at all and every reading stamped with the
+       * epoch fallback below. A scalar cannot be a spatial axis, so only the
+       * time branch can claim one. */
+      if (item.shape.length > 1) continue;
+      const isScalar = item.shape.length === 0;
 
       const a    = item.attrs;
       const lname = name.toLowerCase();
@@ -1502,8 +1708,14 @@ export class SciWridToolkit {
                axis === 'T' || sname === 'time' || units.includes('since'))
         type = 'time';
 
+      if (isScalar && type !== 'time') type = null;
+
       if (type) {
-        const entry = { name, type, length: item.shape[0], units };
+        const entry = {
+          name, type, units, isScalar,
+          length: isScalar ? 1 : item.shape[0],
+          standardName: sname,
+        };
         if (!coordByType[type]) coordByType[type] = entry;
         coordByName[name] = entry;
       }
@@ -1512,7 +1724,41 @@ export class SciWridToolkit {
     // ---- Geographic extent from the lat/lon coordinate variables ----------
     // 1-D coord arrays are cheap to read; their min/max give a real bbox so
     // the grid can be placed on a map instead of assuming a global extent.
-    this._geoBbox = this._nc4CoordBbox(f, coordByType.lat, coordByType.lon);
+    const nativeBbox = this._nc4CoordBbox(f, coordByType.lat, coordByType.lon);
+
+    /* ---- Projected grid? -------------------------------------------------
+     * A file on a projected grid has no latitude or longitude in it: `x`/`y`
+     * hold metres from the projection origin, and the CRS lives in a container
+     * variable named by each data variable's `grid_mapping`. Those axes are
+     * already picked up as lat/lon above (name 'x' -> lon), so without this the
+     * numbers flow through as if they were degrees -- an x of -1902530 is
+     * reported as a longitude, and a requested point lands in whatever cell
+     * happens to be numerically nearest. Detect it here, keep the grid in its
+     * native units, and convert only at the API boundary. */
+    this._geo = null;
+    this._geoWarning = null;
+    this._nativeBbox = nativeBbox;
+    this._geoBbox = nativeBbox;
+
+    const det = this._nc4DetectProjection(f, coordByType, nativeBbox);
+    if (det.projected) {
+      const gm = this._nc4FindGridMapping(f, keys);
+      if (gm && gm.geo && gm.geo.kind !== 'geographic') {
+        this._geo = gm.geo;
+        this._geoScale = gm.scale;
+        this._geoBbox = nativeBbox ? this._nc4Wgs84Bbox(nativeBbox, gm.geo, gm.scale) : null;
+      } else {
+        /* Detected as projected but not convertible. Say which half failed:
+         * a missing CRS variable and an unsupported projection need different
+         * answers from the caller, and neither is "your longitude is -1902530". */
+        this._geoWarning =
+          `Grid appears projected (${det.why}) but its coordinates cannot be ` +
+          `converted to latitude/longitude: ` +
+          (gm ? gm.reason || `grid_mapping '${gm.name}' is not supported`
+              : 'no grid_mapping / CRS variable found in the file') +
+          `. Axis values are reported in their native units.`;
+      }
+    }
 
     // ---- Build variable list (multi-dim datasets that are not pure coords) ----
     this.vars = [];
@@ -1535,8 +1781,16 @@ export class SciWridToolkit {
         const len = shape[d];
         if (!latC && coordByType.lat  && coordByType.lat.length  === len) { latC = { dim: d, ...coordByType.lat  }; continue; }
         if (!lonC && coordByType.lon  && coordByType.lon.length  === len) { lonC = { dim: d, ...coordByType.lon  }; continue; }
-        if (!timC && coordByType.time && coordByType.time.length === len) { timC = { dim: d, ...coordByType.time }; continue; }
+        if (!timC && coordByType.time && !coordByType.time.isScalar &&
+            coordByType.time.length === len) { timC = { dim: d, ...coordByType.time }; continue; }
       }
+
+      /* A scalar time indexes no dimension of the variable, so the loop above
+       * can never find it. Attach it with dim -1 -- the value the rest of this
+       * class already uses for "no time axis" -- so the single reading carries
+       * the file's real timestamp instead of the epoch fallback. */
+      if (!timC && coordByType.time && coordByType.time.isScalar)
+        timC = { dim: -1, ...coordByType.time };
 
       const supported = !!(latC && lonC);
 
@@ -1550,7 +1804,9 @@ export class SciWridToolkit {
           const timUnits = this._nc4Attr(timDS.attrs, 'units');
           const timCal   = this._nc4Attr(timDS.attrs, 'calendar');
           if (timUnits) {
-            const raw = timDS.value;
+            /* h5wasm returns a bare number for a scalar dataset, not an array. */
+            const rawVal = timDS.value;
+            const raw = (rawVal != null && rawVal.length !== undefined) ? rawVal : [rawVal];
             const values = new Array(raw.length);
             for (let i = 0; i < raw.length; i++) values[i] = Number(raw[i]);
             times = decodeTimes(values, String(timUnits), timCal ? String(timCal) : 'standard');
