@@ -31,10 +31,10 @@ You have a file / URL / bytes
         └─ "Give me the data"
               │
               ├─ at ONE point (lat/lon) ............... extract            → object
-              │                                         extractOutput      → JSON / CSV string
+              │                                         extractOutput      → json csv netcdf3 zarr
               │
               └─ over an AREA (bbox) .................. extractGrid        → Float32 grid
-                                                        extractGridOutput  → JSON / GeoTIFF / PNG / ImageData
+                                                        extractGridOutput  → + geotiff png imagedata
                                                               │
                                                               ├─ draw on a web map → gridToImageData / gridToPNG (+ ramps)
                                                               └─ save as a raster  → gridToGeoTIFF / gridToJSON
@@ -48,9 +48,10 @@ Reusing one loaded file for many queries? ............ SciWridToolkit (class) �
 | Sniff the format without parsing            | [`detectFormat`](#detectformatsource)         | `'grib2'…'tiff' \| null`             |
 | List variables / time axis / bbox           | [`scan`](#scansource-opts)                    | metadata object                      |
 | One value at a lat/lon                       | [`extract`](#extractsource-options)           | object                               |
-| …as a JSON/CSV string to save               | [`extractOutput`](#extractoutputsource-options-format) | `string`                    |
+| …as a file in any supported format          | [`extractOutput`](#extractoutputsource-options-format) | `string \| Uint8Array`      |
 | A whole bbox grid (parallel, abortable)      | [`extractGrid`](#extractgridsource-options)   | `{ data: Float32Array, … }`          |
-| …as JSON / GeoTIFF / PNG / ImageData         | [`extractGridOutput`](#extractgridoutputsource-options-format) | `string \| Uint8Array \| ImageData` |
+| …as a file in any supported format          | [`extractGridOutput`](#extractgridoutputsource-options-format) | `string \| Uint8Array \| ImageData` |
+| Encode a grid I already have                 | [`encodeGrid`](#encodegridgrid-format-opts) / [`encodeSeries`](#encodegridgrid-format-opts) | `string \| Uint8Array` |
 | Render a grid for a web map                  | [`gridToImageData`](#gridtoimagedatagrid-opts) / [`gridToPNG`](#gridtopnggrid-opts) | RGBA / PNG       |
 | Save a grid as a raster                      | [`gridToGeoTIFF`](#map-rendering) / `gridToJSON` | `Uint8Array` / `string`           |
 | Trim a huge file, same format                | [`trim`](#trimsource-options)                 | `{ bytes, … }`                       |
@@ -442,8 +443,8 @@ Zarr arrays without CF time metadata the synthetic axis is `step t = t days`
 
 ## `extractOutput(source, options, format?)`
 
-Same as `extract`, but returns a serialised **string** instead of an object.
-`format` is `'json'` (default) or `'csv'`.
+Same as `extract`, but returns a **serialised result** instead of an object —
+a `string` for the text formats, a `Uint8Array` for the binary ones.
 
 ```js
 import { writeFileSync } from 'node:fs';
@@ -457,7 +458,24 @@ writeFileSync('berlin.csv', csv);
 // JSON string (pretty-printed)
 const json = await extractOutput(file, { variable: '2t' });
 writeFileSync('result.json', json);
+
+// A NetCDF-3 file of the same time series
+const nc = await extractOutput(file, { variable: '2t', lat: 52.52, lon: 13.40 }, 'netcdf3');
+writeFileSync('berlin.nc3', nc);
 ```
+
+### What a point/series file looks like
+
+A point query returns a time series, so the array formats write it as
+`<var>(time, lat=1, lon=1)` with `time` carrying CF units
+(`seconds since 1970-01-01T00:00:00Z`, `calendar = standard`) and
+`featureType = 'timeSeries'`. It opens in xarray as a time series with a
+decoded time index, not as a stack of images. Missing values are written as
+IEEE `NaN`.
+
+`extract` has two other result shapes — the whole cube (no `lat`/`lon`) and
+multi-variable (`variable: [...]`). Neither is encodable yet; both throw
+`UnsupportedExportError` naming `'json'` and `'csv'`, which do handle them.
 
 ---
 
@@ -528,9 +546,14 @@ grid object — handy for one-shot "give me a blob to save/serve" callers.
 | `format`        | Returns                | Use for                              |
 | --------------- | ---------------------- | ------------------------------------ |
 | `'json'`        | `string`               | Grid + metadata as JSON (`pretty` opt) |
+| `'csv'`         | `string`               | One row per cell: `variable,lat,lon,value` |
 | `'geotiff'`     | `Uint8Array`           | A WGS84 Float32 GeoTIFF              |
+| `'netcdf3'`     | `Uint8Array`           | CF-1.8 NetCDF-3 classic, `<var>(lat, lon)` |
+| `'zarr'`        | `Uint8Array`           | A Zarr v2 store packed in a ZIP      |
 | `'png'`         | `Promise<Uint8Array>`  | Colored PNG (pass `ramp`, `vmin`, `vmax`) |
 | `'imagedata'`   | `{ width, height, data }` | RGBA for a `<canvas>` / MapLibre   |
+
+Aliases: `tif`/`tiff` → `geotiff`; `nc`/`nc3`/`netcdf` → `netcdf3`.
 
 ```js
 // Save a GeoTIFF straight from a bbox query
@@ -539,6 +562,44 @@ const tiff = await extractGridOutput(file, {
 }, 'geotiff');
 writeFileSync('tmp.tif', tiff);
 ```
+
+---
+
+## `encodeGrid(grid, format?, opts?)` · `encodeSeries(result, format?, opts?)`
+
+The encoder layer on its own, for callers who **already hold a result** and do
+not want to extract it again:
+
+```js
+import { extractGrid, encodeGrid, EXPORT_FORMATS } from 'sciwrid-toolkit';
+
+const grid = await extractGrid(file, { variable: 'TMP', bbox, width: 512, height: 512 });
+
+const nc   = await encodeGrid(grid, 'netcdf3');   // Uint8Array
+const zarr = await encodeGrid(grid, 'zarr');      // Uint8Array (a .zip)
+const json = await encodeGrid(grid, 'json');      // string
+```
+
+`EXPORT_FORMATS` is the registry both functions validate against, and it is
+what a format chooser should be built from — it says which formats can
+represent which kind of result:
+
+| id | grid | point/series | ext | returns |
+| --- | :-: | :-: | --- | --- |
+| `json` | yes | yes | `.json` | `string` |
+| `csv` | yes | yes | `.csv` | `string` |
+| `geotiff` | yes | **no** | `.tif` | `Uint8Array` |
+| `netcdf3` | yes | yes | `.nc3` | `Uint8Array` |
+| `zarr` | yes | yes | `.zip` | `Uint8Array` |
+
+```js
+// Build a chooser that can never offer a writer that does not exist
+EXPORT_FORMATS.filter(f => f.series).map(f => f.label);
+```
+
+A format that cannot represent the result throws `UnsupportedExportError`
+(extends `SciWridError`) and the message names the formats that can. GeoTIFF
+refuses a point series rather than writing a misleading 1×1 raster.
 
 For the in-memory grid, prefer `extractGrid`; the render helpers
 ([`gridToImageData`](#gridtoimagedatagrid-opts) / [`gridToPNG`](#gridtopnggrid-opts))

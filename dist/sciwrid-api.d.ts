@@ -115,7 +115,52 @@ export interface ExtractResult {
   [extra: string]: unknown;
 }
 
-export type OutputFormat = 'json' | 'csv';
+/** Format ids accepted by `extractOutput()` / `encodeSeries()`. */
+export type OutputFormat =
+  'json' | 'csv' | 'netcdf3' | 'nc' | 'nc3' | 'netcdf' | 'zarr';
+
+/** One row of the export registry. */
+export interface ExportFormat {
+  /** Canonical id, e.g. 'netcdf3'. */
+  id: string;
+  /** Human label for a chooser, e.g. 'NetCDF-3 classic'. */
+  label: string;
+  /** File extension without the dot, e.g. 'nc3'. */
+  ext: string;
+  /** MIME type for a Blob or a Content-Type header. */
+  mime: string;
+  /** Can encode an `extractGrid()` result. */
+  grid: boolean;
+  /** Can encode a point/series `extract()` result. */
+  series: boolean;
+  /** Returns Uint8Array rather than string. */
+  binary: boolean;
+}
+
+/** Every format the encoder layer can write, and for which result kind. */
+export const EXPORT_FORMATS: ReadonlyArray<ExportFormat>;
+
+/**
+ * Encode a grid the caller already holds — no second extraction.
+ * A series-only format throws `UnsupportedExportError`.
+ */
+export function encodeGrid(
+  grid: ExtractGridResult,
+  format?: string,
+  opts?: { pretty?: boolean } & Record<string, unknown>,
+): Promise<Uint8Array | string>;
+
+/**
+ * Encode a point/series `extract()` result. Written as
+ * `<var>(time, lat=1, lon=1)` with CF time units, so it reads as a station
+ * time series. Whole-cube and multi-variable results are not encodable and
+ * throw `UnsupportedExportError`; use 'json' or 'csv' for those.
+ */
+export function encodeSeries(
+  result: ExtractResult,
+  format?: string,
+  opts?: Record<string, unknown>,
+): Promise<Uint8Array | string>;
 
 export type BBox = [minLon: number, minLat: number, maxLon: number, maxLat: number];
 
@@ -167,6 +212,9 @@ export class SourceError extends SciWridError {}
 export class ExtractError extends SciWridError {}
 
 /** Thrown by the TIFF/GeoTIFF reader for CRS outside the v1 supported set. */
+/** A format cannot represent what it was handed; the message names alternatives. */
+export class UnsupportedExportError extends SciWridError {}
+
 export class UnsupportedCRSError extends SciWridError {
   /** EPSG code parsed from the GeoKey directory (null if unparseable). */
   epsg: number | null;
@@ -178,15 +226,18 @@ export class UnsupportedCRSError extends SciWridError {
 export function detectFormat(source: Source): Promise<Format | null>;
 export function scan(source: Source, opts?: CommonOptions): Promise<ScanResult>;
 export function extract(source: Source, options?: ExtractOptions): Promise<ExtractResult>;
+/** Text formats return a string; binary ones (netcdf3, zarr) return bytes. */
 export function extractOutput(
   source: Source,
   options?: ExtractOptions,
   format?: OutputFormat,
-): Promise<string>;
+): Promise<string | Uint8Array>;
 export function extractGrid(source: Source, options: ExtractGridOptions): Promise<ExtractGridResult>;
 
 /** Output format for `extractGridOutput()`. */
-export type GridOutputFormat = 'json' | 'geotiff' | 'tif' | 'tiff' | 'imagedata' | 'png';
+export type GridOutputFormat =
+  'json' | 'csv' | 'geotiff' | 'tif' | 'tiff' | 'netcdf3' | 'nc' | 'nc3'
+  | 'netcdf' | 'zarr' | 'imagedata' | 'png';
 
 /** Run `extractGrid()` and serialize the result. */
 export function extractGridOutput(
@@ -207,8 +258,13 @@ export function extractGridOutput(
 export function extractGridOutput(
   source: Source,
   options: ExtractGridOptions,
-  format: 'geotiff' | 'tif' | 'tiff'
+  format: 'geotiff' | 'tif' | 'tiff' | 'netcdf3' | 'nc' | 'nc3' | 'netcdf' | 'zarr'
 ): Promise<Uint8Array>;
+export function extractGridOutput(
+  source: Source,
+  options: ExtractGridOptions,
+  format: 'csv'
+): Promise<string>;
 
 /** Serialize an already-extracted grid to a JSON string. */
 export function gridToJSON(grid: ExtractGridResult, opts?: { pretty?: boolean }): string;

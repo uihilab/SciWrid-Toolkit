@@ -14,6 +14,7 @@ export type {
   ExtractResult,
   TimeseriesPoint,
   OutputFormat,
+  ExportFormat,
   BBox,
   ExtractGridOptions,
   ExtractGridResult,
@@ -32,6 +33,10 @@ export type {
 } from './sciwrid-api.js';
 
 export {
+  encodeGrid,
+  encodeSeries,
+  EXPORT_FORMATS,
+  UnsupportedExportError,
   scan,
   extract,
   extractOutput,
