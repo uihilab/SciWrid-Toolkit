@@ -625,10 +625,8 @@
     </span></div>
     <div class="btn-row">
       <button id="btn-extract">extract()</button>
-      <button id="btn-csv">extractOutput("csv")</button>
-      <button id="btn-json">extractOutput("json")</button>
-      <button id="btn-dl-csv">⬇ Download CSV</button>
-      <button id="btn-dl-json">⬇ Download JSON</button>
+      <label><span>Export as:</span> <select id="ex-format"></select></label>
+      <button id="btn-ex-export">⬇ Export</button>
     </div>
     <!-- Like #scan-out: stays out of the layout until a run, rather than sitting
          there as an empty box saying nothing. Revealed by the click handlers. -->
@@ -661,8 +659,8 @@
     <div class="btn-row">
       <button id="btn-grid">extractGrid()</button>
       <button id="btn-grid-abort" disabled>Abort</button>
-      <button id="btn-grid-json" disabled>Save JSON</button>
-      <button id="btn-grid-tiff" disabled>Save GeoTIFF</button>
+      <label><span>Export as:</span> <select id="g-format"></select></label>
+      <button id="btn-grid-export" disabled>⬇ Export</button>
       <span id="g-progress" class="muted"></span>
     </div>
     <!-- Heatmap + result, hidden together until a run: the blank canvas is as
@@ -724,11 +722,20 @@
        SciWridToolkit class constructor or via the functional API's `wasmFactory`. -->
 
   <script type="module">
-    import {
+    /* One request for the whole library. Published, that is the pinned CDN
+       bundle; on a dev server it is the working tree's own dist/, so a change
+       to lib/ can actually be exercised on this page before it ships.
+       GitHub Pages serves docs/ as the site root, which is why the published
+       path cannot be a repo-relative one. */
+    const LOCAL = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+    const LIB_URL = LOCAL
+      ? '/dist/index.js'
+      : 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/dist/index.js';
+    const {
       detectFormat, scan, extract, extractOutput, extractGrid,
-      gridToJSON, gridToGeoTIFF, trim,
+      gridToJSON, gridToGeoTIFF, encodeGrid, EXPORT_FORMATS, trim,
       SciWridError, TrimError,
-    } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/dist/index.js';
+    } = await import(LIB_URL);
     import { notifyStatus } from './notify.js';
 
     /* Small browser download helper — Blob + anchor click. */
@@ -875,37 +882,22 @@
       }
     });
 
-    $('btn-csv').addEventListener('click', async () => {
-      const out = $('ex-out');
-      out.hidden = false;          // appears on click so a slow run still shows progress
-      out.textContent = 'Extracting…';
-      try {
-        const f = requireFile();
-        const opts = buildExtractOpts();
-        const csv = await extractOutput(f, opts, 'csv');
-        log(`extractOutput("csv")`, csv);
-        show(out, csv);
-      } catch (e) {
-        show(out, 'Error: ' + e.message, 'error');
-        console.error(e);
-      }
-    });
-
-    $('btn-json').addEventListener('click', async () => {
-      const out = $('ex-out');
-      out.hidden = false;          // appears on click so a slow run still shows progress
-      out.textContent = 'Extracting…';
-      try {
-        const f = requireFile();
-        const opts = buildExtractOpts();
-        const json = await extractOutput(f, opts, 'json');
-        log(`extractOutput("json")`, json);
-        show(out, json);
-      } catch (e) {
-        show(out, 'Error: ' + e.message, 'error');
-        console.error(e);
-      }
-    });
+    /* The chooser is built from EXPORT_FORMATS, so a format with no writer
+       cannot appear, and one added later needs no edit here. A format that
+       cannot represent this kind of result is listed but disabled, with the
+       reason visible, rather than silently missing. */
+    function fillFormats(select, kind) {
+      select.replaceChildren(...EXPORT_FORMATS.map((f) => {
+        const o = document.createElement('option');
+        o.value = f.id;
+        o.textContent = f[kind] ? f.label : `${f.label} — not available for a ${kind}`;
+        o.disabled = !f[kind];
+        return o;
+      }));
+      select.value = 'json';
+    }
+    fillFormats($('ex-format'), 'series');
+    fillFormats($('g-format'), 'grid');
 
     /* Build "<file-stem>_<variable>" for download filenames. */
     function extractFileStem(opts) {
@@ -915,36 +907,23 @@
       return `${stem}_${varPart}`;
     }
 
-    $('btn-dl-csv').addEventListener('click', async () => {
-      const out = $('ex-out');
-      out.hidden = false;          // appears on click so a slow run still shows progress
-      out.textContent = 'Extracting…';
-      try {
-        const f = requireFile();
-        const opts = buildExtractOpts();
-        const csv = await extractOutput(f, opts, 'csv');
-        show(out, csv);
-        const name = `${extractFileStem(opts)}.csv`;
-        saveBlob(csv, 'text/csv;charset=utf-8', name);
-        log('Saved CSV', `${name} (${csv.length} chars)`);
-      } catch (e) {
-        show(out, 'Error: ' + e.message, 'error');
-        console.error(e);
-      }
-    });
+    const formatRow = (id) => EXPORT_FORMATS.find((r) => r.id === id);
+    const blobType  = (row) => (row.binary ? row.mime : `${row.mime};charset=utf-8`);
+    const sizeOf    = (data) => (typeof data === 'string' ? data.length : data.byteLength);
 
-    $('btn-dl-json').addEventListener('click', async () => {
+    $('btn-ex-export').addEventListener('click', async () => {
       const out = $('ex-out');
       out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
-        const f = requireFile();
+        const f    = requireFile();
         const opts = buildExtractOpts();
-        const json = await extractOutput(f, opts, 'json');
-        show(out, json);
-        const name = `${extractFileStem(opts)}.json`;
-        saveBlob(json, 'application/json;charset=utf-8', name);
-        log('Saved JSON', `${name} (${json.length} chars)`);
+        const row  = formatRow($('ex-format').value);
+        const data = await extractOutput(f, opts, row.id);
+        show(out, row.binary ? `${row.label}: ${sizeOf(data)} bytes` : data);
+        const name = `${extractFileStem(opts)}.${row.ext}`;
+        saveBlob(data, blobType(row), name);
+        log(`Saved ${row.label}`, `${name} (${sizeOf(data)} bytes)`);
       } catch (e) {
         show(out, 'Error: ' + e.message, 'error');
         console.error(e);
@@ -1025,15 +1004,13 @@
       const canvas   = $('g-canvas');
       const btn      = $('btn-grid');
       const abortBtn = $('btn-grid-abort');
-      const jsonBtn  = $('btn-grid-json');
-      const tiffBtn  = $('btn-grid-tiff');
+      const exportBtn = $('btn-grid-export');
 
       out.textContent = 'Building grid…';
       progress.textContent = '';
       btn.disabled = true;
       abortBtn.disabled = false;
-      jsonBtn.disabled = true;
-      tiffBtn.disabled = true;
+      exportBtn.disabled = true;
       lastGrid = null;
 
       gridAbort = new AbortController();
@@ -1061,8 +1038,7 @@
           `time idx:  ${result.time}`;
         progress.textContent = ` done in ${ms}ms`;
         lastGrid = result;
-        jsonBtn.disabled = false;
-        tiffBtn.disabled = false;
+        exportBtn.disabled = false;
       } catch (e) {
         if (e?.name === 'AbortError' || /abort|dispose/i.test(e?.message || '')) {
           show(out, 'Aborted.', 'warn');
@@ -1081,30 +1057,20 @@
       if (gridAbort) gridAbort.abort();
     });
 
-    $('btn-grid-json').addEventListener('click', () => {
+    /* Exports the grid already in memory — no second extraction — which is
+       what the encoder layer is for. */
+    $('btn-grid-export').addEventListener('click', async () => {
       if (!lastGrid) return;
+      const row = formatRow($('g-format').value);
       try {
-        const json = gridToJSON(lastGrid, { pretty: true });
+        const data = await encodeGrid(lastGrid, row.id, { pretty: true });
         const stem = (lastGrid.variable || 'grid').replace(/\W+/g, '_');
-        saveBlob(json, 'application/json', `${stem}.json`);
-        log('Saved JSON', `${stem}.json (${json.length} bytes)`);
+        const name = `${stem}.${row.ext}`;
+        saveBlob(data, blobType(row), name);
+        log(`Saved ${row.label}`, `${name} (${sizeOf(data)} bytes)`);
       } catch (e) {
         $('g-result').hidden = false;
-        show($('g-out'), 'JSON save error: ' + e.message, 'error');
-        console.error(e);
-      }
-    });
-
-    $('btn-grid-tiff').addEventListener('click', async () => {
-      if (!lastGrid) return;
-      try {
-        const buf  = await gridToGeoTIFF(lastGrid);
-        const stem = (lastGrid.variable || 'grid').replace(/\W+/g, '_');
-        saveBlob(buf, 'image/tiff', `${stem}.tif`);
-        log('Saved GeoTIFF', `${stem}.tif (${buf.byteLength} bytes)`);
-      } catch (e) {
-        $('g-result').hidden = false;
-        show($('g-out'), 'GeoTIFF save error: ' + e.message, 'error');
+        show($('g-out'), `${row.label} save error: ` + e.message, 'error');
         console.error(e);
       }
     });
@@ -1240,7 +1206,7 @@
 
     /* Expose for console hacking */
     window.api = { detectFormat, scan, extract, extractOutput, extractGrid,
-                   gridToJSON, gridToGeoTIFF, trim };
+                   gridToJSON, gridToGeoTIFF, encodeGrid, EXPORT_FORMATS, trim };
     console.log('[api-demo] Ready. Try `api.scan(yourFile)` from this console.');
   </script>
   <script>
