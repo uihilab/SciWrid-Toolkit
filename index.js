@@ -58,6 +58,9 @@ export {
   gridToGeoTIFF,
   gridToImageData,
   gridToPNG,
+  encodeGrid,
+  encodeSeries,
+  EXPORT_FORMATS,
   RAMPS,
   resolveRamp,
   sampleRamp,
@@ -80,6 +83,7 @@ export {
   ExtractError,
   TrimError,
   UnsupportedCRSError,
+  UnsupportedExportError,
 } from './lib/sciwrid-api.js';
 
 // ── Low-level class API ───────────────────────────────────────────────────────
