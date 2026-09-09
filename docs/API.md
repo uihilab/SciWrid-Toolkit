@@ -550,10 +550,13 @@ grid object — handy for one-shot "give me a blob to save/serve" callers.
 | `'geotiff'`     | `Uint8Array`           | A WGS84 Float32 GeoTIFF              |
 | `'netcdf3'`     | `Uint8Array`           | CF-1.8 NetCDF-3 classic, `<var>(lat, lon)` |
 | `'zarr'`        | `Uint8Array`           | A Zarr v2 store packed in a ZIP      |
+| `'netcdf4'`     | `Uint8Array`           | NetCDF-4 / HDF5 (see the dimension note below) |
+| `'grib2'`       | `Uint8Array`           | One GRIB2 message, template 3.0 + simple packing |
 | `'png'`         | `Promise<Uint8Array>`  | Colored PNG (pass `ramp`, `vmin`, `vmax`) |
 | `'imagedata'`   | `{ width, height, data }` | RGBA for a `<canvas>` / MapLibre   |
 
-Aliases: `tif`/`tiff` → `geotiff`; `nc`/`nc3`/`netcdf` → `netcdf3`.
+Aliases: `tif`/`tiff` → `geotiff`; `nc`/`nc3`/`netcdf` → `netcdf3`;
+`nc4`/`hdf5`/`h5` → `netcdf4`; `grib`/`grb`/`grb2` → `grib2`.
 
 ```js
 // Save a GeoTIFF straight from a bbox query
@@ -591,6 +594,8 @@ represent which kind of result:
 | `geotiff` | yes | **no** | `.tif` | `Uint8Array` |
 | `netcdf3` | yes | yes | `.nc3` | `Uint8Array` |
 | `zarr` | yes | yes | `.zip` | `Uint8Array` |
+| `netcdf4` | yes | yes | `.nc` | `Uint8Array` |
+| `grib2` | yes | **no** | `.grb2` | `Uint8Array` |
 
 ```js
 // Build a chooser that can never offer a writer that does not exist
@@ -599,7 +604,36 @@ EXPORT_FORMATS.filter(f => f.series).map(f => f.label);
 
 A format that cannot represent the result throws `UnsupportedExportError`
 (extends `SciWridError`) and the message names the formats that can. GeoTIFF
-refuses a point series rather than writing a misleading 1×1 raster.
+and GRIB2 refuse a point series rather than writing a misleading 1×1 raster.
+
+### GRIB2 needs a parameter code
+
+GRIB2 has no free-text variable name — a field is identified by the WMO triple
+(discipline, category, number). Pass it when you know it:
+
+```js
+// Total precipitation
+await encodeGrid(grid, 'grib2', { grib2: { discipline: 0, category: 1, number: 8 } });
+```
+
+Omit it and the parameter is written as **missing** (255/255) rather than
+mislabelled as some other quantity: the values, grid and time stay exact, only
+the identity is absent. GRIB2 also writes one field per message, so a
+multi-band grid is rejected rather than silently truncated.
+
+### NetCDF-4 dimensions are anonymous
+
+netCDF-C names a variable's dimensions from the HDF5 attribute
+`DIMENSION_LIST`, whose type is `H5T_VLEN{H5T_REFERENCE}`. h5wasm cannot write
+that type, and the library takes no dependency that could. So netCDF-C and
+xarray open these files and read **every value and attribute correctly**, but
+report the dimensions as `phony_dim_0`, `phony_dim_1`, … rather than
+lat/lon/time; the coordinates are present as variables but not attached as
+axes.
+
+Writing a non-VLEN `DIMENSION_LIST` instead is not an option — it segfaults
+netCDF-C on open — so the attribute is deliberately absent. **For a fully
+conformant file with named dimensions, export `netcdf3`.**
 
 For the in-memory grid, prefer `extractGrid`; the render helpers
 ([`gridToImageData`](#gridtoimagedatagrid-opts) / [`gridToPNG`](#gridtopnggrid-opts))

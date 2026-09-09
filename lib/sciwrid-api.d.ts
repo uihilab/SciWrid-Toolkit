@@ -117,7 +117,22 @@ export interface ExtractResult {
 
 /** Format ids accepted by `extractOutput()` / `encodeSeries()`. */
 export type OutputFormat =
-  'json' | 'csv' | 'netcdf3' | 'nc' | 'nc3' | 'netcdf' | 'zarr';
+  'json' | 'csv' | 'netcdf3' | 'nc' | 'nc3' | 'netcdf' | 'zarr'
+  | 'netcdf4' | 'nc4' | 'hdf5' | 'h5';
+
+/**
+ * The WMO code triple that identifies a GRIB2 field. GRIB2 has no free-text
+ * variable name, so pass this when writing 'grib2'; omitted, the parameter is
+ * written as missing (255/255) rather than mislabelled.
+ */
+export interface Grib2Parameter {
+  /** Discipline, e.g. 0 for meteorological products. */
+  discipline?: number;
+  /** Parameter category within the discipline. */
+  category?: number;
+  /** Parameter number within the category. */
+  number?: number;
+}
 
 /** One row of the export registry. */
 export interface ExportFormat {
@@ -147,7 +162,7 @@ export const EXPORT_FORMATS: ReadonlyArray<ExportFormat>;
 export function encodeGrid(
   grid: ExtractGridResult,
   format?: string,
-  opts?: { pretty?: boolean } & Record<string, unknown>,
+  opts?: { pretty?: boolean; grib2?: Grib2Parameter } & Record<string, unknown>,
 ): Promise<Uint8Array | string>;
 
 /**
@@ -237,7 +252,8 @@ export function extractGrid(source: Source, options: ExtractGridOptions): Promis
 /** Output format for `extractGridOutput()`. */
 export type GridOutputFormat =
   'json' | 'csv' | 'geotiff' | 'tif' | 'tiff' | 'netcdf3' | 'nc' | 'nc3'
-  | 'netcdf' | 'zarr' | 'imagedata' | 'png';
+  | 'netcdf' | 'zarr' | 'netcdf4' | 'nc4' | 'hdf5' | 'h5'
+  | 'grib2' | 'grib' | 'grb2' | 'grb' | 'imagedata' | 'png';
 
 /** Run `extractGrid()` and serialize the result. */
 export function extractGridOutput(
@@ -257,8 +273,9 @@ export function extractGridOutput(
 ): Promise<Uint8Array>;
 export function extractGridOutput(
   source: Source,
-  options: ExtractGridOptions,
+  options: ExtractGridOptions & { grib2?: Grib2Parameter },
   format: 'geotiff' | 'tif' | 'tiff' | 'netcdf3' | 'nc' | 'nc3' | 'netcdf' | 'zarr'
+        | 'netcdf4' | 'nc4' | 'hdf5' | 'h5' | 'grib2' | 'grib' | 'grb2' | 'grb'
 ): Promise<Uint8Array>;
 export function extractGridOutput(
   source: Source,

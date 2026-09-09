@@ -15,6 +15,7 @@ export type {
   TimeseriesPoint,
   OutputFormat,
   ExportFormat,
+  Grib2Parameter,
   BBox,
   ExtractGridOptions,
   ExtractGridResult,
