@@ -552,11 +552,12 @@ grid object — handy for one-shot "give me a blob to save/serve" callers.
 | `'zarr'`        | `Uint8Array`           | A Zarr v2 store packed in a ZIP      |
 | `'netcdf4'`     | `Uint8Array`           | NetCDF-4 / HDF5 (see the dimension note below) |
 | `'grib2'`       | `Uint8Array`           | One GRIB2 message, template 3.0 + simple packing |
+| `'parquet'`     | `Uint8Array`           | A table: one row per cell (`lat,lon,<var>`) |
 | `'png'`         | `Promise<Uint8Array>`  | Colored PNG (pass `ramp`, `vmin`, `vmax`) |
 | `'imagedata'`   | `{ width, height, data }` | RGBA for a `<canvas>` / MapLibre   |
 
 Aliases: `tif`/`tiff` → `geotiff`; `nc`/`nc3`/`netcdf` → `netcdf3`;
-`nc4`/`hdf5`/`h5` → `netcdf4`; `grib`/`grb`/`grb2` → `grib2`.
+`nc4`/`hdf5`/`h5` → `netcdf4`; `grib`/`grb`/`grb2` → `grib2`; `pq`/`parq` → `parquet`.
 
 ```js
 // Save a GeoTIFF straight from a bbox query
@@ -596,6 +597,7 @@ represent which kind of result:
 | `zarr` | yes | yes | `.zip` | `Uint8Array` |
 | `netcdf4` | yes | yes | `.nc` | `Uint8Array` |
 | `grib2` | yes | **no** | `.grb2` | `Uint8Array` |
+| `parquet` | yes | yes | `.parquet` | `Uint8Array` |
 
 ```js
 // Build a chooser that can never offer a writer that does not exist
@@ -620,6 +622,24 @@ Omit it and the parameter is written as **missing** (255/255) rather than
 mislabelled as some other quantity: the values, grid and time stay exact, only
 the identity is absent. GRIB2 also writes one field per message, so a
 multi-band grid is rejected rather than silently truncated.
+
+### Parquet is a table, and needs one optional package
+
+A grid becomes one row per cell (`lat`, `lon`, `<variable>`), a series one row
+per timestep (`time`, `lat`, `lon`, `<variable>`), with `time` as INT64 epoch
+seconds — the same column names this library's Parquet **reader** looks for, so
+what you write, it reads.
+
+Writing Parquet means emitting thrift-compact metadata and page headers, which
+is delegated to `hyparquet-writer` rather than hand-rolled. It is an **optional
+dependency**, lazily imported, exactly like `hyparquet` for reading and
+`h5wasm` for NetCDF-4: a caller who never exports Parquet never loads it, and
+one who does gets a message naming the install rather than a module-not-found
+stack.
+
+```bash
+npm i hyparquet-writer   # only if you export Parquet
+```
 
 ### NetCDF-4 dimensions are anonymous
 
