@@ -5,10 +5,11 @@
 // runs inline here (Phase 5); Phase 6 moves it into a Web Worker so pan/zoom
 // stays smooth.
 
-import { scan, extract } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/index.js';
-import { resolveRamp, sampleRamp } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/lib/render/index.js';
+import { scan, extract } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/dist/index.js';
+import { resolveRamp, sampleRamp } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/dist/index.js';
 import { validateBbox, resolutionBucket } from './map-demo-bbox.js';
-import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, chartScale, nearestIndex, resolveUnit, convertSeries, sameUnit, nativeGridSize, bboxIntersect, pairGrids, pearson, meanBias, renderScatterSVG } from './map-demo-analysis.js';
+import { notifyStatus } from './notify.js';
+import { computeStats, seriesFromGrid, seriesFromTimeseries, renderChartSVG, chartScale, nearestIndex, resolveUnit, convertSeries, sameUnit, nativeGridSize, bboxIntersect, pairGrids, pearson, meanBias, renderScatterSVG, scatterScale, nearestScatterIndex } from './map-demo-analysis.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -21,6 +22,18 @@ let renderToken = 0;   // bumped each refresh; stale worker responses are discar
 let extractBbox = null; // [minLon,minLat,maxLon,maxLat] - chosen extract region
 let lastBucket = null;  // last rendered resolution bucket; lets pan skip re-extract
 let lastGrid = null;    // pre-warp grid from the last successful render
+let animFrames = null;  // ImageBitmaps decoded once and reused during playback
+let animRange = null;
+let animTimes = null;    // actual timestep indices (possibly subsampled)
+let animToken = 0;
+let animPlaying = false;
+let animSpeed = 1;
+let animLoop = true;
+let animIndex = 0;
+let animTimer = null;
+let animRequestId = null;
+let animSize = null;
+let animBbox = null;
 // Exactly two files compared, A vs B. A drives the raster; B is chart-only.
 const MAX_SOURCES = 3;
 let sources = [];        // [{ file, scan, name, slot, boundsAssumed, chartVar }]
@@ -34,9 +47,25 @@ const MERCATOR_MAX_LAT = 85.05112878;
 // token are ignored (cancellation).
 const worker = new Worker(new URL('./map-demo.worker.js', import.meta.url), { type: 'module' });
 const pending = new Map(); // token → { resolve, reject }
+const animPending = new Map();
 
 worker.onmessage = (e) => {
-  const { requestId, image, range, grid, error } = e.data;
+  const message = e.data;
+  const { requestId, image, range, grid, error, type } = message;
+  if (type?.startsWith('anim-')) {
+    const slot = animPending.get(requestId);
+    if (!slot) {
+      // A stale completed job still transfers ownership; close it immediately.
+      for (const bitmap of message.bitmaps || []) bitmap.close();
+      return;
+    }
+    if (type === 'anim-progress') { slot.progress(message.done, message.total); return; }
+    animPending.delete(requestId);
+    if (type === 'anim-done') slot.resolve(message);
+    else if (type === 'anim-cancelled') slot.reject(new Error('animation cancelled'));
+    else slot.reject(new Error(error || 'animation worker failed'));
+    return;
+  }
   const slot = pending.get(requestId);
   if (!slot) return;            // already superseded / unknown
   pending.delete(requestId);
@@ -51,11 +80,16 @@ function renderInWorker(token, payload) {
   });
 }
 
+function renderAnimationInWorker(requestId, payload, progress) {
+  return new Promise((resolve, reject) => {
+    animPending.set(requestId, { resolve, reject, progress });
+    worker.postMessage({ requestId, type: 'anim', ...payload });
+  });
+}
+
 /* ── status helpers ─────────────────────────────────────────────────────── */
 function setStatus(msg, cls = '') {
-  const el = $('status');
-  el.textContent = msg;
-  el.className = cls;
+  notifyStatus(msg, cls);   // status lives only in the bottom-right toast now
 }
 
 /* ── layer opacity ──────────────────────────────────────────────────────── */
@@ -157,9 +191,71 @@ function populateTimePicker(meta, variable) {
     sel.disabled = nt < 2;
   }
   sel.value = '0';
+  updateAnimAvailability();
+}
+
+function updateAnimAvailability() {
+  const count = $('time').options.length;
+  const disabled = count < 2;
+  $('anim-play').disabled = disabled;
+  $('anim-play').title = disabled ? 'file has one timestep' : '';
+  $('anim-count').textContent = disabled ? `1 / ${Math.max(1, count)}` : `1 / ${count}`;
 }
 
 /* ── legend ─────────────────────────────────────────────────────────────── */
+/* ── color ramps ──────────────────────────────────────────────────────────
+ * Demo-local ramps beyond the four the render library ships. resolveRamp()
+ * accepts a raw [t,[r,g,b]] stop array, so these need no library change: the
+ * built-ins pass through by name, these by value. Stops are the canonical
+ * Matplotlib / ColorBrewer 9-point samples. The "colorblind-safe" sequential
+ * set (viridis/magma/inferno/plasma/cividis) is perceptually uniform. */
+const DEMO_RAMPS = {
+  magma: [
+    [0.0, [0, 0, 4]], [0.125, [28, 16, 68]], [0.25, [79, 18, 123]],
+    [0.375, [129, 37, 129]], [0.5, [181, 54, 122]], [0.625, [229, 80, 100]],
+    [0.75, [251, 135, 97]], [0.875, [254, 194, 135]], [1.0, [252, 253, 191]],
+  ],
+  inferno: [
+    [0.0, [0, 0, 4]], [0.125, [31, 12, 72]], [0.25, [85, 15, 109]],
+    [0.375, [136, 34, 106]], [0.5, [186, 54, 85]], [0.625, [227, 89, 51]],
+    [0.75, [249, 140, 10]], [0.875, [249, 201, 50]], [1.0, [252, 255, 164]],
+  ],
+  cividis: [
+    [0.0, [0, 34, 78]], [0.125, [0, 51, 104]], [0.25, [64, 71, 107]],
+    [0.375, [104, 90, 108]], [0.5, [140, 110, 105]], [0.625, [176, 132, 97]],
+    [0.75, [214, 156, 82]], [0.875, [253, 183, 58]], [1.0, [255, 234, 70]],
+  ],
+  Blues: [
+    [0.0, [247, 251, 255]], [0.125, [222, 235, 247]], [0.25, [198, 219, 239]],
+    [0.375, [158, 202, 225]], [0.5, [107, 174, 214]], [0.625, [66, 146, 198]],
+    [0.75, [33, 113, 181]], [0.875, [8, 81, 156]], [1.0, [8, 48, 107]],
+  ],
+  YlOrRd: [
+    [0.0, [255, 255, 204]], [0.125, [255, 237, 160]], [0.25, [254, 217, 118]],
+    [0.375, [254, 178, 76]], [0.5, [253, 141, 60]], [0.625, [252, 78, 42]],
+    [0.75, [227, 26, 28]], [0.875, [189, 0, 38]], [1.0, [128, 0, 38]],
+  ],
+  turbo: [
+    [0.0, [48, 18, 59]], [0.125, [64, 124, 226]], [0.25, [30, 185, 220]],
+    [0.375, [43, 225, 150]], [0.5, [128, 253, 78]], [0.625, [201, 229, 50]],
+    [0.75, [249, 168, 49]], [0.875, [231, 92, 20]], [1.0, [122, 4, 3]],
+  ],
+  RdYlBu: [
+    [0.0, [165, 0, 38]], [0.125, [215, 48, 39]], [0.25, [244, 109, 67]],
+    [0.375, [253, 174, 97]], [0.5, [255, 255, 191]], [0.625, [171, 217, 233]],
+    [0.75, [116, 173, 209]], [0.875, [69, 117, 180]], [1.0, [49, 54, 149]],
+  ],
+};
+
+// The selected ramp as the render path wants it: a built-in name (string) or a
+// stop array. The Reverse toggle flips the stops (resolving a name first).
+function rampValue() {
+  const name = $('ramp').value;
+  const ramp = DEMO_RAMPS[name] ?? name;
+  if (!$('ramp-reverse')?.checked) return ramp;
+  return resolveRamp(ramp).map(([t, c]) => [1 - t, c]).reverse();
+}
+
 function drawLegend(rampName, vmin, vmax) {
   const wrap = $('legend');
   if (vmin == null || vmax == null) { wrap.hidden = true; return; }
@@ -272,11 +368,170 @@ function bboxPixelSize(bbox) {
   return { w, h };
 }
 
+// A 1024² RGBA frame is 4 MB; retaining 365 of them would approach 1.5 GB.
+function animFrameBudget(w, h) {
+  return Math.max(2, Math.floor((256 * 1024 * 1024) / (w * h * 4)));
+}
+
+function chooseAnimTimes(total, budget) {
+  if (total <= 0) return [];
+  if (total <= budget) return Array.from({ length: total }, (_, i) => i);
+  const count = Math.max(2, budget);
+  const times = [];
+  for (let i = 0; i < count; i++) times.push(Math.round((i * (total - 1)) / (count - 1)));
+  return times;
+}
+
+// Exposed only as demo diagnostics for the browser-console verification steps.
+Object.assign(window, { animFrameBudget, chooseAnimTimes });
+
+function removeAnimLayer() {
+  if (!map) return;
+  if (map.getLayer('anim-layer')) map.removeLayer('anim-layer');
+  if (map.getSource('anim-source')) map.removeSource('anim-source');
+}
+
+function pauseAnimation() {
+  animPlaying = false;
+  clearTimeout(animTimer);
+  animTimer = null;
+  $('anim-play').textContent = '▶';
+  map?.getSource('anim-source')?.pause();
+}
+
+function releaseAnimation() {
+  ++animToken;
+  if (animRequestId) {
+    worker.postMessage({ type: 'anim-cancel', requestId: animRequestId });
+    const slot = animPending.get(animRequestId);
+    if (slot) { animPending.delete(animRequestId); slot.reject(new Error('animation invalidated')); }
+    animRequestId = null;
+  }
+  pauseAnimation();
+  for (const bitmap of animFrames || []) bitmap.close();
+  animFrames = null; animRange = null; animTimes = null;
+  animIndex = 0; animSize = null; animBbox = null;
+  removeAnimLayer();
+  if (map?.getLayer('data-layer')) map.setLayoutProperty('data-layer', 'visibility', 'visible');
+  $('anim-count').textContent = `1 / ${Math.max(1, $('time').options.length)}`;
+}
+
+async function prepareAnimation() {
+  const variable = $('variable').value;
+  const total = $('time').options.length;
+  if (!lastSource || !lastScan || !extractBbox || !variable || total < 2) return false;
+
+  releaseAnimation();
+  const { w, h } = bboxPixelSize(extractBbox); // fixed for this animation, even after zoom
+  const times = chooseAnimTimes(total, animFrameBudget(w, h));
+  const token = ++animToken;
+  const requestId = `anim:${token}`;
+  animRequestId = requestId;
+  const bbox = extractBbox.slice();
+  setStatus(`Decoding 0/${times.length}…`, 'busy');
+  try {
+    const result = await renderAnimationInWorker(requestId, {
+      source: lastSource, variable, bbox, width: w, height: h,
+      ramp: rampValue(), times,
+    }, (done, count) => {
+      if (token === animToken) setStatus(`Decoding ${done}/${count}…`, 'busy');
+    });
+    animRequestId = null;
+    if (token !== animToken) {
+      for (const bitmap of result.bitmaps) bitmap.close();
+      return false;
+    }
+    animFrames = result.bitmaps;
+    animRange = result.range;
+    animTimes = times;
+    animSize = { w: result.width, h: result.height };
+    animBbox = bbox;
+    animIndex = 0;
+    const canvas = $('anim-canvas');
+    canvas.width = result.width; canvas.height = result.height;
+    drawLegend(rampValue(), animRange.vmin, animRange.vmax);
+    setStatus(times.length < total
+      ? `animating ${times.length} of ${total} steps`
+      : `animation ready — ${times.length} steps`, 'ok');
+    return true;
+  } catch (error) {
+    animRequestId = null;
+    if (token === animToken && !/invalidated|cancelled/.test(error.message)) {
+      setStatus(`Error: ${error.message}`, 'error');
+      console.error(error);
+    }
+    return false;
+  }
+}
+
+function ensureAnimLayer() {
+  if (map.getSource('anim-source')) return;
+  map.addSource('anim-source', {
+    type: 'canvas', canvas: 'anim-canvas', coordinates: bboxToCoords(animBbox), animate: false,
+  });
+  map.addLayer({
+    id: 'anim-layer', type: 'raster', source: 'anim-source',
+    paint: { 'raster-opacity': currentOpacity() },
+  });
+}
+
+function drawAnimFrame(index) {
+  if (!animFrames?.[index] || !animSize) return;
+  const canvas = $('anim-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, animSize.w, animSize.h);
+  ctx.drawImage(animFrames[index], 0, 0);
+  // Programmatic select assignment does not dispatch `change`, so playback
+  // never re-enters refreshLayer and never decodes an individual still frame.
+  $('time').value = String(animTimes[index]);
+  $('anim-count').textContent = `${index + 1} / ${animFrames.length}`;
+}
+
+// Reaching the last frame with loop off is not an invalidation: the frames stay
+// decoded so pressing play again replays from memory instead of re-reading the
+// whole time axis. Only the layers swap back to the still raster. (Contrast
+// releaseAnimation(), which frees the bitmaps when the bbox/variable/ramp change
+// makes them genuinely stale.)
+async function finishAnimation() {
+  pauseAnimation();
+  await refreshLayer({ force: true, preserveAnimation: true });
+  removeAnimLayer();
+  if (map?.getLayer('data-layer')) map.setLayoutProperty('data-layer', 'visibility', 'visible');
+}
+
+function scheduleAnimTick() {
+  clearTimeout(animTimer);
+  animTimer = setTimeout(() => {
+    if (!animPlaying || !animFrames) return;
+    if (animIndex >= animFrames.length - 1) {
+      if (!animLoop) { finishAnimation(); return; }
+      animIndex = 0;
+    } else animIndex += 1;
+    drawAnimFrame(animIndex);
+    scheduleAnimTick();
+  }, 500 / animSpeed);
+}
+
+async function startAnimation() {
+  if (!animFrames && !(await prepareAnimation())) return;
+  // Parked on the last frame after a non-looping run — start over rather than
+  // immediately re-triggering the end-of-run branch on the first tick.
+  if (animIndex >= animFrames.length - 1) animIndex = 0;
+  ensureAnimLayer();
+  drawAnimFrame(animIndex);
+  if (map.getLayer('data-layer')) map.setLayoutProperty('data-layer', 'visibility', 'none');
+  map.setLayoutProperty('anim-layer', 'visibility', 'visible');
+  map.getSource('anim-source').play();
+  animPlaying = true;
+  $('anim-play').textContent = '⏸';
+  scheduleAnimTick();
+}
+
 /* --- render the chosen bbox into a MapLibre ImageSource ----------------- */
-async function refreshLayer({ force = false } = {}) {
+async function refreshLayer({ force = false, preserveAnimation = false } = {}) {
   if (!lastSource || !lastScan || !extractBbox) return;
   const variable = $('variable').value;
-  const ramp     = $('ramp').value;
+  const ramp     = rampValue();
   if (!variable) return;
 
   const bbox = extractBbox;
@@ -285,6 +540,7 @@ async function refreshLayer({ force = false } = {}) {
   if (!force && bucket === lastBucket) return;
   lastBucket = bucket;
   gridCache.clear();  // bbox/size/time changed — cached non-primary grids are stale
+  if (!preserveAnimation) releaseAnimation();
   const token = ++renderToken;
   // Drop any earlier in-flight request — its response will be ignored.
   for (const [id, slot] of pending) {
@@ -340,6 +596,18 @@ function renderFileList() {
   ul.innerHTML = '';
   sources.forEach((s, i) => {
     const li = document.createElement('li');
+    li.tabIndex = 0;
+    li.dataset.idx = String(i);
+    li.setAttribute('aria-label',
+      `${s.name}, file ${i + 1} of ${sources.length}${i === 0 ? ', primary' : ''}. ` +
+      `Alt plus Arrow Up or Arrow Down to move it. The top file is primary.`);
+    li.addEventListener('keydown', onFileRowKey);
+    li.draggable = true;
+    li.addEventListener('dragstart', onFileRowDragStart);
+    li.addEventListener('dragover',  onFileRowDragOver);
+    li.addEventListener('dragleave', onFileRowDragLeave);
+    li.addEventListener('drop',      onFileRowDrop);
+    li.addEventListener('dragend',   onFileRowDragEnd);
     const sw = document.createElement('span');
     sw.className = 'fl-swatch';
     sw.style.background = `var(--series-${s.slot + 1})`;
@@ -353,6 +621,7 @@ function renderFileList() {
     }
     const rm = document.createElement('button');
     rm.type = 'button'; rm.textContent = '×';
+    rm.draggable = false;   // else a mousedown here drags the whole row
     rm.setAttribute('aria-label', `Remove ${s.name}`);
     rm.addEventListener('click', () => removeSource(s.slot));
     li.append(rm);
@@ -367,17 +636,124 @@ function updateAddFileUI() { const row=$('add-file-row'),btn=$('add-file-btn'),f
 // Add a file to the comparison. Rejects only when it shares NO variable name with
 // what is already loaded — identical sets is the wrong rule, since GFS f000 is a
 // strict subset of f003 (accumulated fields do not exist at forecast hour 0).
-async function addFile(file) { if(!file)return false;if(sources.length>=MAX_SOURCES){setStatus(`Comparing up to ${MAX_SOURCES} files — "${file.name}" not added.`,'error');return false;}setStatus(`Scanning ${file.name}…`,'busy');let scanResult;try{scanResult=await scan(file);}catch(err){setStatus(`Error scanning ${file.name}: ${err.message}`,'error');console.error(err);return false;}const names=scanResult.variable_names||[],hasBbox=Array.isArray(scanResult.bbox)&&scanResult.bbox.length===4;if(!hasBbox)scanResult.bbox=[-180,-90,180,90];sources.push({file,scan:scanResult,name:file.name,slot:firstFreeSlot(),boundsAssumed:!hasBbox,chartVar:names[0]??''});applyPrimary();setStatus(sources.length>1?`${file.name} added — pick a column of each in Show analysis.`:`${file.name} loaded.`,'ok');return true;}
+async function addFile(file) { if(!file)return false;releaseAnimation();if(sources.length>=MAX_SOURCES){setStatus(`Comparing up to ${MAX_SOURCES} files — "${file.name}" not added.`,'error');return false;}setStatus(`Scanning ${file.name}…`,'busy');let scanResult;try{scanResult=await scan(file);}catch(err){setStatus(`Error scanning ${file.name}: ${err.message}`,'error');console.error(err);return false;}const names=scanResult.variable_names||[],hasBbox=Array.isArray(scanResult.bbox)&&scanResult.bbox.length===4;if(!hasBbox)scanResult.bbox=[-180,-90,180,90];sources.push({file,scan:scanResult,name:file.name,slot:firstFreeSlot(),boundsAssumed:!hasBbox,chartVar:names[0]??''});applyPrimary();setStatus(sources.length>1?`${file.name} added — pick a column of each in Show analysis.`:`${file.name} loaded.`,'ok');return true;}
 
-function removeSource(slot) { const i=sources.findIndex(s=>s.slot===slot);if(i===-1)return;sources.splice(i,1);gridCache.clear();if(!sources.length){lastSource=null;lastScan=null;lastGrid=null;closeAnalysis();$('analyze-btn').hidden=true;$('extract').hidden=true;$('query').hidden=true;if(map.getLayer('data-layer')){map.removeLayer('data-layer');map.removeSource('data-source');}renderFileList();setStatus('Drop a file to begin.','');return;}applyPrimary();lastBucket=null;if(extractBbox)refreshLayer({force:true});if(!$('analysis-panel').hidden){populateCompareControls();refreshAnalysis();} }
+function removeSource(slot) { const i=sources.findIndex(s=>s.slot===slot);if(i===-1)return;releaseAnimation();sources.splice(i,1);gridCache.clear();if(!sources.length){lastSource=null;lastScan=null;lastGrid=null;closeAnalysis();$('analyze-btn').hidden=true;$('extract').hidden=true;$('query').hidden=true;if(map.getLayer('data-layer')){map.removeLayer('data-layer');map.removeSource('data-source');}renderFileList();setStatus('Drop a file to begin.','');return;}applyPrimary();lastBucket=null;if(extractBbox)refreshLayer({force:true});if(!$('analysis-panel').hidden){populateCompareControls();refreshAnalysis();} }
 
 // Point the single-file globals at sources[0] so refreshLayer / doPointQuery /
 // updateQueryUI keep working unchanged.
 function applyPrimary() { const p=sources[0];if(!p)return;const prevVar=$('variable').value;lastSource=p.file;lastScan=p.scan;boundsAssumed=p.boundsAssumed;const names=p.scan.variable_names||[];populateVariablePicker(names);if(names.includes(prevVar))$('variable').value=prevVar;populateTimePicker(lastScan,$('variable').value);updateQueryUI();renderFileList(); }
 
+/* Reorder the comparison set. `from` and `to` are indices into `sources` as it
+ * stands right now, before the move.
+ *
+ * Primary is not a label. sources[0] draws the map layer, and in space mode
+ * every other file is resampled onto ITS bbox and resolution so the transects
+ * are directly comparable -- so the top row decides the basis the whole
+ * comparison is measured on. Order below the top matters too: picksOf() maps
+ * list order onto the analysis series, and scatter mode pairs sources[0]
+ * against sources[1]. Dragging is therefore how you choose which two files the
+ * scatter compares, which the old rotate button could only reach by cycling.
+ *
+ * `slot` travels with the source, so a file keeps its series colour AND its
+ * gridCache entries across a move; only the order changes. */
+function moveSource(from, to) {
+  if (from < 0 || from >= sources.length) return;
+  const dest = Math.max(0, Math.min(to, sources.length - 1));
+  if (from === dest) return;
+
+  const wasPrimary = sources[0];
+  const [moved] = sources.splice(from, 1);
+  sources.splice(dest, 0, moved);
+
+  if (sources[0] !== wasPrimary) {
+    releaseAnimation();
+    lastGrid = null;              // that grid belonged to the file that stepped down
+    lastBucket = null;            // and so did the colour bucketing of the layer
+    applyPrimary();               // repaints the list for us
+    if (extractBbox) refreshLayer({ force: true });
+    setStatus(`${sources[0].name} is now primary.`, 'ok');
+  } else {
+    // Nothing about the map layer changed -- only the order of the panel series.
+    renderFileList();
+    setStatus(`${moved.name} moved to #${dest + 1}.`, 'ok');
+  }
+
+  if (!$('analysis-panel').hidden) { populateCompareControls(); refreshAnalysis(); }
+  focusFileRow(dest);
+}
+
+/* renderFileList() rebuilds every row, so a move destroys the node that had
+ * focus. Put focus on the row that moved, or each Alt+Arrow press would need a
+ * fresh Tab back into the list before the next one could land. */
+function focusFileRow(i) { $('file-list').children[i]?.focus(); }
+
+/* Alt is required: bare arrows belong to the page, and on Windows and Linux a
+ * bare Arrow inside a focused list is how you scroll it. */
+function onFileRowKey(e) {
+  if (!e.altKey) return;
+  const dir = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+  if (!dir) return;
+  e.preventDefault();   // Alt+Arrow is history back/forward on some platforms
+  const from = Number(e.currentTarget.dataset.idx);
+  moveSource(from, from + dir);
+}
+
+/* Drag state is module-scope because dragover fires on the row being CROSSED,
+ * not the row being dragged, so the two handlers need a shared reference.
+ * dataTransfer cannot be read during dragover (spec: protected mode), so it
+ * carries the payload only to satisfy Firefox, which refuses to start a drag
+ * when nothing is written. */
+let dragFrom = null;
+
+function onFileRowDragStart(e) {
+  dragFrom = Number(e.currentTarget.dataset.idx);
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(dragFrom));
+  e.currentTarget.classList.add('fl-dragging');
+}
+
+function onFileRowDragOver(e) {
+  if (dragFrom === null) return;
+  e.preventDefault();                 // without this the row is not a drop target at all
+  e.dataTransfer.dropEffect = 'move';
+  const li = e.currentTarget, r = li.getBoundingClientRect();
+  const below = e.clientY > r.top + r.height / 2;
+  li.classList.toggle('fl-over-bottom', below);
+  li.classList.toggle('fl-over-top', !below);
+}
+
+function onFileRowDragLeave(e) {
+  e.currentTarget.classList.remove('fl-over-top', 'fl-over-bottom');
+}
+
+function onFileRowDrop(e) {
+  if (dragFrom === null) return;
+  e.preventDefault();
+  const li = e.currentTarget, r = li.getBoundingClientRect();
+  const over = Number(li.dataset.idx);
+  const below = e.clientY > r.top + r.height / 2;
+  li.classList.remove('fl-over-top', 'fl-over-bottom');
+  /* `to` is the gap the row was dropped into, numbered in the array as it
+   * stands BEFORE the dragged row is lifted out. Lifting it shifts every later
+   * index down by one, so a downward move has to compensate. */
+  let to = below ? over + 1 : over;
+  if (dragFrom < to) to -= 1;
+  const from = dragFrom;
+  dragFrom = null;                    // clear before moveSource: it repaints the list
+  moveSource(from, to);
+}
+
+function onFileRowDragEnd(e) {
+  dragFrom = null;
+  e.currentTarget.classList.remove('fl-dragging');
+  for (const li of $('file-list').children) li.classList.remove('fl-over-top', 'fl-over-bottom');
+}
+
 // Loading via the file input REPLACES the comparison set; addFile() appends.
 async function loadSource(file) {
   if (!file) return null;
+  releaseAnimation();
   sources = [];
   gridCache.clear();
   lastGrid = null;
@@ -420,12 +796,29 @@ $('add-file').addEventListener('change', async (e) => {
 });
 
 $('variable').addEventListener('change', () => {
+  releaseAnimation();
   populateTimePicker(lastScan, $('variable').value);
   updateQueryUI();
   refreshLayer({ force: true });
 });
 $('time').addEventListener('change', () => refreshLayer({ force: true }));
-$('ramp').addEventListener('change', () => refreshLayer({ force: true }));
+$('ramp').addEventListener('change', () => { releaseAnimation(); refreshLayer({ force: true }); });
+$('ramp-reverse').addEventListener('change', () => { releaseAnimation(); refreshLayer({ force: true }); });
+$('anim-play').addEventListener('click', () => {
+  if (animPlaying) pauseAnimation(); else startAnimation();
+});
+$('anim-speed').querySelectorAll('button').forEach((button) => {
+  button.addEventListener('click', () => {
+    animSpeed = Number(button.dataset.speed);
+    $('anim-speed').querySelectorAll('button').forEach((item) =>
+      item.setAttribute('aria-pressed', String(item === button)));
+    if (animPlaying) scheduleAnimTick();
+  });
+});
+$('anim-loop').addEventListener('click', () => {
+  animLoop = !animLoop;
+  $('anim-loop').setAttribute('aria-pressed', String(animLoop));
+});
 
 for (const id of ['ext-min-lat', 'ext-max-lat', 'ext-min-lon', 'ext-max-lon']) {
   $(id).addEventListener('input', validateAndSketch);
@@ -444,6 +837,8 @@ $('opacity').addEventListener('input', () => {
   updateOpacityLabel();
   if (map && map.getLayer('data-layer'))
     map.setPaintProperty('data-layer', 'raster-opacity', currentOpacity());
+  if (map && map.getLayer('anim-layer'))
+    map.setPaintProperty('anim-layer', 'raster-opacity', currentOpacity());
 });
 
 /* ── point query (lat/lon inputs bounded by the variable's extent) ──────── */
@@ -473,23 +868,44 @@ function updateQueryUI() {
   if (lonIn.value === '' || +lonIn.value < minLon || +lonIn.value > maxLon)
     lonIn.value = ((minLon + maxLon) / 2).toFixed(3);
   $('q-result').textContent = '–';
-  $('q-result').className = 'muted';
-  drawBboxDebug();
+  $('q-result').className = 'qr qr-empty';
 }
 
-// Debug readout: print the raw bbox min/max so the data extent can be
-// eyeballed against the map. Shows whether bounds are real or assumed.
-function drawBboxDebug() {
-  const el = $('q-bbox-debug');
-  if (!el) return;
-  const b = lastScan?.bbox;
-  if (!Array.isArray(b) || b.length !== 4) { el.textContent = '–'; return; }
-  const [minLon, minLat, maxLon, maxLat] = b;
-  el.textContent =
-    `bbox ${boundsAssumed ? '(ASSUMED global)' : '(from file)'}\n` +
-    `  lon min ${minLon.toFixed(4)}   max ${maxLon.toFixed(4)}\n` +
-    `  lat min ${minLat.toFixed(4)}   max ${maxLat.toFixed(4)}\n` +
-    `  span  ${(maxLon - minLon).toFixed(4)}° × ${(maxLat - minLat).toFixed(4)}°`;
+/* ── point-query readout formatting ─────────────────────────────────────── */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// Value + unit, using the same unit resolution as the analysis chart so the two
+// always agree. Falls back to the raw value if the unit can't be resolved.
+function formatPointValue(variable, value) {
+  try {
+    const sv = (lastScan?.variables || []).find((v) => v.name === variable);
+    const conv = convertSeries([value], resolveUnit(sv));
+    const out = conv?.ys?.[0];
+    return { text: fmtNum(out == null ? value : out),
+             unit: conv?.known ? (conv.unit || '') : '' };
+  } catch {
+    return { text: fmtNum(value), unit: '' };
+  }
+}
+
+function fmtLatLon(lat, lon) {
+  const la = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}`;
+  const lo = `${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
+  return `${la}, ${lo}`;
+}
+
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const p = (n) => String(n).padStart(2, '0');
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`
+       + ` · ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`;
 }
 
 // Run a point query and show the value in the sidebar (+ optional map popup).
@@ -501,25 +917,35 @@ async function doPointQuery(lat, lon, { popup = false } = {}) {
   lon = clamp(lon, b.minLon, b.maxLon);
   $('q-lat').value = lat; $('q-lon').value = lon;
   const res = $('q-result');
-  res.textContent = 'Querying…'; res.className = 'muted';
+  res.textContent = 'Querying…'; res.className = 'qr qr-empty';
   try {
     const time = parseInt($('time').value, 10) || 0;
     const r = await extract(lastSource, { variable, lat, lon, t1: time, t2: time });
     const { value, when } = pickValue(r);
     if (value == null) {
-      res.textContent = 'no data at this location'; res.className = 'muted';
+      res.textContent = 'No data at this location'; res.className = 'qr qr-empty';
     } else {
-      res.textContent = `${variable} = ${fmtNum(value)}` + (when ? `  @ ${when}` : '');
-      res.className = 'ok';
+      const { text: valTxt, unit } = formatPointValue(variable, value);
+      res.className = 'qr';
+      res.innerHTML =
+        `<div class="qr-val">${valTxt}`
+          + (unit ? `<span class="qr-unit">${escapeHtml(unit)}</span>` : '') + '</div>'
+        + `<div class="qr-name">${escapeHtml(variable)}</div>`
+        + `<div class="qr-sub">${fmtLatLon(lat, lon)}`
+          + (when ? ` · ${fmtWhen(when)}` : '') + '</div>';
     }
     if (popup) {
-      const body = value == null ? 'no data here'
-        : `${fmtNum(value)}${when ? `<br><span style="opacity:.7;font-size:11px">@ ${when}</span>` : ''}`;
+      const fmt = value == null ? null : formatPointValue(variable, value);
+      const body = value == null
+        ? '<span style="opacity:.7">no data here</span>'
+        : `<span style="font-size:15px;font-weight:700">${fmt.text}`
+          + (fmt.unit ? ` ${escapeHtml(fmt.unit)}` : '') + '</span>'
+          + (when ? `<br><span style="opacity:.7;font-size:11px">${fmtWhen(when)}</span>` : '');
       new maplibregl.Popup().setLngLat([lon, lat])
-        .setHTML(`<strong>${variable}</strong><br>${body}`).addTo(map);
+        .setHTML(`<strong>${escapeHtml(variable)}</strong><br>${body}`).addTo(map);
     }
   } catch (err) {
-    res.textContent = 'Error: ' + err.message; res.className = 'error';
+    res.textContent = 'Error: ' + err.message; res.className = 'qr qr-error';
     console.error(err);
   }
   if (!$('analysis-panel').hidden) refreshAnalysis();
@@ -556,7 +982,7 @@ const HELP_STEPS = [
   },
   {
     title: 'Add a second file to compare',
-    body: 'Use "+ Add a file to compare" to load a second file. Files are never matched automatically, so any file is accepted \u2014 choose which column of each to compare in the analysis window. The first file is PRIMARY and draws the map layer.',
+    body: 'Use "+ Add a file to compare" to load a second file. Files are never matched automatically, so any file is accepted \u2014 choose which column of each to compare in the analysis window. The file at the top of the list is PRIMARY and draws the map layer; drag rows to reorder them, or focus a row and press Alt with the arrow keys.',
   },
   {
     title: 'Scan the data',
@@ -578,10 +1004,6 @@ const HELP_STEPS = [
     title: 'Open the analysis window',
     body: 'With a point picked, choose "Show analysis" and pick a column of File A and File B at the top of the window. Values convert to metric units and each file is sampled at its own resolution. The window floats \u2014 drag its title bar and resize it from the corner.',
   },
-  {
-    title: 'Try it on real data',
-    body: 'Load the bundled GFS forecast \u2014 four timesteps, three hours apart \u2014 or load Hurricane Idalia (2023) as three real products in three formats: NCEP Stage IV radar QPE (GRIB2), NOAA AORC (Zarr) and NLDAS-2 (NetCDF). Then click the map and choose "Show analysis" to chart how the products compare at that point.',
-  },
 ];
 
 let helpIndex = 0;
@@ -594,12 +1016,23 @@ function renderHelpStep() {
   $('help-body').textContent = step.body;
   $('help-back').disabled = helpIndex === 0;
   $('help-next').hidden = helpIndex === HELP_STEPS.length - 1;
-  $('help-example').hidden = helpIndex !== HELP_STEPS.length - 1;
+}
+
+/* The overlay holds two panels: the step-by-step instructions and the canned
+ * datasets. Tab state is deliberately independent of helpIndex, so switching
+ * away to look at the examples and back does not lose the reader's place. */
+function showHelpTab(name) {
+  const onInstructions = name === 'instructions';
+  $('help-panel-instructions').hidden = !onInstructions;
+  $('help-panel-examples').hidden = onInstructions;
+  $('tab-instructions').setAttribute('aria-selected', String(onInstructions));
+  $('tab-examples').setAttribute('aria-selected', String(!onInstructions));
 }
 
 function openHelp() {
   helpIndex = 0;
   helpReturnFocus = document.activeElement;
+  showHelpTab('instructions');
   renderHelpStep();
   $('help-overlay').hidden = false;
   $('help-close').focus();
@@ -616,10 +1049,23 @@ function helpNext() { if (helpIndex < HELP_STEPS.length - 1) { helpIndex += 1; r
 function helpBack() { if (helpIndex > 0) { helpIndex -= 1; renderHelpStep(); } }
 $('help-back').addEventListener('click', helpBack);
 $('help-next').addEventListener('click', helpNext);
+$('tab-instructions').addEventListener('click', () => showHelpTab('instructions'));
+$('tab-examples').addEventListener('click', () => showHelpTab('examples'));
 $('help-overlay').addEventListener('click', (event) => { if (event.target === $('help-overlay')) closeHelp(); });
 document.addEventListener('keydown', (event) => {
   if (!$('help-overlay').hidden) {
-    if (event.key === 'Escape') closeHelp(); else if (event.key === 'ArrowRight') helpNext(); else if (event.key === 'ArrowLeft') helpBack();
+    if (event.key === 'Escape') { closeHelp(); return; }
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    /* Arrows mean "switch tab" inside the tablist -- the WAI-ARIA convention --
+     * and "step the instructions" anywhere else, which is what they have always
+     * done here. Routing by focus lets both keep working. */
+    if (event.target === $('tab-instructions') || event.target === $('tab-examples')) {
+      const next = event.key === 'ArrowRight' ? 'examples' : 'instructions';
+      showHelpTab(next);
+      $(next === 'examples' ? 'tab-examples' : 'tab-instructions').focus();
+    } else if (!$('help-panel-instructions').hidden) {
+      if (event.key === 'ArrowRight') helpNext(); else helpBack();
+    }
     return;
   }
   if (event.key === 'Escape' && !$('analysis-panel').hidden) closeAnalysis();
@@ -756,6 +1202,9 @@ $('help-view-real-event').addEventListener('click', () => {
 // With several files loaded, every file becomes one series on the same frame.
 let analysisMode = 'time', analysisAxis = 'lon';
 let lastSeriesList = [];  // the series currently charted; the hover crosshair reads these
+// Whole-file mode charts a scatter instead of series, so it needs its own hover
+// state: { pairs, opts }, kept so the hit-test rebuilds the exact same scale.
+let lastScatter = null;
 let lastDual = false;
 let lastUnits = [];        // [unitLeft, unitRight] of the current chart, for redraws
 // x-axis zoom/scroll: a view window inside the full domain. zoom>1 narrows it,
@@ -767,9 +1216,38 @@ let lastViewDomain = null; // {min,max} data-x currently shown; the hover reads 
 // 1-step file among 4-step files renders as a single dot — honest, not a bug.
 function varOf(src,idx){return src.chartVar||(idx===0?$('variable').value:(src.scan.variable_names?.[0]??''));}
 function scanVarOf(src,idx){return(src.scan.variables||[]).find(v=>v.name===varOf(src,idx))||{name:varOf(src,idx)};}
+
+/* A PICK is what one charted series comes from: a file, plus one variable of it.
+ *
+ * Series used to be one-per-file, which left a single file un-analysable: you
+ * saw one of its variables and had nothing to compare it against, even though
+ * every variable was already scanned and sitting in the same file. A pick
+ * separates "which file" from "which column", so:
+ *   several files -> one pick each  (compare a quantity across products)
+ *   a single file -> several picks  (compare its variables against each other)
+ *
+ * Capped at MAX_SERIES because `slot` indexes the --series-N colours; past them
+ * two series share a colour and the legend stops distinguishing anything. */
+const MAX_SERIES = 4;
+function picksOf() {
+  if (sources.length > 1)
+    return sources.map((src, i) => ({ src, idx: i, variable: varOf(src, i), slot: src.slot }));
+  const src = sources[0];
+  if (!src) return [];
+  const names = src.scan?.variable_names || [];
+  const chosen = (src.chartVars?.length ? src.chartVars : [varOf(src, 0)])
+    .filter((v) => names.includes(v)).slice(0, MAX_SERIES);
+  if (!chosen.length) chosen.push(varOf(src, 0));
+  return chosen.map((variable, k) => ({ src, idx: 0, variable, slot: k }));
+}
+function scanVarOfPick(p){return(p.src.scan.variables||[]).find(v=>v.name===p.variable)||{name:p.variable};}
+function stepsForPick(p){return variableTimes(p.src.scan,p.variable).length;}
+/* Charting several variables of ONE file puts the same file name on every row,
+ * so there the variable is what tells the series apart. */
+function labelOfPick(p){return sources.length>1?p.src.name:p.variable;}
 function resLabel(size){return size.native?`${size.w}\u00d7${size.h}`:`\u22481\u00b0 ${size.w}\u00d7${size.h}`;}
 function stepsFor(src,idx){return variableTimes(src.scan,varOf(src,idx)).length;}
-function hasTimeAxis(){return sources.some((src,i)=>stepsFor(src,i)>1);}
+function hasTimeAxis(){return picksOf().some((p)=>stepsForPick(p)>1);}
 
 function setPressed(id, on) { $(id).setAttribute('aria-pressed', String(on)); }
 
@@ -805,20 +1283,67 @@ function populateCompareControls() {
   const setup=$('compare-setup');
   if(!sources.length){setup.hidden=true;setup.innerHTML='';return;}
   setup.hidden=false;setup.innerHTML='';
-  sources.forEach((src,i)=>{
-    const names=src?.scan?.variable_names||[];
-    if(!names.includes(src.chartVar))src.chartVar=names[0]??'';
+  const names=sources[0]?.scan?.variable_names||[];
+
+  /* Several files: one column picker each, as before -- the comparison is
+   * across products, so the file is the identity and the variable is a detail. */
+  if(sources.length>1){
+    sources.forEach((src,i)=>{
+      const vs=src?.scan?.variable_names||[];
+      if(!vs.includes(src.chartVar))src.chartVar=vs[0]??'';
+      const label=document.createElement('label');label.className='cmp-side';
+      const tag=document.createElement('span');
+      tag.className=`cmp-tag cmp-s${src.slot}`;
+      tag.textContent=String.fromCharCode(65+i);          // A, B, C
+      const sel=document.createElement('select');
+      sel.id=`compare-${i}`;sel.setAttribute('aria-label',`${src.name} column`);
+      for(const n of vs){const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);}
+      sel.value=src.chartVar;
+      sel.addEventListener('change',()=>onCompareChange(i,sel.id));
+      label.appendChild(tag);label.appendChild(sel);setup.appendChild(label);
+    });
+    return;
+  }
+
+  /* One file: pick as many of ITS variables as there are series colours. The
+   * file is already scanned, so every variable here costs nothing to offer --
+   * what was missing was somewhere to say "and also chart this one". */
+  const src=sources[0];
+  if(!src.chartVars?.length)src.chartVars=[varOf(src,0)].filter(Boolean);
+  src.chartVars=src.chartVars.filter((v)=>names.includes(v));
+  if(!src.chartVars.length&&names.length)src.chartVars=[names[0]];
+
+  src.chartVars.forEach((variable,k)=>{
     const label=document.createElement('label');label.className='cmp-side';
     const tag=document.createElement('span');
-    tag.className=`cmp-tag cmp-s${src.slot}`;
-    tag.textContent=String.fromCharCode(65+i);          // A, B, C
+    tag.className=`cmp-tag cmp-s${k}`;
+    tag.textContent=String(k+1);
     const sel=document.createElement('select');
-    sel.id=`compare-${i}`;sel.setAttribute('aria-label',`${src.name} column`);
+    sel.id=`compare-var-${k}`;sel.setAttribute('aria-label',`Series ${k+1} variable`);
     for(const n of names){const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);}
-    sel.value=src.chartVar;
-    sel.addEventListener('change',()=>onCompareChange(i,sel.id));
-    label.appendChild(tag);label.appendChild(sel);setup.appendChild(label);
+    sel.value=variable;
+    sel.addEventListener('change',()=>{src.chartVars[k]=sel.value;src.chartVar=src.chartVars[0];gridCache.clear();populateCompareControls();refreshAnalysis();});
+    label.appendChild(tag);label.appendChild(sel);
+    /* Only offer removal down to one series -- an empty chart is not a state
+     * worth being able to reach by clicking. */
+    if(src.chartVars.length>1){
+      const rm=document.createElement('button');
+      rm.type='button';rm.className='cmp-rm';rm.textContent='×';
+      rm.title=`Remove ${variable}`;rm.setAttribute('aria-label',`Remove ${variable}`);
+      rm.addEventListener('click',()=>{src.chartVars.splice(k,1);src.chartVar=src.chartVars[0];gridCache.clear();populateCompareControls();refreshAnalysis();});
+      label.appendChild(rm);
+    }
+    setup.appendChild(label);
   });
+
+  const unused=names.filter((n)=>!src.chartVars.includes(n));
+  if(unused.length&&src.chartVars.length<MAX_SERIES){
+    const add=document.createElement('button');
+    add.type='button';add.className='cmp-add';add.textContent='+ variable';
+    add.title=`Chart another variable of ${src.name}`;
+    add.addEventListener('click',()=>{src.chartVars.push(unused[0]);gridCache.clear();populateCompareControls();refreshAnalysis();});
+    setup.appendChild(add);
+  }
 }
 function onCompareChange(i,id){const src=sources[i];if(!src)return;src.chartVar=$(id).value;gridCache.clear();refreshAnalysis();}
 
@@ -826,7 +1351,7 @@ async function refreshAnalysis() {
   const lat=parseFloat($('q-lat').value),lon=parseFloat($('q-lon').value);if(!sources.length)return;if(analysisMode!=='whole'&&(!Number.isFinite(lat)||!Number.isFinite(lon)))return;
   $('analysis-axis').hidden=analysisMode!=='space';setPressed('analysis-mode-time',analysisMode==='time');setPressed('analysis-mode-space',analysisMode==='space');setPressed('analysis-mode-whole',analysisMode==='whole');setPressed('analysis-axis-lon',analysisAxis==='lon');setPressed('analysis-axis-lat',analysisAxis==='lat');
   if(analysisMode==='whole'){
-    const time=parseInt($('time').value,10)||0;lastSeriesList=[];updateNavUI(false);
+    const time=parseInt($('time').value,10)||0;lastSeriesList=[];lastScatter=null;updateNavUI(false);
     const rows=[];if(sources.length>1)setStatus('Sampling files\u2026','busy');
     for(const[idx,src]of sources.entries()){
       const variable=varOf(src,idx);let grid=null;
@@ -849,9 +1374,13 @@ async function refreshAnalysis() {
         const convA=gA?convertSeries(gA.data,unitA):{ys:[],unit:unitA};
         const convB=gB?convertSeries(gB.data,unitB):{ys:[],unit:unitB};
         const pairs=pairGrids(convA.ys,convB.ys,{cap:4000});
+        // Held in a variable, not inlined: the hover layer re-derives the scale
+        // from these exact opts, so the two must never drift apart.
+        const scatterOpts={xLabel:varOf(sources[0],0),yLabel:varOf(sources[1],1),unitX:convA.unit||'',unitY:convB.unit||'',oneToOne:sameUnit(unitA,unitB),stats:{r:pearson(pairs),bias:meanBias(pairs)}};
         $('analysis-chart').innerHTML=pairs.length
-          ?renderScatterSVG(pairs,{xLabel:varOf(sources[0],0),yLabel:varOf(sources[1],1),unitX:convA.unit||'',unitY:convB.unit||'',oneToOne:sameUnit(unitA,unitB),stats:{r:pearson(pairs),bias:meanBias(pairs)}})
+          ?renderScatterSVG(pairs,scatterOpts)
           :`<p class='muted'>Files do not overlap spatially.</p>`;
+        lastScatter=pairs.length?{pairs,opts:scatterOpts}:null;
       }
     }
     if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');
@@ -860,15 +1389,16 @@ async function refreshAnalysis() {
     renderStatsTable(rows,null);
     return;
   }
-  const time=parseInt($('time').value,10)||0,list=[],rows=[],legend=[],units=[];
-  const pushSeries=(src,idx,ser,size)=>{const resolved=resolveUnit(scanVarOf(src,idx)),conv=convertSeries(ser.ys,resolved);units[idx]=conv.unit??'';list.push({xs:ser.xs,ys:conv.ys,xLabel:ser.xLabel,slot:src.slot,unit:conv.unit??''});const meta=[varOf(src,idx),conv.unit||(conv.known?'':'units unknown'),size?resLabel(size):null].filter(Boolean).join(' \u00b7 ');legend.push({slot:src.slot,name:src.name,meta});rows.push({name:`${src.name} \u2014 ${varOf(src,idx)}${conv.known?``:` (units unknown)`}`,stats:computeStats(conv.ys),unit:conv.unit||''});};
-  if(analysisMode==='space'){if(!lastGrid||!extractBbox){$('analysis-chart').innerHTML='';return;}if(sources.length>1)setStatus('Sampling files\u2026','busy');for(const[idx,src]of sources.entries()){const variable=varOf(src,idx);let grid=null,size=null;try{({grid,size}=await gridForSource(src,idx,variable,extractBbox,time));}catch(err){console.error(err);}if(!grid){rows.push({name:`${src.name} (unavailable)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromGrid(grid,{lat,lon,axis:analysisAxis}),size);}if(sources.length>1)setStatus(`Comparing ${sources.length} files`,'ok');}
-  else{$('analysis-chart').innerHTML='<p class="muted">Reading time series\u2026</p>';for(const[idx,src]of sources.entries()){const variable=varOf(src,idx),t2=Math.max(0,stepsFor(src,idx)-1);let points=null;try{const r=await extract(src.file,{variable,lat,lon,t1:0,t2});points=r?.timeseries??[];}catch(err){console.error(err);}if(!points){rows.push({name:`${src.name} (failed)`,stats:computeStats([]),unit:''});continue;}pushSeries(src,idx,seriesFromTimeseries(points),null);}}
-  const titleVar=sources.length>1?sources.map((s,i)=>varOf(s,i)).join(' vs '):varOf(sources[0],0);$('analysis-title').textContent=`${titleVar} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;renderLegend(legend);
+  lastScatter=null;
+  const time=parseInt($('time').value,10)||0,list=[],rows=[],legend=[],units=[],series=picksOf();
+  const pushSeries=(p,n,ser,size)=>{const resolved=resolveUnit(scanVarOfPick(p)),conv=convertSeries(ser.ys,resolved);units[n]=conv.unit??'';list.push({xs:ser.xs,ys:conv.ys,xLabel:ser.xLabel,slot:p.slot,unit:conv.unit??''});const meta=[p.variable,conv.unit||(conv.known?'':'units unknown'),size?resLabel(size):null].filter(Boolean).join(' · ');legend.push({slot:p.slot,name:labelOfPick(p),meta});rows.push({name:`${labelOfPick(p)} — ${p.variable}${conv.known?``:` (units unknown)`}`,stats:computeStats(conv.ys),unit:conv.unit||''});};
+  if(analysisMode==='space'){if(!lastGrid||!extractBbox){$('analysis-chart').innerHTML='';return;}if(series.length>1)setStatus('Sampling…','busy');for(const[n,p]of series.entries()){let grid=null,size=null;try{({grid,size}=await gridForSource(p.src,p.idx,p.variable,extractBbox,time));}catch(err){console.error(err);}if(!grid){rows.push({name:`${labelOfPick(p)} (unavailable)`,stats:computeStats([]),unit:''});continue;}pushSeries(p,n,seriesFromGrid(grid,{lat,lon,axis:analysisAxis}),size);}if(series.length>1)setStatus(`Comparing ${series.length} series`,'ok');}
+  else{$('analysis-chart').innerHTML='<p class="muted">Reading time series…</p>';for(const[n,p]of series.entries()){const t2=Math.max(0,stepsForPick(p)-1);let points=null;try{const r=await extract(p.src.file,{variable:p.variable,lat,lon,t1:0,t2});points=r?.timeseries??[];}catch(err){console.error(err);}if(!points){rows.push({name:`${labelOfPick(p)} (failed)`,stats:computeStats([]),unit:''});continue;}pushSeries(p,n,seriesFromTimeseries(points),null);}}
+  const titleVar=series.map((p)=>p.variable).join(' vs ');$('analysis-title').textContent=`${titleVar} @ ${fmtNum(lat)}, ${fmtNum(lon)}`;renderLegend(legend);
   /* Dual axis is only meaningful for a single pair. With three or more series a
    * second axis has no unambiguous owner, so require a shared unit and fall back
    * to one axis. All three Idalia products are in mm, so this never fires there. */
-  const sourceUnits=sources.map((src,i)=>resolveUnit(scanVarOf(src,i)));
+  const sourceUnits=series.map((p)=>resolveUnit(scanVarOfPick(p)));
   const dual=list.length===2&&!sameUnit(sourceUnits[0],sourceUnits[1]);lastSeriesList=list;lastDual=dual;lastUnits=units;drawChart();renderStatsTable(rows,analysisMode==='time'?'\u0394':null);
 }
 
@@ -934,6 +1464,7 @@ function closeAnalysis() {
   const panel = $('analysis-panel');
   if (panel) panel.hidden = true;
   lastSeriesList = [];
+  lastScatter = null;
   const ro = $('analysis-readout');
   if (ro) ro.innerHTML = '';
 }
@@ -993,11 +1524,45 @@ function clearHoverMarks() {
   if (g) g.replaceChildren();
 }
 
+/* Client point -> viewBox point. Goes through getScreenCTM rather than scaling
+ * by the bounding rect: .ac-svg is 100% x 100% with a viewBox, so whenever the
+ * box's aspect ratio differs from the viewBox's, preserveAspectRatio letterboxes
+ * the content and a rect-ratio guess is off by the letterbox. A line chart only
+ * needed x and tolerated that; a 2D hit-test does not. */
+function clientToViewBox(svg, event) {
+  const m = svg.getScreenCTM();
+  if (!m) return null;
+  const pt = new DOMPoint(event.clientX, event.clientY).matrixTransform(m.inverse());
+  return { x: pt.x, y: pt.y };
+}
+
+/* Whole-file mode: point at a dot and read the pair it stands for. Each dot is
+ * one overlapping cell -- file A's value on x, file B's on y. */
+function hoverScatter(event, svg, g) {
+  const sc = scatterScale(lastScatter.pairs, lastScatter.opts);
+  const loc = sc.ok ? clientToViewBox(svg, event) : null;
+  const i = loc ? nearestScatterIndex(sc, loc.x, loc.y) : -1;
+  if (i < 0) { g.replaceChildren(); $('analysis-readout').innerHTML = ''; return; }
+
+  const [a, b] = sc.pts[i], cx = sc.px(a), cy = sc.py(b);
+  // Drop lines to each axis, so the dot's position is readable as two values.
+  g.replaceChildren(
+    svgEl('line', { x1: sc.plot.left, y1: cy.toFixed(2), x2: cx.toFixed(2), y2: cy.toFixed(2), class: 'ac-cross' }),
+    svgEl('line', { x1: cx.toFixed(2), y1: cy.toFixed(2), x2: cx.toFixed(2), y2: sc.plot.top + sc.plot.h, class: 'ac-cross' }),
+    svgEl('circle', { cx: cx.toFixed(2), cy: cy.toFixed(2), r: 4, class: 'ac-hot ac-scatter-hot' }),
+  );
+  const o = lastScatter.opts;
+  const cell = (label, v, unit) =>
+    `<span class="lg">${escHtml(label)} <b>${escHtml(fmtNum(v))}</b>${unit ? ' ' + escHtml(unit) : ''}</span>`;
+  $('analysis-readout').innerHTML = cell(o.xLabel, a, o.unitX) + cell(o.yLabel, b, o.unitY);
+}
+
 $('analysis-chart').addEventListener('mousemove', (event) => {
-  if (!lastSeriesList.length) return;
   const svg = $('analysis-chart').querySelector('svg');
   const g = svg?.querySelector('.ac-hover');
   if (!svg || !g) return;
+  if (lastScatter) { hoverScatter(event, svg, g); return; }
+  if (!lastSeriesList.length) return;
   const r = svg.getBoundingClientRect();
   if (!r.width) return;
 
@@ -1054,6 +1619,91 @@ $('analysis-chart').addEventListener('mouseleave', () => {
   clearHoverMarks();
 });
 
+/* ── sidebar collapse ───────────────────────────────────────────────────── */
+/* The class lives on <html>, not #app, so the pre-paint script in <head> can set
+ * it before #app exists -- the same trick the theme bootstrap uses. */
+const SB_KEY = 'mapdemo-sidebar';
+
+/* Set by a rail icon, consumed by the transitionend handler below. The scroll
+ * cannot happen at click time: #sb-body is display:none while collapsed, so the
+ * frame after the class drops it is still laid out at ~60px, where every section
+ * is far taller than it will be at 300px. An offset measured then is stranded by
+ * the reflow when the width transition lands. */
+let pendingRailScroll = null;
+
+function syncSidebarToggle() {
+  const collapsed = document.documentElement.classList.contains('sb-collapsed');
+  const btn = $('sb-toggle');
+  const label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  btn.setAttribute('aria-expanded', String(!collapsed));
+  btn.textContent = collapsed ? '›' : '‹';
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+}
+
+function setSidebarCollapsed(collapsed) {
+  if (collapsed) pendingRailScroll = null;   // collapsing cancels a queued jump
+  document.documentElement.classList.toggle('sb-collapsed', collapsed);
+  localStorage.setItem(SB_KEY, collapsed ? 'collapsed' : 'expanded');
+  syncSidebarToggle();
+}
+
+$('sb-toggle').addEventListener('click', () => {
+  setSidebarCollapsed(!document.documentElement.classList.contains('sb-collapsed'));
+});
+
+// The pre-paint script may have collapsed us already; match the button to reality.
+syncSidebarToggle();
+
+/* MapLibre does not observe its container's size, so resizing is mandatory -- and
+ * it has to wait for the width transition to finish, or the map measures a
+ * mid-animation width and leaves a grey gutter. transitionend fires once per
+ * animated property and bubbles from children, hence both guards.
+ *
+ * preserveAnimation matters: this refresh happens only because the map got wider.
+ * The frames were decoded at a fixed pixel size that the canvas source scales for
+ * us, so they are still valid. Without the flag, refreshLayer -> releaseAnimation
+ * would close every decoded ImageBitmap and force a full re-decode. */
+$('sidebar').addEventListener('transitionend', (event) => {
+  if (event.target !== $('sidebar') || event.propertyName !== 'flex-basis') return;
+  map?.resize();
+  if (extractBbox) refreshLayer({ force: true, preserveAnimation: true });
+  if (pendingRailScroll) {
+    pendingRailScroll.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    pendingRailScroll = null;
+  }
+});
+
+/* Rail icons navigate rather than merely expand: they open the sidebar and bring
+ * their control group into view. Already expanded, scroll now; collapsed, queue
+ * it for transitionend so the offset is measured at the final width. */
+for (const btn of document.querySelectorAll('#sb-rail .rail-btn')) {
+  btn.addEventListener('click', () => {
+    const target = $(btn.dataset.sec);
+    if (!target) return;
+    if (document.documentElement.classList.contains('sb-collapsed')) {
+      setSidebarCollapsed(false);      // clears pendingRailScroll, so set it after
+      pendingRailScroll = target;
+    } else {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+/* The Area and Point-query icons mirror panels that stay hidden until a file is
+ * loaded and an area rendered. Their hidden attribute is written from three
+ * places (removeSource plus the two reveal sites), so observe the attribute
+ * instead of trying to remember a syncRail() call at each -- and at whatever
+ * fourth site gets added later. */
+function syncRail() {
+  $('rail-btn-extract').hidden = $('extract').hidden;
+  $('rail-btn-query').hidden = $('query').hidden;
+}
+const railObserver = new MutationObserver(syncRail);
+for (const id of ['extract', 'query'])
+  railObserver.observe($(id), { attributes: true, attributeFilter: ['hidden'] });
+syncRail();
+
 /* ── boot ───────────────────────────────────────────────────────────────── */
 function init() {
   map = new maplibregl.Map({
@@ -1086,7 +1736,10 @@ function init() {
   map.addControl(new maplibregl.NavigationControl(), 'top-right');
   map.on('load', () => {
     attachClickQuery();
-    map.on('moveend', () => { if (extractBbox) refreshLayer(); });
+    // Prepared CanvasSource frames retain their original resolution on zoom;
+    // geographic coordinates keep them aligned, intentionally trading sharpness
+    // for zero re-decode during playback.
+    map.on('moveend', () => { if (extractBbox && !animFrames) refreshLayer(); });
   });
 }
 

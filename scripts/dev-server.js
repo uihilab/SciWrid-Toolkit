@@ -39,6 +39,15 @@ import { extname, resolve, normalize, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(import.meta.url), '../..');
+// The browser demos live in docs/, which is exactly what GitHub Pages serves as
+// the site root. Serve that folder at "/" so the authored relative links
+// (map-demo.html, api-demo.html, ./idalia/...) resolve locally the same way they
+// do in production — rather than only working when nested under /docs/.
+const docsRoot = join(root, 'docs');
+// A few things a demo may import live ABOVE docs/ (the built bundle, lib source,
+// the wasm glue). Requests for these fall back to the repo root, so --dist and
+// any local-source import keep working.
+const REPO_PATHS = ['/dist', '/lib', '/index.js', '/wasm', '/assets', '/examples'];
 
 /* ---- args ---------------------------------------------------------------- */
 const argv = process.argv.slice(2);
@@ -125,12 +134,15 @@ function log(method, status, urlPath, range, bytes) {
 
 const server = createServer(async (req, res) => {
   let urlPath = decodeURIComponent(req.url.split('?')[0]);
-  if (urlPath === '/') urlPath = '/examples/index.html';
+  if (urlPath === '/') urlPath = '/index.html';
   else if (urlPath.endsWith('/')) urlPath += 'index.html';
 
   if (useDist && DIST_ALIASES[urlPath]) urlPath = DIST_ALIASES[urlPath];
 
-  const filePath = normalize(join(root, urlPath));
+  // Resolve under docs/ (the site root) by default; fall back to the repo root
+  // for the library paths that live above it.
+  const fromRepoRoot = REPO_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + '/'));
+  const filePath = normalize(join(fromRepoRoot ? root : docsRoot, urlPath));
   if (!filePath.startsWith(root)) {                       // traversal guard
     log(req.method, 403, urlPath, null, 0);
     res.writeHead(403, NO_CACHE); res.end('Forbidden'); return;
@@ -179,16 +191,39 @@ const server = createServer(async (req, res) => {
   createReadStream(filePath).pipe(res);
 });
 
-server.listen(port, '127.0.0.1', () => {
-  const mode = useDist ? 'dist/ (as published)' : 'lib/ source';
-  console.log(`SciWrid dev server`);
-  console.log(`  root    ${root}`);
-  console.log(`  serving ${mode}`);
-  console.log(`  ranges  enabled (HEAD, 206, 416)`);
-  console.log(`  -> http://127.0.0.1:${port}/`);
-  if (useDist) console.log(`  note: run "npm run build" first if lib/ changed`);
-  console.log('');
-});
+/* A stale dev server (or Vite on the same default port) holding 5173 used to
+ * crash this one with an unhandled EADDRINUSE stack trace. Fall back to the next
+ * few ports instead, and only give up with a readable message. */
+const MAX_PORT_TRIES = 10;
+
+function start(tryPort, attemptsLeft) {
+  server.once('error', (err) => {
+    if (err.code === 'EADDRINUSE' && attemptsLeft > 0) {
+      console.log(`  port ${tryPort} in use — trying ${tryPort + 1}…`);
+      start(tryPort + 1, attemptsLeft - 1);
+      return;
+    }
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\nPorts ${port}–${tryPort} are all in use.`);
+      console.error(`A dev server may already be running. Free a port or pass --port <n>.`);
+      process.exit(1);
+    }
+    throw err;
+  });
+  server.listen(tryPort, '127.0.0.1', () => {
+    const mode = useDist ? 'dist/ (as published)' : 'lib/ source';
+    console.log(`SciWrid dev server`);
+    console.log(`  site    ${docsRoot}  (served at /)`);
+    console.log(`  serving ${mode}`);
+    console.log(`  ranges  enabled (HEAD, 206, 416)`);
+    console.log(`  -> http://127.0.0.1:${tryPort}/`);
+    if (tryPort !== port) console.log(`  note: requested port ${port} was busy, used ${tryPort}`);
+    if (useDist) console.log(`  note: run "npm run build" first if lib/ changed`);
+    console.log('');
+  });
+}
+
+start(port, MAX_PORT_TRIES);
 
 process.on('SIGINT', () => {
   console.log(`\n${served} responses, ${(bytesOut / 1048576).toFixed(2)} MB served`);

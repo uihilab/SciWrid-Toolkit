@@ -68,17 +68,19 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; font-family: var(--font-sans); }
     body { color: var(--foreground); }
-    #app { display: flex; height: 100%; }
+    #app { display: flex; height: 100%; --sb-w: 300px; }
+    html.sb-collapsed #app { --sb-w: 60px; }
     /* A column, not a plain block: the scroll moved down onto #sb-body so the lab
        mark in #sb-foot sits on the sidebar's bottom-left corner whether the
        controls overflow or not. Padding moved with it — #sidebar itself is now a
        bare frame so the accent strip and the foot rule can both run full width. */
     #sidebar {
-      width: 300px; flex: 0 0 300px; padding: 0;
+      width: var(--sb-w); flex: 0 0 var(--sb-w); padding: 0;
       display: flex; flex-direction: column; min-height: 0;
       background: var(--card); color: var(--card-foreground);
       border-right: 1px solid var(--border);
       position: relative;
+      transition: flex-basis .28s cubic-bezier(.4,0,.2,1), width .28s cubic-bezier(.4,0,.2,1);
     }
     #sidebar::before {
       content: ""; display: block; flex: 0 0 3px;
@@ -87,11 +89,78 @@
     /* Block formatting is preserved inside, so the controls keep the margin
        collapsing they were written against. */
     #sb-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 1rem 1.1rem 1.1rem; }
+    /* Breathing room for the rail's scrollIntoView, which parks a section flush
+       against the top of #sb-body without it. */
+    .sb-sec { scroll-margin-top: .6rem; }
+    /* Text only now that the mark moved to the collapsed rail: the top row holds
+       just the GitHub link, and the lab is named in the attribution beneath. */
     #sb-foot {
-      flex: 0 0 auto; display: flex; align-items: center;
+      flex: 0 0 auto; display: flex; flex-direction: column; gap: .4rem;
       padding: .6rem 1.1rem; border-top: 1px solid var(--border);
     }
-    #sb-foot img { display: block; height: 22px; width: auto; }
+    html.sb-collapsed #sb-body, html.sb-collapsed #sb-foot { display: none; }
+    /* HyMES's sidebar toggle, rule-for-rule (app/dashboard.module.css:63).
+       ONE rule, no collapsed variant -- that is the whole point. `right: -12px` is
+       measured against #sidebar, the element being animated, so the button rides
+       its moving edge instead of re-anchoring when the class flips. It cannot jump
+       out from under the pointer, and straddling the border keeps it clear of
+       #sb-body's scroll gutter, so the scrollbar cannot steal its clicks.
+       Colours come from our theme tokens rather than HyMES's hardcoded white /
+       #e2e8f0 / #64748b / #0284c7, which have no dark mode. */
+    #sb-toggle {
+      position: absolute; top: 50%; right: -12px; transform: translateY(-50%);
+      /* HyMES uses 50. Ours only has to beat #map (positioned, z-index auto, and
+         later in the DOM), and must stay under the analysis window (5) and the
+         instructions modal (20) so both still cover it. */
+      z-index: 1;
+      width: 24px; height: 24px; padding: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--card); color: var(--muted-foreground);
+      border: 1px solid var(--border); border-radius: 50%;
+      cursor: pointer; font: inherit; font-size: 12px; line-height: 1;
+      box-shadow: 0 2px 4px oklch(0.08 0.02 250 / 0.12);
+      transition: color .2s ease, border-color .2s ease;
+    }
+    #sb-toggle:hover { color: var(--brand); border-color: var(--brand); }
+    #sb-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+    #sb-rail { display: none; }
+    html.sb-collapsed #sb-rail {
+      display: flex; flex-direction: column; align-items: center;
+      gap: .3rem; padding: .55rem 0 .7rem;
+      flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    }
+    .rail-brand { display: block; margin-bottom: .4rem; }
+    .rail-brand img { display: block; width: 26px; height: 26px; border-radius: 6px; }
+    #sb-rail .rail-btn {
+      width: 34px; height: 34px; padding: 0; flex: 0 0 auto;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent; color: var(--muted-foreground);
+      border: 1px solid transparent; border-radius: calc(var(--radius) - 2px);
+      cursor: pointer;
+    }
+    #sb-rail .rail-btn:hover { background: var(--accent); color: var(--foreground); }
+    #sb-rail .rail-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+    #sb-rail .rail-btn svg { display: block; width: 18px; height: 18px; }
+    /* REQUIRED: display: flex above beats the hidden attribute, so the two
+       conditional icons would stay visible without this. */
+    #sb-rail .rail-btn[hidden] { display: none; }
+    .rail-lab { display: block; margin-top: auto; padding-top: .5rem; opacity: .5; transition: opacity .15s ease; }
+    .rail-lab:hover { opacity: 1; }
+    .rail-lab:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
+    .rail-lab img { display: block; width: 26px; height: auto; }
+    .sb-foot-top { display: flex; align-items: center; }
+    .sb-foot-note { font-size: 10.5px; line-height: 1.3; color: var(--muted-foreground); }
+    #sb-foot a { color: var(--foreground); text-decoration: none; }
+    #sb-foot a:hover { color: var(--brand); }
+    #sb-foot a:focus-visible {
+      outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px;
+    }
+    .sb-foot-lab { text-decoration: underline; text-underline-offset: 2px; }
+    .sb-foot-gh {
+      margin-left: 0; display: inline-flex; align-items: center; gap: .35rem;
+      font-size: 11px; font-weight: 600;
+    }
+    .sb-foot-gh svg { display: block; width: 14px; height: 14px; fill: currentColor; }
     .sb-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
     .brand-link {
       display: inline-flex; flex: 0 0 30px; text-decoration: none;
@@ -102,12 +171,12 @@
     .brand-link:active { transform: translateY(0); }
     .brand-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
     .brand-mark {
-      width: 30px; height: 30px; flex: 0 0 30px;
-      display: inline-grid; place-items: center;
-      background: var(--brand); color: var(--brand-foreground);
-      border-radius: calc(var(--radius) - 2px);
-      font-size: 11px; font-weight: 700;
-      box-shadow: 0 2px 8px oklch(from var(--brand) l c h / 0.35);
+      /* The mark carries its own cream tile, so nothing is drawn behind it --
+         a second square would read as two logos stacked. The tile is square in
+         the source file; the radius here is what makes it sit as an app icon. */
+      border-radius: 7px;
+      width: 30px; height: 30px; flex: 0 0 30px; 
+      display: block; object-fit: contain;
     }
     #sidebar h1 { font-size: 1.02rem; color: var(--foreground); margin: 0; letter-spacing: -0.02em; line-height: 1.15; }
     #theme-toggle {
@@ -133,24 +202,66 @@
       accent-color: var(--brand); cursor: pointer;
     }
     #opacity-val { font-weight: 600; color: var(--brand); }
+    .anim-controls { display: flex; align-items: center; gap: .35rem; margin-top: .55rem; min-width: 0; }
+    #sidebar #anim-play, #sidebar #anim-loop,
+    #sidebar #anim-speed button {
+      padding: 5px 7px; min-width: 0; background: transparent;
+      color: var(--muted-foreground); border: 1px solid var(--border);
+      border-radius: calc(var(--radius) - 3px); line-height: 1;
+    }
+    #sidebar #anim-play { width: 31px; color: var(--foreground); }
+    #sidebar #anim-loop[aria-pressed="true"],
+    #sidebar #anim-speed button[aria-pressed="true"] {
+      background: var(--brand); color: var(--brand-foreground); border-color: var(--brand);
+    }
+    #sidebar #anim-speed { flex: 0 1 auto; display: inline-flex; }
+    #sidebar #anim-speed button { border-radius: 0; border-right-width: 0; }
+    #sidebar #anim-speed button:first-child { border-radius: calc(var(--radius) - 3px) 0 0 calc(var(--radius) - 3px); }
+    #sidebar #anim-speed button:last-child { border-radius: 0 calc(var(--radius) - 3px) calc(var(--radius) - 3px) 0; border-right-width: 1px; }
+    #sidebar #anim-play:disabled { opacity: .4; cursor: not-allowed; }
+    #anim-count { margin-left: auto; font-size: 10px; color: var(--muted-foreground); white-space: nowrap; }
+    #anim-canvas { position: absolute; left: -9999px; top: 0; }
     #sidebar input[type=file]::file-selector-button {
       margin-right: 8px; padding: 5px 10px;
       background: var(--secondary); color: var(--secondary-foreground);
       border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
       cursor: pointer; font-family: inherit; font-size: 12px;
     }
-    #status { margin-top: .75rem; font-size: 12px; min-height: 1.2em; color: var(--muted-foreground); }
+    /* Point-query readout */
+    .qr { margin-top: .45rem; }
+    .qr-empty { font-size: 12px; color: var(--muted-foreground); }
+    .qr-error { font-size: 12px; color: var(--destructive, #d33); word-break: break-word; }
+    .qr-val { font-size: 20px; font-weight: 700; color: var(--foreground); line-height: 1.15; }
+    .qr-unit { font-size: 13px; font-weight: 600; color: var(--muted-foreground); margin-left: 3px; }
+    .qr-name { font-size: 12px; color: var(--muted-foreground); margin-top: 3px; }
+    .qr-sub { font-size: 11px; color: var(--muted-foreground); margin-top: 2px; }
     #status.error { color: var(--destructive); }
     #status.busy  { color: var(--warn); }
     #status.ok    { color: var(--success); }
-    #sidebar button {
+    /* Every one of these is `#sidebar button` = (1,0,1), which outranks the
+       dedicated `#sb-toggle` = (1,0,0) block above for every property they share
+       -- background, radius, padding, border and transition all landed on the
+       collapse toggle instead of its own rules. Worse, `:active` set `transform`,
+       and the toggle's transform is load-bearing: it is what centres the button
+       (`top: 50%` + `translateY(-50%)`). Pressing it replaced -50% with +1px and
+       dropped the 24px button 13px, out from under the pointer -- so mouseup
+       landed off the button and the click never fired. Hence "it moves but it
+       doesn't collapse", and only sometimes: pressing the lower half still
+       finished inside the button. The toggle is a distinct control with a
+       complete rule set of its own, so it is excluded here rather than fighting
+       the cascade with extra specificity.
+       The exclusion is wrapped in :where() because that contributes ZERO
+       specificity: a bare :not(#sb-toggle) would count the id and lift these to
+       (2,0,1), which then outranks `#sb-rail .rail-btn` (1,1,0) and repaints the
+       collapsed rail icons brand-blue. :where() keeps them at (1,0,1) exactly. */
+    #sidebar button:where(:not(#sb-toggle)) {
       padding: 8px 12px; background: var(--brand); color: var(--brand-foreground);
       border: 1px solid transparent; border-radius: calc(var(--radius) - 2px);
       cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
       transition: filter .15s ease, transform .1s ease;
     }
-    #sidebar button:hover { filter: brightness(1.08); }
-    #sidebar button:active { transform: translateY(1px); }
+    #sidebar button:where(:not(#sb-toggle)):hover { filter: brightness(1.08); }
+    #sidebar button:where(:not(#sb-toggle)):active { transform: translateY(1px); }
     #sidebar #theme-toggle { background: transparent; color: var(--muted-foreground); }
     #sidebar #analyze-btn { width: 100%; margin-top: .85rem; }
     #query { margin-top: 1rem; }
@@ -200,6 +311,9 @@
     /* Two IDs of specificity would be overkill, but the ring MUST outrank
        `circle.ac-s0 { stroke: none }` (0,0,1,1) below, so scope it: (0,0,2,1). */
     .ac-hover circle.ac-hot { stroke: var(--card); stroke-width: 1.5; }
+    /* The scatter dot stands for a pair, not a series, so it takes the brand
+       fill rather than an .ac-s0/.ac-s1 series colour. */
+    .ac-hover circle.ac-scatter-hot { fill: var(--brand); }
     #analysis-chart { cursor: crosshair; }
 
     circle.ac-s0 { fill: var(--series-1); stroke: none; }
@@ -209,12 +323,22 @@
 
     /* Sidebar file list */
     #file-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
-    #file-list li { display: flex; align-items: center; gap: .4rem; font-size: 11px; color: var(--muted-foreground); }
+    /* The whole row is the drag handle; the × button opts out via draggable=false.
+       Both borders sit transparent at rest so a row does not shift 2px when its
+       insertion line lights up. */
+    #file-list li { display: flex; align-items: center; gap: .4rem; font-size: 11px; color: var(--muted-foreground); cursor: grab; border-top: 2px solid transparent; border-bottom: 2px solid transparent; }
     #file-list .fl-swatch { flex: 0 0 14px; height: 3px; border-radius: 2px; }
     #file-list .fl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); }
     #file-list .fl-primary { font-size: 9px; font-weight: 700; letter-spacing: .04em; color: var(--brand); }
-    #sidebar #file-list button { padding: 1px 5px; background: transparent; color: var(--muted-foreground); border: 1px solid var(--border); font-size: 10px; }
+    #sidebar #file-list button { padding: 1px 5px; background: transparent; color: var(--muted-foreground); border: 1px solid var(--border); font-size: 10px; cursor: pointer; }
     #sidebar #file-list button:hover { color: var(--destructive); border-color: var(--destructive); }
+    /* Rows are keyboard targets now (Alt+Arrow reorders), so they need a ring. */
+    #file-list li:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+    #file-list li:active { cursor: grabbing; }
+    #file-list li.fl-dragging { opacity: .4; }
+    /* The insertion line marks the edge the drop will land against. */
+    #file-list li.fl-over-top { border-top-color: var(--brand); }
+    #file-list li.fl-over-bottom { border-bottom-color: var(--brand); }
     #var-hint { font-size: 10px; color: var(--muted-foreground); margin-top: .2rem; }
     #add-file-row { display: flex; align-items: center; gap: .5rem; margin-top: .45rem; }
     #add-file-row[hidden] { display: none; }
@@ -232,6 +356,17 @@
     #compare-setup[hidden] { display: none; }
     #compare-setup .cmp-side { display: inline-flex; align-items: center; gap: .35rem; margin: 0; font-size: 11px; flex: 1 1 180px; min-width: 0; }
     #compare-setup .cmp-tag { flex: 0 0 auto; width: 16px; height: 16px; display: inline-grid; place-items: center; border-radius: 3px; font-size: 10px; font-weight: 700; color: var(--brand-foreground); }
+    /* Add / remove a series. Only shown for a single file, where the picks are
+       its own variables rather than one per file. */
+    #compare-setup .cmp-add, #compare-setup .cmp-rm {
+      background: transparent; border: 1px dashed var(--border);
+      color: var(--muted-foreground); border-radius: 4px;
+      font: inherit; font-size: 11px; cursor: pointer; padding: 2px 7px;
+    }
+    #compare-setup .cmp-rm { border-style: solid; padding: 0 5px; margin-left: .15rem; }
+    #compare-setup .cmp-add:hover, #compare-setup .cmp-rm:hover {
+      color: var(--foreground); border-color: var(--foreground);
+    }
     #compare-setup .cmp-s0 { background: var(--series-1); }
     #compare-setup .cmp-s1 { background: var(--series-2); }
     #compare-setup .cmp-s2 { background: var(--series-3); }
@@ -282,8 +417,30 @@
       cursor: pointer; font: inherit; font-size: 20px; line-height: 1;
     }
     #help-close:hover { background: var(--accent); color: var(--foreground); }
+    /* The tablist is the topmost element in the card now, so it -- not the step
+       counter -- needs the right margin that clears the close button. */
+    #help-tabs {
+      display: flex; gap: .25rem;
+      margin: .15rem 2.5rem 1.25rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    #help-tabs button {
+      padding: 6px 10px; border: none; border-bottom: 2px solid transparent;
+      background: transparent; color: var(--muted-foreground);
+      cursor: pointer; font: inherit; font-size: 12px; font-weight: 650;
+    }
+    #help-tabs button:hover { color: var(--foreground); }
+    #help-tabs button[aria-selected="true"] { color: var(--foreground); border-bottom-color: var(--brand); }
+    #help-tabs button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+    /* Both panels are flex columns so #help-actions' `margin-top: auto` still
+       pins Back/Next to the bottom of the card. The [hidden] rule is REQUIRED:
+       `display: flex` otherwise overrides the hidden attribute and both panels
+       render at once. */
+    #help-panel-instructions, #help-panel-examples { display: flex; flex-direction: column; flex: 1; }
+    #help-panel-instructions[hidden], #help-panel-examples[hidden] { display: none; }
+    #help-examples-intro { margin: 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.65; }
     #help-step-counter {
-      margin: .15rem 2.5rem 1rem 0; color: var(--brand);
+      margin: 0 0 1rem; color: var(--brand);
       font-size: 11px; font-weight: 700; text-transform: uppercase;
     }
     #help-title { margin: 0 0 .75rem; font-size: 1.35rem; line-height: 1.25; }
@@ -333,18 +490,56 @@
         : window.matchMedia('(prefers-color-scheme: dark)').matches;
       document.documentElement.classList.toggle('dark', dark);
     })();
+    /* Apply the saved sidebar state before first paint too, so a collapsed rail
+       does not flash open at 300px and snap shut on load. */
+    (function () {
+      if (localStorage.getItem('mapdemo-sidebar') === 'collapsed')
+        document.documentElement.classList.add('sb-collapsed');
+    })();
   </script>
 </head>
 <body>
   <div id="app">
     <aside id="sidebar">
+      <button id="sb-toggle" type="button" aria-expanded="true" aria-controls="sb-body"
+              aria-label="Collapse sidebar" title="Collapse sidebar">&lsaquo;</button>
+      <nav id="sb-rail" aria-label="Sidebar sections">
+        <a class="rail-brand" href="index.html" title="Back to SciWrid Toolkit examples"
+           aria-label="Back to SciWrid Toolkit examples">
+          <img src="logo-sciwrid.svg"
+               alt="SciWrid" width="26" height="26">
+        </a>
+        <button type="button" class="rail-btn" data-sec="sb-sec-file" title="File" aria-label="File">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        </button>
+        <button type="button" class="rail-btn" data-sec="sb-sec-variable" title="Variable" aria-label="Variable">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </button>
+        <button type="button" class="rail-btn" data-sec="sb-sec-time" title="Time" aria-label="Time">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        </button>
+        <button type="button" class="rail-btn" data-sec="sb-sec-display" title="Color ramp and opacity" aria-label="Color ramp and opacity">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button type="button" class="rail-btn" id="rail-btn-extract" data-sec="extract" title="Extract area" aria-label="Extract area">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V5a1 1 0 0 1 1-1h2"/><path d="M17 4h2a1 1 0 0 1 1 1v2"/><path d="M20 17v2a1 1 0 0 1-1 1h-2"/><path d="M7 20H5a1 1 0 0 1-1-1v-2"/></svg>
+        </button>
+        <button type="button" class="rail-btn" id="rail-btn-query" data-sec="query" title="Point query" aria-label="Point query">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </button>
+        <a class="rail-lab" href="https://hydroinformatics.tulane.edu/" target="_blank" rel="noopener"
+           title="Hydroinformatics Lab @ Tulane" aria-label="Hydroinformatics Lab @ Tulane">
+          <img src="https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/assets/logo-hilab-mini.png"
+               alt="HiLab" width="26" height="11">
+        </a>
+      </nav>
       <div id="sb-body">
         <div class="sb-head">
           <a class="brand-link" href="index.html" aria-label="Back to SciWrid Toolkit examples"
              title="Back to SciWrid Toolkit examples">
-            <span class="brand-mark">SW</span>
+            <img class="brand-mark" src="logo-sciwrid.svg" alt="SciWrid" width="30" height="30">
           </a>
-          <h1>SciWrid Toolkit map demo</h1>
+          <strong>SciWrid Toolkit </strong>
           <button id="help-btn" type="button" aria-label="Open instructions" title="Instructions">?</button>
           <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
         </div>
@@ -354,6 +549,7 @@
           the underlying value.
         </p>
 
+        <section class="sb-sec" id="sb-sec-file">
         <label for="file">File</label>
         <input type="file" id="file" multiple
                accept=".grb2,.grib2,.grb,.nc,.nc3,.nc4,.zip,.zarr,.tif,.tiff">
@@ -366,22 +562,57 @@
           <button id="add-file-btn" type="button">+ Add a file to compare</button>
           <span id="file-count"></span>
         </div>
+        </section>
 
+        <section class="sb-sec" id="sb-sec-variable">
         <label for="variable">Variable</label>
         <select id="variable" disabled></select>
         <div id="var-hint"></div>
+        </section>
 
+        <section class="sb-sec" id="sb-sec-time">
         <label for="time">Time</label>
         <select id="time" disabled></select>
         <div id="time-range" class="muted"></div>
+        <div class="anim-controls" aria-label="Time animation controls">
+          <button id="anim-play" type="button" disabled title="file has one timestep" aria-label="Play animation">▶</button>
+          <div id="anim-speed" class="ap-toggle" role="group" aria-label="Animation speed">
+            <button type="button" data-speed="1" aria-pressed="true">1×</button>
+            <button type="button" data-speed="2" aria-pressed="false">2×</button>
+            <button type="button" data-speed="5" aria-pressed="false">5×</button>
+          </div>
+          <button id="anim-loop" type="button" aria-pressed="true" aria-label="Loop animation">↻</button>
+          <span id="anim-count">1 / 1</span>
+        </div>
+        </section>
 
+        <section class="sb-sec" id="sb-sec-display">
         <label for="ramp">Color ramp</label>
         <select id="ramp">
-          <option value="viridis">viridis</option>
-          <option value="plasma">plasma</option>
-          <option value="grayscale">grayscale</option>
-          <option value="RdBu">RdBu (diverging)</option>
+          <optgroup label="Sequential · colorblind-safe">
+            <option value="viridis">viridis</option>
+            <option value="magma">magma</option>
+            <option value="inferno">inferno</option>
+            <option value="plasma">plasma</option>
+            <option value="cividis">cividis</option>
+          </optgroup>
+          <optgroup label="Sequential · single / warm">
+            <option value="Blues">Blues</option>
+            <option value="YlOrRd">YlOrRd</option>
+            <option value="grayscale">grayscale</option>
+          </optgroup>
+          <optgroup label="High-contrast">
+            <option value="turbo">turbo</option>
+          </optgroup>
+          <optgroup label="Diverging">
+            <option value="RdBu">RdBu</option>
+            <option value="RdYlBu">RdYlBu</option>
+          </optgroup>
         </select>
+        <label style="display:flex; align-items:center; gap:.4rem; margin-top:.35rem; font-weight:normal;">
+          <input type="checkbox" id="ramp-reverse" style="width:auto; margin:0;">
+          <span>Reverse ramp</span>
+        </label>
 
         <label for="opacity">Layer opacity <span id="opacity-val" class="muted">75%</span></label>
         <input type="range" id="opacity" min="0" max="100" step="1" value="75">
@@ -391,8 +622,9 @@
           <canvas id="legend-canvas" width="256" height="14"></canvas>
           <div class="ticks"><span id="legend-min">–</span><span id="legend-max">–</span></div>
         </div>
+        </section>
 
-        <div id="extract" hidden>
+        <div class="sb-sec" id="extract" hidden>
           <label>Extract area (bbox)</label>
           <div class="muted" id="ext-coverage">-</div>
           <div style="display:flex; gap:.4rem; margin-top:.3rem;">
@@ -415,7 +647,7 @@
           <div id="ext-msg" class="muted" style="margin-top:.4rem;">-</div>
         </div>
 
-        <div id="query" hidden>
+        <div class="sb-sec" id="query" hidden>
           <label>Point query</label>
           <div class="muted" id="q-bounds">–</div>
           <div style="display:flex; gap:.4rem; margin-top:.3rem;">
@@ -427,22 +659,34 @@
             </label>
           </div>
           <button id="q-btn">Query value</button>
-          <div id="q-result" class="muted" style="margin-top:.4rem;">–</div>
-          <div id="q-bbox-debug" class="muted"
-               style="margin-top:.5rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.5; white-space:pre;">–</div>
+          <div id="q-result" class="qr qr-empty">–</div>
         </div>
 
         <button id="analyze-btn" type="button" hidden>Show analysis</button>
-
-        <div id="status" class="muted">Pick a file to begin.</div>
       </div>
 
       <div id="sb-foot">
-        <img src="https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/assets/logo-hilab-mini.png" alt="HiLab" width="662" height="283">
+        <div class="sb-foot-top">
+          <a class="sb-foot-gh" href="https://github.com/uihilab/SciWrid-Toolkit"
+             target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+            GitHub
+          </a>
+        </div>
+        <div class="sb-foot-note">
+          <a href="index.html">← Examples</a> ·
+          <a href="api-demo.html">API demo</a> ·
+          <a href="library-usage.html">Usage</a>
+        </div>
+        <div class="sb-foot-note">
+          © 2026 <a class="sb-foot-lab" href="https://hydroinformatics.tulane.edu/"
+                    target="_blank" rel="noopener">Hydroinformatics Lab @ Tulane</a>
+        </div>
       </div>
     </aside>
 
     <div id="map"></div>
+    <canvas id="anim-canvas" width="1" height="1" aria-hidden="true"></canvas>
 
     <!-- Analysis window. Deliberately NOT modal and NOT docked: it floats above the
          map, drags by its title bar, and resizes, so the map stays clickable while
@@ -478,16 +722,37 @@
   <div id="help-overlay" hidden>
     <section id="help-card" role="dialog" aria-modal="true" aria-labelledby="help-title">
       <button id="help-close" type="button" aria-label="Close instructions">&times;</button>
-      <div id="help-step-counter">Step 1 / 6</div>
-      <h2 id="help-title">Upload a file</h2>
-      <p id="help-body">Choose a supported scientific data file from the File picker in the sidebar.</p>
-      <div id="help-example" hidden>
-        <button id="help-view-example" type="button">View example (GFS data)</button>
-        <button id="help-view-real-event" type="button">View real event (Hurricane Idalia)</button>
+      <div id="help-tabs" role="tablist" aria-label="Help sections">
+        <button id="tab-instructions" type="button" role="tab"
+                aria-selected="true" aria-controls="help-panel-instructions">Instructions</button>
+        <button id="tab-examples" type="button" role="tab"
+                aria-selected="false" aria-controls="help-panel-examples">View examples</button>
       </div>
-      <div id="help-actions">
-        <button id="help-back" type="button">Back</button>
-        <button id="help-next" type="button">Next</button>
+      <div id="help-panel-instructions" role="tabpanel" aria-labelledby="tab-instructions">
+        <div id="help-step-counter">Step 1 / 7</div>
+        <h2 id="help-title">Upload a file</h2>
+        <p id="help-body">Choose a supported scientific data file from the File picker in the sidebar.</p>
+        <div id="help-actions">
+          <button id="help-back" type="button">Back</button>
+          <button id="help-next" type="button">Next</button>
+        </div>
+      </div>
+      <div id="help-panel-examples" role="tabpanel" aria-labelledby="tab-examples" hidden>
+        <p id="help-examples-intro">
+          Load a real dataset to try the toolkit end to end.
+          <strong>GFS forecast</strong> is four timesteps, three hours apart.
+          <strong>Hurricane Idalia (2023)</strong> is three real products in three
+          formats &mdash; NCEP Stage IV radar QPE (GRIB2), NOAA AORC (Zarr) and
+          NLDAS-2 (NetCDF). The NLDAS file also carries 10&nbsp;m wind: drag it to
+          the top of the file list to make it primary, pick &ldquo;Wind
+          speed&rdquo;, and press play to watch the storm&rsquo;s wind field
+          animate. Click the map and choose &ldquo;Show analysis&rdquo; to chart
+          how the products compare at that point.
+        </p>
+        <div id="help-example">
+          <button id="help-view-example" type="button">View example (GFS data)</button>
+          <button id="help-view-real-event" type="button">View real event (Hurricane Idalia)</button>
+        </div>
       </div>
     </section>
   </div>

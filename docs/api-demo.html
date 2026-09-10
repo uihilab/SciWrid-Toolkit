@@ -105,17 +105,12 @@
     }
 
     .brand-mark {
-      width: 32px;
-      height: 32px;
-      display: inline-grid;
-      place-items: center;
-      background: var(--brand);
-      color: var(--brand-foreground);
-      border-radius: calc(var(--radius) - 2px);
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0;
-      box-shadow: 0 2px 8px oklch(from var(--brand) l c h / 0.35);
+      /* The mark carries its own cream tile, so nothing is drawn behind it --
+         a second square would read as two logos stacked. The tile is square in
+         the source file; the radius here is what makes it sit as an app icon. */
+      border-radius: 7px;
+      width: 32px; height: 32px; 
+      display: block; object-fit: contain;
     }
 
     .brand strong {
@@ -276,14 +271,129 @@
 
     input, label { font-family: var(--font-sans); }
 
+    /* Field widths come from the KIND of value a box holds, not from eyeballing
+       each one. There were 21 inline `style="width:NNpx"` declarations using 12
+       different numbers, and the same kind of field disagreed between sections:
+       a variable name was 240px in Extract and 200px in Grid, a latitude was
+       90px, 80px and 88px in three places. Four tokens replace all of them, so
+       boxes holding the same sort of value are the same size. */
+    :root {
+      --field-xs: 76px;    /* small integers: W, H, time index */
+      --field-sm: 104px;   /* coordinates: lat, lon, bbox corners */
+      --field-md: 208px;   /* dates */
+      --field-lg: 264px;   /* variable names */
+    }
+    /* Input rows are a six-column grid, so boxes line up between rows instead of
+       starting wherever the preceding label text happened to end.
+       Six divides both shapes these forms take:
+         Variable(2) + Time idx(1) + Date(3)              = 6
+         minLon + minLat + maxLon + maxLat + W + H        = 6
+       so every field in the first row begins on a column edge of the second.
+       The label sits ABOVE its box -- with it alongside, a longer word pushes
+       the box right and no two rows can agree on where a box starts. */
+    .field-row {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: .7rem 1.15rem;
+      align-items: end;
+    }
+    /* Stacked field-rows are SEPARATE grids, so the grid's own row gap never
+       applies between them and they sit flush -- two rows of boxes reading as one
+       crowded block. The help text that follows a row needs the same clearance. */
+    .field-row + .field-row,
+    .field-row + .row,
+    .field-row + pre { margin-top: .9rem; }
+    /* Trim's buttons share the row with its four bbox inputs. At an even 1fr each
+       track is ~161px and "Download trimmed file" needs ~170px, so it wrapped by a
+       hair. Lat/lon numbers do not need that width, so they give some back: the
+       two buttons stay equal to each other (both 1.4fr) and both fit on one line. */
+    .trim-row { grid-template-columns: repeat(4, minmax(0, .8fr)) repeat(2, minmax(0, 1.4fr)); }
+    .trim-row button { margin: 0; }          /* the grid gap is the only spacing */
+    .trim-row #trim-status { grid-column: 1 / -1; }
+
+    /* A section's action buttons, on their own grid so every button in the row
+       is the same width. Left to themselves they size to their label, so
+       `extract()` came out half the width of `extractOutput("json")` and the
+       five read as different classes of control rather than one set. Tracks are
+       1fr, so the row lines up with the .field-row grids above it; auto-fit
+       drops to fewer -- still equal -- columns when the viewport is narrow.
+       As with .trim-row, the grid gap is the only spacing. */
+    .btn-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: .7rem 1.15rem;
+      margin: .9rem 0;              /* pre sets margin:0, so this is the only gap */
+    }
+    .btn-row button { margin: 0; }
+    /* status text gets its own full-width line rather than a button-sized cell,
+       but only once it has something to say -- empty, it would still claim a
+       row and its gap, padding the space under the buttons for no reason. */
+    .btn-row > .muted { grid-column: 1 / -1; }
+    .btn-row > .muted:empty { display: none; }
+    .field-row > label { display: grid; gap: .25rem; min-width: 0; }
+    .field-row > label > span { font-size: 12px; color: var(--muted-foreground); }
+    .field-row input[type=number],
+    .field-row input[type=text] { width: 100%; }
+    .field-row .span-2 { grid-column: span 2; }
+    .field-row .span-3 { grid-column: span 3; }
+    /* An inline "?" that explains a term on hover or focus.
+       Built as a reusable pattern rather than a one-off: this page is full of
+       terms a first-time reader will not know. Shown on FOCUS as well as
+       hover, so it is reachable by keyboard and not only by mouse. */
+    .hint-wrap { position: relative; display: inline-flex; vertical-align: middle; }
+    .hint {
+      width: 14px; height: 14px; padding: 0; margin-left: .3rem;
+      display: inline-grid; place-items: center;
+      font: 700 10px/1 var(--font-sans);
+      color: var(--muted-foreground);
+      background: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      cursor: help;
+    }
+    .hint:hover, .hint:focus-visible {
+      color: var(--brand-foreground); background: var(--brand); border-color: var(--brand);
+    }
+    .hint-box {
+      position: absolute; top: calc(100% + 8px); left: 50%; translate: -50% 0;
+      z-index: 20; width: max-content; max-width: 280px;
+      padding: .5rem .6rem;
+      font: 400 12px/1.45 var(--font-sans);
+      color: var(--foreground); text-align: left; white-space: normal;
+      background: var(--background);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) - 2px);
+      box-shadow: 0 4px 16px rgb(0 0 0 / .12);
+      opacity: 0; visibility: hidden; transition: opacity .12s ease;
+    }
+    .hint-box code { font-size: 11px; }
+    .hint-wrap:hover .hint-box,
+    .hint:focus-visible + .hint-box { opacity: 1; visibility: visible; }
+
+    /* A checkbox reads as one line, not a stacked label over a control. */
+    .field-row > label.check {
+      display: flex; align-items: center; gap: .4rem;
+      padding-bottom: 7px;
+    }
+
     input[type=number], input[type=text] {
       padding: 6px 8px;
-      margin: 4px;
       background: var(--background);
       color: var(--foreground);
       border: 1px solid var(--input);
       border-radius: calc(var(--radius) - 2px);
       font-size: 13px;
+    }
+
+    /* A label and its box are one unit. Previously the input carried
+       `margin: 4px` while .row supplied `gap: 1rem`, so the space between a
+       label and its own box and the space between neighbouring fields were set
+       by two different rules and did not agree. */
+    .row > label {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      white-space: nowrap;
     }
     input[type=number]:focus-visible, input[type=text]:focus-visible {
       outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--ring);
@@ -339,6 +449,16 @@
     .warn    { color: var(--warn); }
     .row     { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
 
+    /* An inline `display` would beat the UA sheet's [hidden]{display:none} and
+       leave the attribute inert, so #g-result's layout lives here instead --
+       and this guard keeps that trap from reappearing anywhere on the page. */
+    [hidden] { display: none !important; }
+    #g-result {
+      margin-top: .75rem;
+      display: flex; gap: 1rem;
+      align-items: flex-start; flex-wrap: wrap;
+    }
+
     #g-canvas {
       background: var(--muted);
       border: 1px solid var(--border);
@@ -363,6 +483,38 @@
       border-left: 1px solid var(--border);
     }
     .hilab img { display: block; height: 24px; width: auto; }
+
+    /* Closing band. Mirrors the lab site's footer, but drawn on this page's
+       tokens rather than its fixed navy so it follows the theme toggle. */
+    .site-foot {
+      margin-top: 2.5rem;
+      background: var(--card);
+      border-top: 1px solid var(--border);
+    }
+    .site-foot-inner {
+      width: min(1100px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 1.15rem 0;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: .75rem 1rem;
+      font-size: .8rem; color: var(--muted-foreground);
+    }
+    .site-foot a { color: var(--foreground); }
+    .site-foot a:hover { color: var(--brand); }
+    .site-foot a:focus-visible {
+      outline: 2px solid var(--brand); outline-offset: 3px;
+      border-radius: 3px;
+    }
+    .foot-lab { text-decoration: underline; text-underline-offset: 2px; }
+    .foot-link {
+      display: inline-flex; align-items: center; gap: .4rem;
+      font-weight: 600;
+    }
+    .foot-link svg { display: block; width: 15px; height: 15px; fill: currentColor; }
+
+    @media (max-width: 560px) {
+      .site-foot-inner { flex-direction: column; align-items: flex-start; gap: .5rem; }
+    }
 
     @media (max-width: 760px) {
       .site-header-inner {
@@ -392,14 +544,15 @@
   <header class="site-header">
     <div class="site-header-inner">
       <a class="brand" href="index.html">
-        <span class="brand-mark">SW</span>
+        <img class="brand-mark" src="logo-sciwrid.svg" alt="SciWrid" width="32" height="32">
         <span>
-          <strong>sciwrid-toolkit/api</strong>
-          <span>Functional demo</span>
+          <strong>SciWrid Toolkit</strong>
         </span>
       </a>
       <nav class="site-nav" aria-label="Demo sections">
         <a href="index.html">← Examples</a>
+        <a href="map-demo.html">Map demo</a>
+        <a href="library-usage.html">Usage</a>
         <a href="#section-file">File</a>
         <a href="#section-scan">Scan</a>
         <a href="#section-extract">Extract</a>
@@ -449,60 +602,74 @@
     <summary><span class="label">2. Scan — list variables [0..20]</span></summary>
     <code>await scan(file)</code><br><br>
     <button id="btn-scan">scan()</button>
-    <pre id="scan-out">(no scan yet)</pre>
+    <!-- Stays out of the layout until a scan runs, rather than sitting there as an
+         empty box saying nothing. Revealed by the click handler. -->
+    <pre id="scan-out" hidden></pre>
   </details>
 
   <!-- 3. Extract -->
   <details class="section" id="section-extract" open>
     <summary><span class="label">3. Extract a variable</span></summary>
     <code>await extract(file, { variable, lat, lon })</code><br><br>
-    <div class="row">
-      <label>Variable: <input type="text" id="ex-var" placeholder="(auto: first supported)" style="width:240px;"></label>
-      <label>Lat: <input type="number" id="ex-lat" step="0.1" value="40.7" style="width:90px;"></label>
-      <label>Lon: <input type="number" id="ex-lon" step="0.1" value="-74.0" style="width:90px;"></label>
+    <div class="field-row">
+      <label class="span-2"><span>Variable:</span> <input type="text" id="ex-var" placeholder="(auto: first supported)"></label>
+      <label><span>Lat:</span> <input type="number" id="ex-lat" step="0.1" value="40.7"></label>
+      <label><span>Lon:</span> <input type="number" id="ex-lon" step="0.1" value="-74.0"></label>
     </div>
-    <div class="row">
-      <label>Start date: <input type="text" id="ex-start" placeholder="e.g. 2026-04-14 or …T12:00:00Z" style="width:210px;"></label>
-      <label>End date: <input type="text" id="ex-end" placeholder="(optional)" style="width:170px;"></label>
+    <div class="field-row">
+      <label class="span-2"><span>Start date:</span> <input type="text" id="ex-start" placeholder="e.g. 2026-04-14 or …T12:00:00Z"></label>
+      <label class="span-2"><span>End date:</span> <input type="text" id="ex-end" placeholder="(optional)"></label>
     </div>
     <div class="row"><span class="muted">
       ISO-8601 or <code>YYYY-MM-DD</code> (date-only covers the whole day). Both → range; one → nearest. Blank → all timesteps. Overrides time index.
     </span></div>
-    <button id="btn-extract">extract()</button>
-    <button id="btn-csv">extractOutput("csv")</button>
-    <button id="btn-json">extractOutput("json")</button>
-    <button id="btn-dl-csv">⬇ Download CSV</button>
-    <button id="btn-dl-json">⬇ Download JSON</button>
-    <pre id="ex-out">(no extract yet)</pre>
+    <div class="btn-row">
+      <button id="btn-extract">extract()</button>
+      <button id="btn-csv">extractOutput("csv")</button>
+      <button id="btn-json">extractOutput("json")</button>
+      <button id="btn-dl-csv">⬇ Download CSV</button>
+      <button id="btn-dl-json">⬇ Download JSON</button>
+    </div>
+    <!-- Like #scan-out: stays out of the layout until a run, rather than sitting
+         there as an empty box saying nothing. Revealed by the click handlers. -->
+    <pre id="ex-out" hidden></pre>
   </details>
 
   <!-- 4. Extract grid (bbox) -->
   <details class="section" id="section-grid" open>
     <summary><span class="label">4. Extract grid (bbox) — parallel worker pool</span></summary>
     <code>await extractGrid(file, { variable, bbox, width, height, workers, signal, onProgress })</code><br>
-    <span class="muted">Spawns up to N workers (default 5); each handles a row band. Result is rendered as a heatmap.</span><br><br>
-    <div class="row">
-      <label>Variable: <input type="text" id="g-var" placeholder="(auto: first supported)" style="width:200px;"></label>
-      <label>Time idx: <input type="number" id="g-time" step="1" min="0" value="0" style="width:70px;"></label>
-      <label>or Date: <input type="text" id="g-date" placeholder="(ISO, overrides idx)" style="width:200px;"></label>
-      <label>Workers: <input type="number" id="g-workers" step="1" min="0" value="5" style="width:60px;"></label>
+    <span class="muted">Spawns up to N workers (default 5); each handles a row band. Result is rendered as a heatmap.<span class="hint-wrap"><button type="button" class="hint" aria-describedby="hint-workers">?</button><span class="hint-box" role="tooltip" id="hint-workers">Splits the output grid into horizontal bands and decodes them in parallel Web Workers. This demo runs a fixed <code>5</code>; the library takes any count, and <code>0</code> decodes inline on the main thread &mdash; slower, but it keeps everything in one stack for debugging. More workers than the machine has cores will not help.</span></span></span><br><br>
+    <!-- Fixed at the library default. The demo does not offer this as a knob: the
+         only interesting answers are 5 and "fewer than your cores", and a reader
+         who types 200 learns nothing from the result. The "?" beside the blurb
+         above explains what the pool does; extractGrid() still takes any count. -->
+    <input type="hidden" id="g-workers" value="5">
+    <div class="field-row">
+      <label class="span-2"><span>Variable:</span> <input type="text" id="g-var" placeholder="(auto: first supported)"></label>
+      <label><span>Time idx:</span> <input type="number" id="g-time" step="1" min="0" value="0"></label>
+      <label class="span-3"><span>or Date:</span> <input type="text" id="g-date" placeholder="(ISO, overrides idx)"></label>
     </div>
-    <div class="row">
-      <label>minLon: <input type="number" id="g-minlon" step="0.1" value="-100" style="width:80px;"></label>
-      <label>minLat: <input type="number" id="g-minlat" step="0.1" value="30" style="width:80px;"></label>
-      <label>maxLon: <input type="number" id="g-maxlon" step="0.1" value="-80" style="width:80px;"></label>
-      <label>maxLat: <input type="number" id="g-maxlat" step="0.1" value="45" style="width:80px;"></label>
-      <label>W: <input type="number" id="g-width" step="1" min="1" value="128" style="width:70px;"></label>
-      <label>H: <input type="number" id="g-height" step="1" min="1" value="128" style="width:70px;"></label>
+    <div class="field-row">
+      <label><span>minLon:</span> <input type="number" id="g-minlon" step="0.1" value="-100"></label>
+      <label><span>minLat:</span> <input type="number" id="g-minlat" step="0.1" value="30"></label>
+      <label><span>maxLon:</span> <input type="number" id="g-maxlon" step="0.1" value="-80"></label>
+      <label><span>maxLat:</span> <input type="number" id="g-maxlat" step="0.1" value="45"></label>
+      <label><span>W:</span> <input type="number" id="g-width" step="1" min="1" value="128"></label>
+      <label><span>H:</span> <input type="number" id="g-height" step="1" min="1" value="128"></label>
     </div>
-    <button id="btn-grid">extractGrid()</button>
-    <button id="btn-grid-abort" disabled>Abort</button>
-    <button id="btn-grid-json" disabled>Save JSON</button>
-    <button id="btn-grid-tiff" disabled>Save GeoTIFF</button>
-    <span id="g-progress" class="muted"></span>
-    <div style="margin-top:.75rem; display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
+    <div class="btn-row">
+      <button id="btn-grid">extractGrid()</button>
+      <button id="btn-grid-abort" disabled>Abort</button>
+      <button id="btn-grid-json" disabled>Save JSON</button>
+      <button id="btn-grid-tiff" disabled>Save GeoTIFF</button>
+      <span id="g-progress" class="muted"></span>
+    </div>
+    <!-- Heatmap + result, hidden together until a run: the blank canvas is as
+         empty a box as the pre beside it. Revealed by the click handlers. -->
+    <div id="g-result" hidden>
       <canvas id="g-canvas" width="256" height="256"></canvas>
-      <pre id="g-out" style="flex:1; min-width:280px; max-height:280px;">(no grid yet)</pre>
+      <pre id="g-out" style="flex:1; min-width:280px; max-height:280px;"></pre>
     </div>
   </details>
 
@@ -520,22 +687,37 @@
     <div id="trim-vars" style="margin-top:.75rem;
          display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:4px;
          max-height:180px; overflow:auto;"></div>
-    <div class="row" style="margin-top:.75rem;">
-      <label>t1: <input type="number" id="trim-t1" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
-      <label>t2: <input type="number" id="trim-t2" step="1" min="0" placeholder="(omit)" style="width:80px;"></label>
-      <label><input type="checkbox" id="trim-use-bbox"> bbox</label>
-      <label>minLon: <input type="number" id="trim-minlon" value="-100" step="any" style="width:88px;"></label>
-      <label>minLat: <input type="number" id="trim-minlat" value="30" step="any" style="width:88px;"></label>
-      <label>maxLon: <input type="number" id="trim-maxlon" value="-80" step="any" style="width:88px;"></label>
-      <label>maxLat: <input type="number" id="trim-maxlat" value="45" step="any" style="width:88px;"></label>
+    <div class="field-row" style="margin-top:.75rem;">
+      <label><span>t1:</span> <input type="number" id="trim-t1" step="1" min="0" placeholder="(omit)"></label>
+      <label><span>t2:</span> <input type="number" id="trim-t2" step="1" min="0" placeholder="(omit)"></label>
+      <label class="check"><input type="checkbox" id="trim-use-bbox"> bbox</label>
+    </div>
+    <div class="field-row trim-row">
+      <label><span>minLon:</span> <input type="number" id="trim-minlon" value="-100" step="any"></label>
+      <label><span>minLat:</span> <input type="number" id="trim-minlat" value="30" step="any"></label>
+      <label><span>maxLon:</span> <input type="number" id="trim-maxlon" value="-80" step="any"></label>
+      <label><span>maxLat:</span> <input type="number" id="trim-maxlat" value="45" step="any"></label>
       <button id="btn-trim">Trim</button>
       <button id="btn-trim-download" disabled>Download trimmed file</button>
       <span id="trim-status" class="muted"></span>
     </div>
-    <pre id="trim-out">(no trim yet)</pre>
+    <!-- Same as the sections above: out of the layout until a trim runs. -->
+    <pre id="trim-out" hidden></pre>
   </details>
 
   </main>
+
+  <footer class="site-foot">
+    <div class="site-foot-inner">
+      <span>© 2026 <a class="foot-lab" href="https://hydroinformatics.tulane.edu/"
+                     target="_blank" rel="noopener">Hydroinformatics Lab @ Tulane</a></span>
+      <a class="foot-link" href="https://github.com/uihilab/SciWrid-Toolkit"
+         target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </footer>
 
   <!-- No import map needed: the lib loads h5wasm from jsdelivr CDN on demand.
        If you'd rather mirror it, pass `{ h5wasmUrl: '<your-url>' }` to the
@@ -546,7 +728,8 @@
       detectFormat, scan, extract, extractOutput, extractGrid,
       gridToJSON, gridToGeoTIFF, trim,
       SciWridError, TrimError,
-    } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/lib/sciwrid-api.js';
+    } from 'https://cdn.jsdelivr.net/gh/uihilab/SciWrid-Toolkit@main/dist/index.js';
+    import { notifyStatus } from './notify.js';
 
     /* Small browser download helper — Blob + anchor click. */
     function saveBlob(content, mime, filename) {
@@ -568,9 +751,16 @@
     function log(label, value) {
       console.log(`[api-demo] ${label}:`, value);
     }
+    const SHOW_LABELS = { 'detect-out': 'Detect', 'scan-out': 'Scan',
+      'ex-out': 'Extract', 'g-out': 'Grid', 'trim-out': 'Trim' };
     function show(el, value, cls = '') {
       el.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
       el.className = cls;
+      // Mirror terminal results into the bottom-right toast: errors stay pinned,
+      // a successful run flashes a green check.
+      const label = SHOW_LABELS[el.id] || (el.id ? el.id.replace(/-out$/, '').replace(/-/g, ' ') : 'Done');
+      if (cls === 'error') notifyStatus(String(value).replace(/^Error:\s*/, ''), 'error');
+      else if (cls === '' || cls === 'ok') notifyStatus(`${label} complete`, 'ok');
     }
     function requireFile() {
       const f = fileInput.files[0];
@@ -582,10 +772,14 @@
       // Unused: trimScan = null;
       trimResult = null;
       $('detect-out').textContent = '';
-      $('scan-out').textContent = '(no scan yet)';
-      $('ex-out').textContent = '(no extract yet)';
-      $('g-out').textContent = '(no grid yet)';
-      $('trim-out').textContent = '(no trim yet)';
+      $('scan-out').hidden = true;
+      $('scan-out').textContent = '';
+      $('ex-out').hidden = true;
+      $('ex-out').textContent = '';
+      $('g-result').hidden = true;
+      $('g-out').textContent = '';
+      $('trim-out').hidden = true;
+      $('trim-out').textContent = '';
       $('trim-scan-out').textContent = '';
       $('trim-vars').innerHTML = '';
       $('btn-trim-download').disabled = true;
@@ -611,6 +805,7 @@
     let lastScan = null;
     $('btn-scan').addEventListener('click', async () => {
       const out = $('scan-out');
+      out.hidden = false;          // appears on click so a slow scan still shows progress
       out.textContent = 'Scanning…';
       try {
         const f = requireFile();
@@ -666,6 +861,7 @@
 
     $('btn-extract').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -681,6 +877,7 @@
 
     $('btn-csv').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -696,6 +893,7 @@
 
     $('btn-json').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -719,6 +917,7 @@
 
     $('btn-dl-csv').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -736,6 +935,7 @@
 
     $('btn-dl-json').addEventListener('click', async () => {
       const out = $('ex-out');
+      out.hidden = false;          // appears on click so a slow run still shows progress
       out.textContent = 'Extracting…';
       try {
         const f = requireFile();
@@ -820,6 +1020,7 @@
 
     $('btn-grid').addEventListener('click', async () => {
       const out      = $('g-out');
+      $('g-result').hidden = false;   // appears on click so a slow run still shows progress
       const progress = $('g-progress');
       const canvas   = $('g-canvas');
       const btn      = $('btn-grid');
@@ -888,6 +1089,7 @@
         saveBlob(json, 'application/json', `${stem}.json`);
         log('Saved JSON', `${stem}.json (${json.length} bytes)`);
       } catch (e) {
+        $('g-result').hidden = false;
         show($('g-out'), 'JSON save error: ' + e.message, 'error');
         console.error(e);
       }
@@ -901,6 +1103,7 @@
         saveBlob(buf, 'image/tiff', `${stem}.tif`);
         log('Saved GeoTIFF', `${stem}.tif (${buf.byteLength} bytes)`);
       } catch (e) {
+        $('g-result').hidden = false;
         show($('g-out'), 'GeoTIFF save error: ' + e.message, 'error');
         console.error(e);
       }
@@ -914,6 +1117,7 @@
       const out  = $('trim-scan-out');
       const list = $('trim-vars');
       list.innerHTML = '';
+      $('trim-out').hidden = false;
       $('trim-out').textContent = '(scan done — pick variables, then click Trim)';
       $('btn-trim-download').disabled = true;
       try {
@@ -961,6 +1165,7 @@
     $('btn-trim').addEventListener('click', async () => {
       const status = $('trim-status');
       const out    = $('trim-out');
+      out.hidden = false;          // appears on click so a slow trim still shows progress
       $('btn-trim-download').disabled = true;
       try {
         const f = requireFile();

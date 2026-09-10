@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800">
+  <rect width="800" height="800" fill="#FFFFFF"/>
+
+  <!-- The grid, with the top-right cell lifted out of it -->
+  <g fill="none" stroke="#12263A" stroke-width="10" stroke-linejoin="round">
+    <rect x="150" y="210" width="130" height="130" rx="8"/>
+    <rect x="306" y="210" width="130" height="130" rx="8"/>
+
+    <rect x="150" y="366" width="130" height="130" rx="8"/>
+    <rect x="306" y="366" width="130" height="130" rx="8"/>
+    <rect x="462" y="366" width="130" height="130" rx="8"/>
+
+    <rect x="150" y="522" width="130" height="130" rx="8"/>
+    <rect x="306" y="522" width="130" height="130" rx="8"/>
+    <rect x="462" y="522" width="130" height="130" rx="8"/>
+  </g>
+
+  <!-- The extracted cell -->
+  <g transform="translate(505, 150) rotate(-8, 65, 65)">
+    <rect width="130" height="130" rx="8" fill="#E4572E"/>
+  </g>
+</svg>

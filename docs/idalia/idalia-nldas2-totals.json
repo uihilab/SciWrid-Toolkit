@@ -10,5 +10,10 @@
     "Valdosta GA": 109.7096,
     "Savannah GA": 31.1592,
     "Charleston SC": 23.363
-  }
+  },
+  "windVariables": [
+    "Wind_E",
+    "Wind_N",
+    "Wind_speed"
+  ]
 }
