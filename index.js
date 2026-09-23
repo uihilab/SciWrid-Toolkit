@@ -61,6 +61,8 @@ export {
   encodeGrid,
   encodeSeries,
   EXPORT_FORMATS,
+  openChunkMap,
+  decodeChunkBytes,
   RAMPS,
   resolveRamp,
   sampleRamp,

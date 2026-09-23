@@ -177,6 +177,67 @@ export function encodeSeries(
   opts?: Record<string, unknown>,
 ): Promise<Uint8Array | string>;
 
+/** Where one chunk's bytes are, and what was applied to them. */
+export interface ChunkRef {
+  /** Chunk coordinates, one per dimension, in array order. */
+  coords: number[];
+  /** Byte offset of the chunk within the file. */
+  address: number;
+  /** Compressed length in bytes. */
+  size: number;
+  /** HDF5 filter mask: which filters were skipped for this chunk. */
+  filterMask: number;
+}
+
+/** What it takes to address and decode one variable's chunks. */
+export interface ChunkMeta {
+  varName: string;
+  /** Array shape, in array order. */
+  shape: number[];
+  /** Chunk shape, one entry per dimension. */
+  chunkShape: number[];
+  /** Element type: the typed-array constructor and its width in bytes. */
+  dtype: { TA: new (...args: any[]) => ArrayBufferView; bytes: number; littleEndian: boolean };
+  fillValue: number | null;
+  /** Compressor and shuffle settings, as `decodeChunkBytes` expects them. */
+  filters: Record<string, unknown>;
+  rank: number;
+  latAxis: number;
+  lonAxis: number;
+  lats: Float64Array;
+  lons: Float64Array;
+  times: unknown;
+  units: string;
+}
+
+/** A variable's chunk index: its metadata, and every chunk keyed by coordinate. */
+export interface ChunkMap {
+  meta: ChunkMeta;
+  /** Keyed by the chunk's coordinates joined with commas, e.g. `"0,1,2"`. */
+  refs: Map<string, ChunkRef>;
+}
+
+/**
+ * The chunk index for one NetCDF4/HDF5 variable, for callers that bring their
+ * own reducer. `extract()` gives a point and `extractGrid()` a resampled
+ * raster; this gives the addresses, so a consumer can select, fetch and fold
+ * chunks on its own terms. Resolves to `null` on a layout this path cannot
+ * parse, so a caller keeps whatever fallback it has.
+ */
+export function openChunkMap(
+  url: string,
+  query: { variable: string; fetchImpl?: typeof fetch } & Record<string, unknown>,
+): Promise<ChunkMap | null>;
+
+/**
+ * Decode one chunk's raw bytes into its typed array, using the `filters` and
+ * `dtype` from `openChunkMap`'s meta. The bytes are the caller's to fetch.
+ */
+export function decodeChunkBytes(
+  bytes: Uint8Array,
+  spec: { filters: Record<string, unknown>; dtype: ChunkMeta['dtype']; filterMask?: number },
+): Promise<ArrayBufferView>;
+
 export type BBox = [minLon: number, minLat: number, maxLon: number, maxLat: number];
 
 export interface ExtractGridProgress {
