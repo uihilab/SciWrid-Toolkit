@@ -48,6 +48,8 @@
  */
 
 // ── Functional API (recommended) ─────────────────────────────────────────────
+export { openZip } from './lib/zarr/zarrzip.js';
+
 export { parseBloscHeader, readOffsets, blocksForRows, rowAxisFor, byteRange,
   oneBlockFrame, canReframe, worthBlockReading } from './lib/zarr/blosc-blocks.js';
 
