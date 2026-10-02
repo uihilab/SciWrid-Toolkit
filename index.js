@@ -48,6 +48,9 @@
  */
 
 // ── Functional API (recommended) ─────────────────────────────────────────────
+export { parseBloscHeader, readOffsets, blocksForRows, rowAxisFor, byteRange,
+  oneBlockFrame, canReframe, worthBlockReading } from './lib/zarr/blosc-blocks.js';
+
 export {
   scan,
   extract,
