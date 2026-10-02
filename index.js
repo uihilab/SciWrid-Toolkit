@@ -48,6 +48,7 @@
  */
 
 // ── Functional API (recommended) ─────────────────────────────────────────────
+export { openStore, decodeTime, openRemoteZarr } from './lib/zarr/zarrstore.js';
 export { openZip } from './lib/zarr/zarrzip.js';
 
 export { parseBloscHeader, readOffsets, blocksForRows, rowAxisFor, byteRange,
