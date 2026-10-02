@@ -122,7 +122,11 @@
     "test:carry": "node .testkit/test-range-fallback-reuse.js",
     "test:grib2-params": "node .testkit/test-grib2-params.js",
     "tables:grib2": "node scripts/fetch-grib2-tables.js",
-    "tables:grib2:check": "node scripts/fetch-grib2-tables.js --check"
+    "tables:grib2:check": "node scripts/fetch-grib2-tables.js --check",
+    "test:zarr-blocks": "node .testkit/test-zarr-blocks.js",
+    "test:blosc-blocks": "node .testkit/test-blosc-blocks.js",
+    "test:zarrstore": "node .testkit/test-zarrstore.js",
+    "test:present": "node .testkit/test-bundle-browser-safe.js && node .testkit/test-blosc-blocks.js && node .testkit/test-zarrstore.js && node .testkit/test-zarr-blocks.js && node .testkit/test-chunk-map.js && node .testkit/test-hdf5-errors.js && node .testkit/test-hdf5-window.js && node .testkit/test-sparse-buffer.js"
   },
   "engines": {
     "node": ">=18"
