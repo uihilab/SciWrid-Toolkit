@@ -48,6 +48,12 @@
  */
 
 // ── Functional API (recommended) ─────────────────────────────────────────────
+export { openStore, decodeTime, openRemoteZarr } from './lib/zarr/zarrstore.js';
+export { openZip } from './lib/zarr/zarrzip.js';
+
+export { parseBloscHeader, readOffsets, blocksForRows, rowAxisFor, byteRange,
+  oneBlockFrame, canReframe, worthBlockReading } from './lib/zarr/blosc-blocks.js';
+
 export {
   scan,
   extract,
@@ -58,6 +64,11 @@ export {
   gridToGeoTIFF,
   gridToImageData,
   gridToPNG,
+  encodeGrid,
+  encodeSeries,
+  EXPORT_FORMATS,
+  openChunkMap,
+  decodeChunkBytes,
   RAMPS,
   resolveRamp,
   sampleRamp,
@@ -80,6 +91,7 @@ export {
   ExtractError,
   TrimError,
   UnsupportedCRSError,
+  UnsupportedExportError,
 } from './lib/sciwrid-api.js';
 
 // ── Low-level class API ───────────────────────────────────────────────────────

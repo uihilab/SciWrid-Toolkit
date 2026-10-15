@@ -115,7 +115,128 @@ export interface ExtractResult {
   [extra: string]: unknown;
 }
 
-export type OutputFormat = 'json' | 'csv';
+/** Format ids accepted by `extractOutput()` / `encodeSeries()`. */
+export type OutputFormat =
+  'json' | 'csv' | 'netcdf3' | 'nc' | 'nc3' | 'netcdf' | 'zarr'
+  | 'netcdf4' | 'nc4' | 'hdf5' | 'h5' | 'parquet' | 'pq' | 'parq';
+
+/**
+ * The WMO code triple that identifies a GRIB2 field. GRIB2 has no free-text
+ * variable name, so pass this when writing 'grib2'; omitted, the parameter is
+ * written as missing (255/255) rather than mislabelled.
+ */
+export interface Grib2Parameter {
+  /** Discipline, e.g. 0 for meteorological products. */
+  discipline?: number;
+  /** Parameter category within the discipline. */
+  category?: number;
+  /** Parameter number within the category. */
+  number?: number;
+}
+
+/** One row of the export registry. */
+export interface ExportFormat {
+  /** Canonical id, e.g. 'netcdf3'. */
+  id: string;
+  /** Human label for a chooser, e.g. 'NetCDF-3 classic'. */
+  label: string;
+  /** File extension without the dot, e.g. 'nc3'. */
+  ext: string;
+  /** MIME type for a Blob or a Content-Type header. */
+  mime: string;
+  /** Can encode an `extractGrid()` result. */
+  grid: boolean;
+  /** Can encode a point/series `extract()` result. */
+  series: boolean;
+  /** Returns Uint8Array rather than string. */
+  binary: boolean;
+}
+
+/** Every format the encoder layer can write, and for which result kind. */
+export const EXPORT_FORMATS: ReadonlyArray<ExportFormat>;
+
+/**
+ * Encode a grid the caller already holds — no second extraction.
+ * A series-only format throws `UnsupportedExportError`.
+ */
+export function encodeGrid(
+  grid: ExtractGridResult,
+  format?: string,
+  opts?: { pretty?: boolean; grib2?: Grib2Parameter } & Record<string, unknown>,
+): Promise<Uint8Array | string>;
+
+/**
+ * Encode a point/series `extract()` result. Written as
+ * `<var>(time, lat=1, lon=1)` with CF time units, so it reads as a station
+ * time series. Whole-cube and multi-variable results are not encodable and
+ * throw `UnsupportedExportError`; use 'json' or 'csv' for those.
+ */
+export function encodeSeries(
+  result: ExtractResult,
+  format?: string,
+  opts?: Record<string, unknown>,
+): Promise<Uint8Array | string>;
+
+/** Where one chunk's bytes are, and what was applied to them. */
+export interface ChunkRef {
+  /** Chunk coordinates, one per dimension, in array order. */
+  coords: number[];
+  /** Byte offset of the chunk within the file. */
+  address: number;
+  /** Compressed length in bytes. */
+  size: number;
+  /** HDF5 filter mask: which filters were skipped for this chunk. */
+  filterMask: number;
+}
+
+/** What it takes to address and decode one variable's chunks. */
+export interface ChunkMeta {
+  varName: string;
+  /** Array shape, in array order. */
+  shape: number[];
+  /** Chunk shape, one entry per dimension. */
+  chunkShape: number[];
+  /** Element type: the typed-array constructor and its width in bytes. */
+  dtype: { TA: new (...args: any[]) => ArrayBufferView; bytes: number; littleEndian: boolean };
+  fillValue: number | null;
+  /** Compressor and shuffle settings, as `decodeChunkBytes` expects them. */
+  filters: Record<string, unknown>;
+  rank: number;
+  latAxis: number;
+  lonAxis: number;
+  lats: Float64Array;
+  lons: Float64Array;
+  times: unknown;
+  units: string;
+}
+
+/** A variable's chunk index: its metadata, and every chunk keyed by coordinate. */
+export interface ChunkMap {
+  meta: ChunkMeta;
+  /** Keyed by the chunk's coordinates joined with commas, e.g. `"0,1,2"`. */
+  refs: Map<string, ChunkRef>;
+}
+
+/**
+ * The chunk index for one NetCDF4/HDF5 variable, for callers that bring their
+ * own reducer. `extract()` gives a point and `extractGrid()` a resampled
+ * raster; this gives the addresses, so a consumer can select, fetch and fold
+ * chunks on its own terms. Resolves to `null` on a layout this path cannot
+ * parse, so a caller keeps whatever fallback it has.
+ */
+export function openChunkMap(
+  url: string,
+  query: { variable: string; fetchImpl?: typeof fetch } & Record<string, unknown>,
+): Promise<ChunkMap | null>;
+
+/**
+ * Decode one chunk's raw bytes into its typed array, using the `filters` and
+ * `dtype` from `openChunkMap`'s meta. The bytes are the caller's to fetch.
+ */
+export function decodeChunkBytes(
+  bytes: Uint8Array,
+  spec: { filters: Record<string, unknown>; dtype: ChunkMeta['dtype']; filterMask?: number },
+): Promise<ArrayBufferView>;
 
 export type BBox = [minLon: number, minLat: number, maxLon: number, maxLat: number];
 
@@ -167,6 +288,9 @@ export class SourceError extends SciWridError {}
 export class ExtractError extends SciWridError {}
 
 /** Thrown by the TIFF/GeoTIFF reader for CRS outside the v1 supported set. */
+/** A format cannot represent what it was handed; the message names alternatives. */
+export class UnsupportedExportError extends SciWridError {}
+
 export class UnsupportedCRSError extends SciWridError {
   /** EPSG code parsed from the GeoKey directory (null if unparseable). */
   epsg: number | null;
@@ -178,15 +302,20 @@ export class UnsupportedCRSError extends SciWridError {
 export function detectFormat(source: Source): Promise<Format | null>;
 export function scan(source: Source, opts?: CommonOptions): Promise<ScanResult>;
 export function extract(source: Source, options?: ExtractOptions): Promise<ExtractResult>;
+/** Text formats return a string; binary ones (netcdf3, zarr) return bytes. */
 export function extractOutput(
   source: Source,
   options?: ExtractOptions,
   format?: OutputFormat,
-): Promise<string>;
+): Promise<string | Uint8Array>;
 export function extractGrid(source: Source, options: ExtractGridOptions): Promise<ExtractGridResult>;
 
 /** Output format for `extractGridOutput()`. */
-export type GridOutputFormat = 'json' | 'geotiff' | 'tif' | 'tiff' | 'imagedata' | 'png';
+export type GridOutputFormat =
+  'json' | 'csv' | 'geotiff' | 'tif' | 'tiff' | 'netcdf3' | 'nc' | 'nc3'
+  | 'netcdf' | 'zarr' | 'netcdf4' | 'nc4' | 'hdf5' | 'h5'
+  | 'grib2' | 'grib' | 'grb2' | 'grb' | 'parquet' | 'pq' | 'parq'
+  | 'imagedata' | 'png';
 
 /** Run `extractGrid()` and serialize the result. */
 export function extractGridOutput(
@@ -206,9 +335,16 @@ export function extractGridOutput(
 ): Promise<Uint8Array>;
 export function extractGridOutput(
   source: Source,
-  options: ExtractGridOptions,
-  format: 'geotiff' | 'tif' | 'tiff'
+  options: ExtractGridOptions & { grib2?: Grib2Parameter },
+  format: 'geotiff' | 'tif' | 'tiff' | 'netcdf3' | 'nc' | 'nc3' | 'netcdf' | 'zarr'
+        | 'netcdf4' | 'nc4' | 'hdf5' | 'h5' | 'grib2' | 'grib' | 'grb2' | 'grb'
+        | 'parquet' | 'pq' | 'parq'
 ): Promise<Uint8Array>;
+export function extractGridOutput(
+  source: Source,
+  options: ExtractGridOptions,
+  format: 'csv'
+): Promise<string>;
 
 /** Serialize an already-extracted grid to a JSON string. */
 export function gridToJSON(grid: ExtractGridResult, opts?: { pretty?: boolean }): string;

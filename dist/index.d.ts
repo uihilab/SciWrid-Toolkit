@@ -14,6 +14,11 @@ export type {
   ExtractResult,
   TimeseriesPoint,
   OutputFormat,
+  ExportFormat,
+  ChunkRef,
+  ChunkMeta,
+  ChunkMap,
+  Grib2Parameter,
   BBox,
   ExtractGridOptions,
   ExtractGridResult,
@@ -32,6 +37,12 @@ export type {
 } from './sciwrid-api.js';
 
 export {
+  encodeGrid,
+  encodeSeries,
+  EXPORT_FORMATS,
+  UnsupportedExportError,
+  openChunkMap,
+  decodeChunkBytes,
   scan,
   extract,
   extractOutput,
